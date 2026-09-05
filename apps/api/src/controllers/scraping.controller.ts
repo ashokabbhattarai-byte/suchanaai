@@ -164,6 +164,18 @@ export class ScrapingController {
   }
 
   /**
+   * Summarize + embed notices that have content but no AI summary — those are
+   * invisible to the RAG chat until they are indexed. Returns once queued.
+   */
+  @Post('items/backfill-summaries')
+  async backfillSummaries(
+    @Body('limit') limit?: number,
+    @Body('concurrency') concurrency?: number,
+  ) {
+    return this.scrapingService.backfillSummaries({ limit, concurrency });
+  }
+
+  /**
    * Report (and with `deleteThem: true`, remove) catalogue rows that are not
    * real notices — the "(untitled)" placeholders stored before the scraper
    * had admission control. Dry run unless deletion is explicitly requested.

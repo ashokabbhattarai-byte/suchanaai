@@ -371,6 +371,8 @@ async def _route(method: str, path: str, scope: dict, receive, send) -> tuple[in
 
     if method == "POST" and path == "/notices/embed":
         return await _notices_embed(receive)
+    if method == "POST" and path == "/notices/delete":
+        return await _notices_delete(receive)
 
     return 404, {"error": "Not found"}
 
@@ -1381,6 +1383,31 @@ async def _notices_embed(receive) -> tuple[int, dict]:
             failed += 1
 
     return 200, {"indexed": indexed, "failed": failed, "total": len(notices)}
+
+
+async def _notices_delete(receive) -> tuple[int, dict]:
+    """POST /notices/delete — drop notices from the vector store.
+    Body: {ids: [notice_id, ...]}. Without this, a notice deleted in the API
+    kept its vector and went on being cited as a source."""
+    body = await _read_body(receive)
+    try:
+        data = json.loads(body) if body else {}
+    except json.JSONDecodeError:
+        return 400, {"error": "Invalid JSON body"}
+
+    ids = [str(i) for i in (data.get("ids") or []) if i]
+    if not ids:
+        return 400, {"error": "Field 'ids' (array) is required"}
+
+    deleted = 0
+    failed = 0
+    for notice_id in ids:
+        if notice_store.delete_notice(notice_id):
+            deleted += 1
+        else:
+            failed += 1
+
+    return 200, {"deleted": deleted, "failed": failed, "total": len(ids)}
 
 
 # --- HTTP helpers ---

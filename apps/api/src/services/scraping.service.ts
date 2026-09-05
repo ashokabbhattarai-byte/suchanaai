@@ -914,9 +914,11 @@ export class ScrapingService {
       };
     }
 
+    const junkIds = junk.map((r) => r.id);
     const result = await this.prisma.scrapedItem.deleteMany({
-      where: { id: { in: junk.map((r) => r.id) } },
+      where: { id: { in: junkIds } },
     });
+    await this.unembedNotices(junkIds);
     this.logger.warn(`Admin cleanup deleted ${result.count} unusable scraped row(s)`);
     return {
       deleted: result.count,
@@ -1198,6 +1200,67 @@ export class ScrapingService {
     }
   }
 
+  /**
+   * Summarize and embed notices that never got an AI summary.
+   *
+   * Only notices with an `aiSummary` are embedded, so every notice the scrape
+   * stored while the LLM was unavailable is invisible to RAG — the chat can
+   * neither find nor cite it. This re-runs analysis for those and indexes
+   * whatever gets a summary. Returns as soon as the work is queued.
+   */
+  async backfillSummaries(opts: { limit?: number; concurrency?: number } = {}) {
+    const limit = Math.min(Math.max(1, opts.limit ?? 500), 5000);
+    const concurrency = Math.min(Math.max(1, opts.concurrency ?? 2), 8);
+
+    const pending = await this.prisma.scrapedItem.findMany({
+      where: { aiSummary: null, contentText: { not: null } },
+      select: { id: true, title: true, contentText: true },
+      orderBy: { publishedAt: 'desc' },
+      take: limit,
+    });
+
+    if (!pending.length) {
+      return { queued: 0, message: 'No notices need summarizing.' };
+    }
+
+    void this.runSummaryBackfill(pending, concurrency);
+    return {
+      queued: pending.length,
+      message: `Summarizing ${pending.length} notice(s) in the background; they are embedded as they complete.`,
+    };
+  }
+
+  /** Worker pool for backfillSummaries — newest notices first, then embed. */
+  private async runSummaryBackfill(
+    items: { id: string; title: string; contentText: string | null }[],
+    concurrency: number,
+  ) {
+    let cursor = 0;
+    const summarized: string[] = [];
+
+    const worker = async () => {
+      while (cursor < items.length) {
+        const item = items[cursor++];
+        try {
+          const ok = await this.analyzeNotice(item.id, item.title, item.contentText ?? '');
+          if (ok) summarized.push(item.id);
+        } catch (err: any) {
+          this.logger.warn(`Backfill failed for notice ${item.id}: ${err.message}`);
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: concurrency }, worker));
+
+    // embedNewNotices caps each request at 200 notices.
+    for (let i = 0; i < summarized.length; i += 200) {
+      await this.embedNewNotices('', summarized.slice(i, i + 200));
+    }
+    this.logger.log(
+      `Summary backfill finished: ${summarized.length}/${items.length} notice(s) summarized and embedded`,
+    );
+  }
+
   /** Pre-analyze a notice via the AI service and cache results in the DB. */
   /** Returns true when a summary was persisted (i.e. this notice should be embedded). */
   private async analyzeNotice(id: string, title: string, content: string): Promise<boolean> {
@@ -1373,7 +1436,28 @@ export class ScrapingService {
     const item = await this.prisma.scrapedItem.findUnique({ where: { id } });
     if (!item) throw new NotFoundException(`Scraped item ${id} not found`);
     await this.prisma.scrapedItem.delete({ where: { id } });
+    await this.unembedNotices([id]);
     return { deleted: true };
+  }
+
+  /**
+   * Drop notices from the vector store. Deleting the row alone left the vector
+   * behind, so a removed notice kept surfacing as a RAG citation.
+   */
+  private async unembedNotices(ids: string[]) {
+    if (!ids.length) return;
+    try {
+      await firstValueFrom(
+        this.httpService.post(
+          `${this.aiServiceUrl}/notices/delete`,
+          { ids },
+          { timeout: 30000 },
+        ),
+      );
+      this.logger.log(`Removed ${ids.length} notice(s) from vector store`);
+    } catch (err: any) {
+      this.logger.warn(`Notice un-embedding request failed: ${err.message}`);
+    }
   }
 
   async updateNotice(id: string, data: { category?: string; tags?: string[]; aiCategoryConfidence?: number }) {

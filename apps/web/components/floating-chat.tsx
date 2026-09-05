@@ -554,10 +554,13 @@ function activeCategoryFromUrl(): string | undefined {
 }
 
 /**
- * Heuristic to determine if a user's question is about the currently viewed
- * notice or a general corpus query. Returns true ONLY if the query clearly
- * refers to the current notice; defaults to false (general search) to avoid
- * misrouting "latest tender notices" to a single vacancy notice.
+ * Routes a question to the locked notice or to corpus search.
+ *
+ * The user opened this chat from a notice and the header says "Locked", so the
+ * notice is the default context — only an explicit reach for the wider corpus
+ * ("other notices", "latest tenders") leaves it. The previous default was the
+ * opposite, which sent plain questions like "how many still missing?" to global
+ * search and answered a flood notice with unrelated press releases.
  */
 function isNoticeRelatedQuery(query: string, noticeTitle: string): boolean {
   const q = query.toLowerCase().trim()
@@ -572,42 +575,15 @@ function isNoticeRelatedQuery(query: string, noticeTitle: string): boolean {
     /\b(latest|recent|newest) .*(tender|vacancy|notice|circular|job)\b/,
     /\btender notices\b/,
     /\bvacancy\b.*\bnotices\b/,
+    /\b(any|all) other\b/,
+    /\bsearch (for|the)\b/,
+    /\bacross (all )?notices\b/,
   ]
   if (generalPatterns.some((p) => p.test(q))) return false
 
-  // Strong single-notice signals: explicit deixis or pronoun referring to "this"
-  const strongNoticePatterns = [
-    /\b(this|the|current)\s+(notice|document|pdf|circular|tender|announcement|news)\b/,
-    /\bthis notice\b/,
-    /\bcurrent notice\b/,
-  ]
-  if (strongNoticePatterns.some((p) => p.test(q))) return true
-
-  // Title keyword overlap: query mentions distinctive words from the notice title
-  const titleWords = noticeTitle
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((w) => w.length > 3)
-    .slice(0, 8)
-  if (titleWords.length > 0 && titleWords.some((w) => q.includes(w))) {
-    // Mentioning the notice's subject + a detail question = likely about this notice
-    const detailPatterns = [
-      /deadline|due date|last date/,
-      /eligib|qualif|require|criteria/,
-      /apply|application|submit/,
-      /fee|cost|amount|salary|payment/,
-      /what.*about|tell me|explain|summarize|summarise/,
-    ]
-    if (detailPatterns.some((p) => p.test(q))) return true
-  }
-
-  // Pronouns like "it/its" are too ambiguous alone — only treat as notice-related
-  // when combined with a detail keyword; otherwise default to general search.
-  const pronounWithDetail =
-    /\b(it|its|it's)\b/.test(q) &&
-    /deadline|due date|apply|eligib|require|fee|contact|affect|meaning|about/.test(q)
-  if (pronounWithDetail) return true
-
-  // Default: corpus search. Prevents "latest X" on vacancy page from answering from that one notice.
-  return false
+  // Everything else belongs to the notice the user is reading. `noticeTitle`
+  // is no longer needed to decide, but stays in the signature so callers and
+  // tests don't change.
+  void noticeTitle
+  return true
 }

@@ -762,7 +762,10 @@ async def analyze_notice(title: str, content: str) -> dict | None:
         {"role": "user", "content": f"Title: {title}\n\nContent:\n{trimmed_content}"},
     ]
 
-    raw = await _llm_chat(messages, max_tokens=600, temperature=config.TEMPERATURE_SUMMARIES)
+    # 600 truncated the JSON mid-object on real notices: the reply carries an
+    # English summary, a Devanagari one (token-expensive), six key facts and
+    # five tags, so every long notice failed to parse and went unsummarized.
+    raw = await _llm_chat(messages, max_tokens=1800, temperature=config.TEMPERATURE_SUMMARIES)
     if raw is None:
         return None
 
@@ -770,7 +773,10 @@ async def analyze_notice(title: str, content: str) -> dict | None:
     try:
         data = json.loads(cleaned)
     except json.JSONDecodeError:
-        logger.warning("analyze_notice: could not parse LLM JSON output")
+        logger.warning(
+            "analyze_notice: could not parse LLM JSON output (%d chars): %.200s",
+            len(cleaned), cleaned,
+        )
         return None
 
     summary = data.get("summary")
