@@ -121,7 +121,8 @@ function AdminNoticesPageContent() {
 
   // Notice editor drawer state
   const [editingItem, setEditingItem] = useState<ScrapedItem | null>(null)
-  const [editCategory, setEditCategory] = useState<ScrapedItemCategory>("")
+  // "" only until openEditor seeds it from the notice being edited.
+  const [editCategory, setEditCategory] = useState<ScrapedItemCategory | "">("")
   const [editTags, setEditTags] = useState<string>("")
   const [editConfidence, setEditConfidence] = useState<number | null>(null)
   const [editing, setEditing] = useState(false)
@@ -259,9 +260,9 @@ function AdminNoticesPageContent() {
     setEditing(true)
     try {
       await correctScrapedItem(editingItem.id, {
-        category: editCategory,
+        category: editCategory || undefined,
         tags: editTags.split(",").map((t) => t.trim()).filter(Boolean),
-        aiCategoryConfidence: editConfidence,
+        aiCategoryConfidence: editConfidence ?? undefined,
       })
       toast.success("Notice updated")
       await load()

@@ -281,6 +281,9 @@ export interface ScrapedItem {
   aiSummary?: string | null
   aiSummaryNe?: string | null
   aiUrgency?: string | null
+  // Admin-correctable classification fields, editable via the notice editor.
+  tags?: string[] | null
+  aiCategoryConfidence?: number | null
 }
 
 export interface Attachment {

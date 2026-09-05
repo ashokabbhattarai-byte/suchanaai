@@ -511,8 +511,8 @@ export async function uploadDocument(file: File, title: string): Promise<RagDocu
     })
     if (!res.ok) await throwApiError(res)
     return res.json()
-  } catch (err: any) {
-    if (err?.name === "AbortError") throw new NetworkError("Upload timed out — the server took too long to respond. Please try again.")
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") throw new NetworkError("Upload timed out — the server took too long to respond. Please try again.")
     throw err
   } finally {
     clearTimeout(timeout)
