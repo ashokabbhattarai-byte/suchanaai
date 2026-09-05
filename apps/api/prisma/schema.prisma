@@ -397,6 +397,7 @@ model ContactMessage {
 enum AiProviderKind {
   OPENAI_COMPATIBLE
   GEMINI
+  BEDROCK
 }
 
 /**
@@ -417,8 +418,12 @@ model AiProvider {
   label     String
   kind      AiProviderKind
   // Full chat-completions endpoint for OPENAI_COMPATIBLE providers. Null for
-  // GEMINI, whose URL is derived from the model name.
+  // GEMINI, whose URL is derived from the model name, and for BEDROCK, which
+  // is addressed by region instead.
   baseUrl   String?        @map("base_url")
+  // AWS region for BEDROCK providers (e.g. us-west-2); null for every other
+  // kind. Required there because the Bedrock endpoint is region-addressed.
+  region    String?
   model     String
   // AES-256-GCM ciphertext (SecretCryptoService) — never a plaintext key.
   // Null means "fall back to the AI service's own environment variable".

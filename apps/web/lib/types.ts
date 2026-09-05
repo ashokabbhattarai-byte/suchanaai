@@ -453,7 +453,7 @@ export type SettingType =
   | "secret"
   | "order"
 
-export type AiProviderKind = "OPENAI_COMPATIBLE" | "GEMINI"
+export type AiProviderKind = "OPENAI_COMPATIBLE" | "GEMINI" | "BEDROCK"
 
 /** A configurable LLM provider row from GET /admin/ai/providers. */
 export interface AiProvider {
@@ -461,8 +461,11 @@ export interface AiProvider {
   slug: string
   label: string
   kind: AiProviderKind
-  /** Full chat-completions URL; null for Gemini (derived from the model). */
+  /** Full chat-completions URL; null for Gemini (derived from the model) and
+   * for Bedrock (addressed by region). */
   baseUrl: string | null
+  /** AWS region; Bedrock only, null otherwise. */
+  region: string | null
   model: string
   enabled: boolean
   sortOrder: number
@@ -477,6 +480,7 @@ export interface AiProviderInput {
   label: string
   kind: AiProviderKind
   baseUrl?: string | null
+  region?: string | null
   model: string
   apiKey?: string
   enabled?: boolean

@@ -5,7 +5,20 @@ import { AlertCircle, Eye, EyeOff, Loader2, X } from "lucide-react"
 import type { AiProvider, AiProviderInput, AiProviderKind } from "@/lib/types"
 
 /** Presets so the common vendors are one click, not a URL hunt. */
-const PRESETS: Array<{ label: string; kind: AiProviderKind; baseUrl: string; model: string }> = [
+const PRESETS: Array<{
+  label: string
+  kind: AiProviderKind
+  baseUrl: string
+  model: string
+  region?: string
+}> = [
+  {
+    label: "AWS Bedrock (Claude Sonnet 4.6)",
+    kind: "BEDROCK",
+    baseUrl: "",
+    region: "us-west-2",
+    model: "global.anthropic.claude-sonnet-4-6",
+  },
   {
     label: "OpenAI",
     kind: "OPENAI_COMPATIBLE",
@@ -58,6 +71,7 @@ export function ProviderDialog({
   const [label, setLabel] = useState(provider?.label ?? "")
   const [kind, setKind] = useState<AiProviderKind>(provider?.kind ?? "OPENAI_COMPATIBLE")
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? "")
+  const [region, setRegion] = useState(provider?.region ?? "us-west-2")
   const [model, setModel] = useState(provider?.model ?? "")
   const [apiKey, setApiKey] = useState("")
   const [showKey, setShowKey] = useState(false)
@@ -68,6 +82,7 @@ export function ProviderDialog({
     setLabel((l) => l || p.label)
     setKind(p.kind)
     setBaseUrl(p.baseUrl)
+    if (p.region) setRegion(p.region)
     setModel((m) => m || p.model)
   }
 
@@ -78,7 +93,10 @@ export function ProviderDialog({
       await onSubmit({
         label,
         kind,
-        baseUrl: kind === "GEMINI" ? null : baseUrl,
+        // Only an OpenAI-compatible provider is URL-addressed; Gemini derives
+        // its URL from the model and Bedrock from the region.
+        baseUrl: kind === "OPENAI_COMPATIBLE" ? baseUrl : null,
+        region: kind === "BEDROCK" ? region : null,
         model,
         // Only include the key when non-empty — see the note above.
         ...(apiKey ? { apiKey } : {}),
@@ -92,7 +110,11 @@ export function ProviderDialog({
   }
 
   const canSave =
-    label.trim() && model.trim() && (kind === "GEMINI" || baseUrl.trim()) && !saving
+    label.trim() &&
+    model.trim() &&
+    (kind === "OPENAI_COMPATIBLE" ? Boolean(baseUrl.trim()) : true) &&
+    (kind === "BEDROCK" ? Boolean(region.trim()) : true) &&
+    !saving
 
   return (
     <div
@@ -155,6 +177,7 @@ export function ProviderDialog({
                 [
                   ["OPENAI_COMPATIBLE", "OpenAI-compatible"],
                   ["GEMINI", "Google Gemini"],
+                  ["BEDROCK", "AWS Bedrock (Claude)"],
                 ] as const
               ).map(([value, text]) => (
                 <button
@@ -188,24 +211,50 @@ export function ProviderDialog({
             </Field>
           )}
 
-          <Field label="Model">
+          {kind === "BEDROCK" && (
+            <Field
+              label="AWS region"
+              hint="Where the Bedrock endpoint is called. Must be a region your account has Claude model access in."
+            >
+              <input
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
+                placeholder="us-west-2"
+                spellCheck={false}
+                className={inputCls + " font-mono text-[13px]"}
+              />
+            </Field>
+          )}
+
+          <Field
+            label="Model"
+            hint={
+              kind === "BEDROCK"
+                ? "Bedrock model ID. The global.* prefix routes cross-region — best availability, no regional pricing premium."
+                : undefined
+            }
+          >
             <input
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              placeholder="gpt-4o-mini"
+              placeholder={
+                kind === "BEDROCK" ? "global.anthropic.claude-sonnet-4-6" : "gpt-4o-mini"
+              }
               spellCheck={false}
               className={inputCls + " font-mono text-[13px]"}
             />
           </Field>
 
           <Field
-            label="API key"
+            label={kind === "BEDROCK" ? "Bedrock API key" : "API key"}
             hint={
               isEdit
                 ? provider!.configured
                   ? "Leave blank to keep the stored key."
                   : "Leave blank to keep using the server's environment variable."
-                : "Encrypted at rest and never shown again once saved."
+                : kind === "BEDROCK"
+                  ? "A Bedrock bearer token (AWS console → Bedrock → API keys), not an Anthropic key. Encrypted at rest."
+                  : "Encrypted at rest and never shown again once saved."
             }
           >
             <div className="relative">

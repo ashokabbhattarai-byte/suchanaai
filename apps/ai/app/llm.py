@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import random
 import re
@@ -314,6 +315,12 @@ def _env_fallback_providers() -> list[dict]:
             "base_url": config.OPENCODE_ZEN_BASE_URL, "model": config.OPENCODE_ZEN_MODEL,
             "api_key": config.OPENCODE_ZEN_API_KEY, "enabled": True,
         })
+    if config.BEDROCK_API_KEY:
+        out.append({
+            "slug": "bedrock", "label": "AWS Bedrock (Claude Sonnet 4.6)", "kind": "BEDROCK",
+            "base_url": None, "region": config.BEDROCK_REGION, "model": config.BEDROCK_MODEL,
+            "api_key": config.BEDROCK_API_KEY, "enabled": True,
+        })
     return out
 
 
@@ -347,8 +354,11 @@ def any_provider_configured() -> bool:
 
 
 async def _call_provider(provider: dict, messages: list[dict], max_tokens: int, temperature: float) -> str | None:
-    if provider.get("kind") == "GEMINI":
+    kind = provider.get("kind")
+    if kind == "GEMINI":
         return await _gemini_chat(messages, max_tokens, temperature, provider)
+    if kind == "BEDROCK":
+        return await _bedrock_chat(messages, max_tokens, temperature, provider)
     return await _openai_compatible_chat(messages, max_tokens, temperature, provider)
 
 
@@ -376,6 +386,99 @@ async def _llm_chat(
             else "no fallback providers remain",
         )
     return None
+
+
+# ---------------------------------------------------------------------------
+# AWS Bedrock provider (Claude)
+# ---------------------------------------------------------------------------
+
+
+def _split_system(messages: list[dict]) -> tuple[str, list[dict]]:
+    """Split OpenAI-shaped messages into Anthropic's (system, messages) pair.
+
+    The Messages API takes the system prompt as a top-level argument rather
+    than a `system`-role turn, and rejects a conversation that doesn't start
+    with `user` — so a leading assistant turn is dropped rather than sent.
+    """
+    system_parts: list[str] = []
+    turns: list[dict] = []
+    for msg in messages:
+        role = msg.get("role")
+        content = msg.get("content") or ""
+        if role == "system":
+            system_parts.append(content)
+        elif role in ("user", "assistant"):
+            turns.append({"role": role, "content": content})
+    while turns and turns[0]["role"] != "user":
+        turns.pop(0)
+    return "\n\n".join(system_parts), turns
+
+
+def _bedrock_client(provider: dict):
+    """Build a Bedrock client. Imported lazily so a deployment that hasn't
+    installed `anthropic[bedrock]` yet still starts and serves every other
+    provider."""
+    from anthropic import AnthropicBedrock
+
+    return AnthropicBedrock(
+        # A Bedrock bearer token, not an Anthropic API key — Bedrock accepts
+        # it in place of SigV4 credentials.
+        api_key=provider.get("api_key"),
+        aws_region=provider.get("region") or config.BEDROCK_REGION,
+    )
+
+
+async def _bedrock_chat(
+    messages: list[dict], max_tokens: int, temperature: float, provider: dict
+) -> str | None:
+    """Call Claude on AWS Bedrock. Returns None on any failure."""
+    system, turns = _split_system(messages)
+    if not turns:
+        logger.error("Bedrock: no user turn to send")
+        return None
+
+    try:
+        client = _bedrock_client(provider)
+    except ImportError:
+        logger.error("Bedrock provider configured but `anthropic[bedrock]` is not installed")
+        return None
+    except Exception as e:  # noqa: BLE001 — bad region/credentials surface here
+        logger.error("Bedrock client construction failed: %.200s", e)
+        return None
+
+    kwargs = {
+        "model": provider.get("model") or config.BEDROCK_MODEL,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "messages": turns,
+    }
+    if system:
+        kwargs["system"] = system
+
+    try:
+        # The SDK client is synchronous; keep it off the event loop so a slow
+        # Bedrock call doesn't stall every other request this worker serves.
+        message = await asyncio.to_thread(lambda: client.messages.create(**kwargs))
+    except Exception as e:  # noqa: BLE001 — one provider must never break the chain
+        logger.error("Bedrock request failed: %.200s", e)
+        return None
+    finally:
+        with contextlib.suppress(Exception):
+            client.close()
+
+    # A safety decline is a real outcome, not a transport error: report it and
+    # let _llm_chat move to the next provider rather than retrying here.
+    if getattr(message, "stop_reason", None) == "refusal":
+        logger.warning("Bedrock declined the request (stop_reason=refusal)")
+        return None
+
+    text = "".join(
+        block.text for block in (message.content or []) if getattr(block, "type", None) == "text"
+    ).strip()
+    if not text:
+        logger.warning("Bedrock returned no text (stop_reason=%s)", getattr(message, "stop_reason", None))
+        return None
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +647,23 @@ def _describe_http_failure(status: int, body: str) -> str:
 async def _probe_provider(provider: dict) -> tuple[bool, str | None]:
     """One real, tiny request. Works for any registry entry, including
     admin-added ones, because it dispatches on `kind` exactly like chat does."""
+    if provider.get("kind") == "BEDROCK":
+        # No raw HTTP path here — Bedrock is reached through the SDK client,
+        # so the probe is the same one-token call the chat path would make.
+        try:
+            _bedrock_client(provider)
+        except ImportError:
+            return False, "`anthropic[bedrock]` is not installed on the AI service."
+        except Exception as e:  # noqa: BLE001 — bad region surfaces at construction
+            return False, f"Could not build the Bedrock client: {e}"
+
+        answer = await _bedrock_chat(
+            [{"role": "user", "content": "ping"}], 8, 0.0, provider
+        )
+        if answer is None:
+            return False, "Bedrock rejected the request — check the token, region and model ID."
+        return True, None
+
     if provider.get("kind") == "GEMINI":
         url = GEMINI_API_URL.format(model=provider["model"]) + f"?key={provider['api_key']}"
         payload = {

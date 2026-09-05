@@ -1,6 +1,9 @@
 uvicorn>=0.30.0
 python-dotenv>=1.0.0
 httpx>=0.27.0
+# [bedrock] pulls boto3 for SigV4 signing — needed for the AWS Bedrock
+# provider even when authenticating with a bearer token.
+anthropic[bedrock]>=0.40.0
 google-genai>=1.0.0
 python-multipart>=0.0.9
 pypdf>=4.0.0

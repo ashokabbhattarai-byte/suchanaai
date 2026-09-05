@@ -23,6 +23,8 @@ interface ProviderBody {
   label?: string;
   kind?: AiProviderKind;
   baseUrl?: string | null;
+  /** AWS region, BEDROCK only. */
+  region?: string | null;
   model?: string;
   apiKey?: string;
   enabled?: boolean;
@@ -62,6 +64,7 @@ export class AiProvidersController {
       kind: body.kind ?? AiProviderKind.OPENAI_COMPATIBLE,
       model: body.model ?? '',
       baseUrl: body.baseUrl ?? null,
+      region: body.region ?? null,
       apiKey: body.apiKey,
       enabled: body.enabled,
     });

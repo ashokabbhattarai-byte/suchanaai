@@ -42,6 +42,7 @@ def _env_key_for(slug: str | None) -> str | None:
         "gemini": config.GEMINI_API_KEY,
         "groq": config.GROQ_API_KEY,
         "opencode": config.OPENCODE_ZEN_API_KEY,
+        "bedrock": config.BEDROCK_API_KEY,
     }.get(slug or "") or None
 
 
@@ -129,6 +130,9 @@ async def refresh_once() -> bool:
                 "label": p.get("label") or p.get("slug"),
                 "kind": p.get("kind") or "OPENAI_COMPATIBLE",
                 "base_url": p.get("baseUrl"),
+                # BEDROCK only; falls back to this service's own env default
+                # so a row synced before the column existed still resolves.
+                "region": p.get("region") or config.BEDROCK_REGION,
                 "model": p.get("model"),
                 # A registry row with no key means "use this service's own env
                 # var", not "this provider is unusable" — otherwise the first

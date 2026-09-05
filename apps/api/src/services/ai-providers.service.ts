@@ -19,6 +19,8 @@ export interface AiProviderView {
   label: string;
   kind: AiProviderKind;
   baseUrl: string | null;
+  /** AWS region, BEDROCK only. */
+  region: string | null;
   model: string;
   enabled: boolean;
   sortOrder: number;
@@ -33,10 +35,14 @@ export interface UpsertProviderInput {
   label?: string;
   kind?: AiProviderKind;
   baseUrl?: string | null;
+  region?: string | null;
   model?: string;
   apiKey?: string;
   enabled?: boolean;
 }
+
+/** Fallback AWS region when an admin adds a Bedrock provider without one. */
+const DEFAULT_BEDROCK_REGION = 'us-west-2';
 
 /**
  * The provider registry behind /admin/ai. Built-ins are seeded rows, so an
@@ -52,7 +58,8 @@ export class AiProvidersService implements OnModuleInit {
   // env-var-configured deployment keeps working untouched until an admin
   // explicitly sets one here.
   private static readonly BUILT_INS: Array<
-    Pick<AiProvider, 'slug' | 'label' | 'kind' | 'baseUrl' | 'model' | 'sortOrder'>
+    Pick<AiProvider, 'slug' | 'label' | 'kind' | 'baseUrl' | 'model' | 'sortOrder'> &
+      Partial<Pick<AiProvider, 'region'>>
   > = [
     {
       slug: 'gemini',
@@ -78,6 +85,19 @@ export class AiProvidersService implements OnModuleInit {
       model: 'deepseek-v4-flash-free',
       sortOrder: 2,
     },
+    // Last in the chain: the paid, high-reliability backstop for when every
+    // free tier above has refused, rate-limited, or run out of credit.
+    // `global.` is the cross-region endpoint — highest availability and no
+    // regional pricing premium.
+    {
+      slug: 'bedrock',
+      label: 'AWS Bedrock (Claude Sonnet 4.6)',
+      kind: AiProviderKind.BEDROCK,
+      baseUrl: null,
+      region: 'us-west-2',
+      model: 'global.anthropic.claude-sonnet-4-6',
+      sortOrder: 3,
+    },
   ];
 
   constructor(
@@ -86,14 +106,30 @@ export class AiProvidersService implements OnModuleInit {
     private readonly config: ConfigService,
   ) {}
 
+  /**
+   * Seed any built-in that isn't in the registry yet.
+   *
+   * Per-slug rather than "seed only when the table is empty": a built-in
+   * added after launch (Bedrock) has to reach installs that were seeded
+   * before it existed, and those tables are never empty. Note this does
+   * resurrect a built-in an admin deleted — disable it instead of deleting
+   * if you want it gone for good.
+   */
   async onModuleInit() {
-    const count = await this.prisma.aiProvider.count();
-    if (count > 0) return;
+    const existing = await this.prisma.aiProvider.findMany({ select: { slug: true } });
+    const known = new Set(existing.map((p) => p.slug));
+    const missing = AiProvidersService.BUILT_INS.filter((p) => !known.has(p.slug));
+    if (!missing.length) return;
+
+    // A first-run install seeds everything; an existing one only gains
+    // built-ins introduced since it was seeded.
     await this.prisma.aiProvider.createMany({
-      data: AiProvidersService.BUILT_INS.map((p) => ({ ...p, isBuiltIn: true })),
+      data: missing.map((p) => ({ ...p, isBuiltIn: true })),
       skipDuplicates: true,
     });
-    this.logger.log(`Seeded ${AiProvidersService.BUILT_INS.length} built-in AI providers`);
+    this.logger.log(
+      `Seeded ${missing.length} built-in AI provider(s): ${missing.map((p) => p.slug).join(', ')}`,
+    );
   }
 
   // ── URL safety ─────────────────────────────────────────────────────────
@@ -175,6 +211,7 @@ export class AiProvidersService implements OnModuleInit {
       label: p.label,
       kind: p.kind,
       baseUrl: p.baseUrl,
+      region: p.region,
       model: p.model,
       enabled: p.enabled,
       sortOrder: p.sortOrder,
@@ -200,6 +237,7 @@ export class AiProvidersService implements OnModuleInit {
       label: r.label,
       kind: r.kind,
       baseUrl: r.baseUrl,
+      region: r.region,
       model: r.model,
       enabled: r.enabled,
       apiKey: r.apiKeyEnc ? this.safeDecrypt(r.apiKeyEnc, r.slug) : null,
@@ -233,6 +271,9 @@ export class AiProvidersService implements OnModuleInit {
       }
       await this.assertSafeEndpoint(input.baseUrl);
     }
+    if (input.kind === AiProviderKind.BEDROCK && input.region !== undefined && !input.region?.trim()) {
+      throw new BadRequestException('AWS region is required for Bedrock providers.');
+    }
 
     const slug = await this.uniqueSlug(input.label);
     const last = await this.prisma.aiProvider.findFirst({ orderBy: { sortOrder: 'desc' } });
@@ -242,8 +283,15 @@ export class AiProvidersService implements OnModuleInit {
         slug,
         label: input.label.trim(),
         kind: input.kind,
-        // Gemini derives its URL from the model, so any value here is noise.
-        baseUrl: input.kind === AiProviderKind.GEMINI ? null : input.baseUrl!.trim(),
+        // Only OPENAI_COMPATIBLE is URL-addressed — Gemini derives its URL
+        // from the model and Bedrock from the region, so a value on either
+        // is noise.
+        baseUrl:
+          input.kind === AiProviderKind.OPENAI_COMPATIBLE ? input.baseUrl!.trim() : null,
+        region:
+          input.kind === AiProviderKind.BEDROCK
+            ? (input.region?.trim() || DEFAULT_BEDROCK_REGION)
+            : null,
         model: input.model.trim(),
         apiKeyEnc: input.apiKey ? this.crypto.encrypt(input.apiKey) : null,
         enabled: input.enabled ?? true,
@@ -260,7 +308,10 @@ export class AiProvidersService implements OnModuleInit {
     const kind = input.kind ?? existing.kind;
 
     let baseUrl = input.baseUrl === undefined ? existing.baseUrl : input.baseUrl;
-    if (kind === AiProviderKind.GEMINI) {
+    // Only OPENAI_COMPATIBLE carries a URL. Gemini and Bedrock are addressed
+    // by model and region, so requiring one here would make every edit of a
+    // Bedrock provider — including just pasting its key — fail validation.
+    if (kind !== AiProviderKind.OPENAI_COMPATIBLE) {
       baseUrl = null;
     } else if (baseUrl) {
       // Re-validate on every change: an allowlist edit or DNS change can make
@@ -268,6 +319,13 @@ export class AiProvidersService implements OnModuleInit {
       if (baseUrl !== existing.baseUrl) await this.assertSafeEndpoint(baseUrl);
     } else {
       throw new BadRequestException('Endpoint URL is required for OpenAI-compatible providers.');
+    }
+
+    let region = input.region === undefined ? existing.region : input.region;
+    if (kind === AiProviderKind.BEDROCK) {
+      region = region?.trim() || DEFAULT_BEDROCK_REGION;
+    } else {
+      region = null;
     }
 
     const updated = await this.prisma.aiProvider.update({
@@ -278,6 +336,7 @@ export class AiProvidersService implements OnModuleInit {
         label: input.label?.trim() ?? existing.label,
         kind,
         baseUrl,
+        region,
         model: input.model?.trim() ?? existing.model,
         enabled: input.enabled ?? existing.enabled,
         ...(input.apiKey !== undefined

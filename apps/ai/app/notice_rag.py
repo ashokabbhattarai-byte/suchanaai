@@ -312,8 +312,8 @@ def _extractive_fallback(sources: list[dict]) -> str:
 
 
 def _model_name() -> str | None:
-    if config.GEMINI_API_KEY:
-        return config.GEMINI_MODEL
-    if config.GROQ_API_KEY:
-        return config.GROQ_MODEL
-    return None
+    """Model an answer would come from right now — the head of the live
+    fallback chain, not a hardcoded guess. Reading the registry keeps this
+    honest as admins reorder providers or add new ones (e.g. Bedrock)."""
+    providers = llm.active_providers()
+    return providers[0].get("model") if providers else None

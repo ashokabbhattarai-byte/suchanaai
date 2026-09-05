@@ -72,13 +72,25 @@ OPENCODE_ZEN_API_KEY: str = _env("OPENCODE_ZEN_API_KEY")
 OPENCODE_ZEN_BASE_URL: str = _env("OPENCODE_ZEN_BASE_URL", "https://opencode.ai/zen/v1/chat/completions")
 OPENCODE_ZEN_MODEL: str = _env("OPENCODE_ZEN_MODEL", "deepseek-v4-flash-free")
 
+# AWS Bedrock (Claude) — the paid backstop, tried last once every free tier
+# above has refused, rate-limited, or run out of credit. Authenticates with a
+# Bedrock bearer token (AWS_BEARER_TOKEN_BEDROCK) rather than SigV4 keys, so
+# it fits the same single-secret shape as every other provider here.
+# `global.` is the cross-region endpoint: best availability, and no regional
+# pricing premium.
+BEDROCK_API_KEY: str = _env("BEDROCK_API_KEY") or _env("AWS_BEARER_TOKEN_BEDROCK")
+BEDROCK_REGION: str = _env("BEDROCK_REGION", "us-west-2")
+BEDROCK_MODEL: str = _env("BEDROCK_MODEL", "global.anthropic.claude-sonnet-4-6")
+
 # Order in which LLM providers are tried; the first one that returns a
 # non-empty answer wins. Providers omitted here are never called at all, which
 # is how an admin disables one without deleting its key. Overridable live from
 # the admin settings panel (see ai_config_sync.py) — this env value is only
 # the fallback default.
 LLM_PROVIDER_PRIORITY: list[str] = [
-    p.strip() for p in _env("LLM_PROVIDER_PRIORITY", "gemini,groq,opencode").split(",") if p.strip()
+    p.strip()
+    for p in _env("LLM_PROVIDER_PRIORITY", "gemini,groq,opencode,bedrock").split(",")
+    if p.strip()
 ]
 
 # Retrieval tuning: hits scoring below the threshold are dropped from context.
