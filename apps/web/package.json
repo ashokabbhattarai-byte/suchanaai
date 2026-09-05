@@ -33,7 +33,8 @@
     "remark-gfm": "^4.0.1",
     "remotion": "^4.0.475",
     "sonner": "^2.0.8",
-    "tailwind-merge": "^3.0.2"
+    "tailwind-merge": "^3.0.2",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

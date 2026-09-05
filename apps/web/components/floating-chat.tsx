@@ -2,36 +2,16 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react"
 import { usePathname } from "next/navigation"
-import { MessageCircle, X, Send, Bot, User, Sparkles, ExternalLink, FileText, Maximize2, Minimize2, HelpCircle } from "lucide-react"
+import { MessageCircle, X, Send, Bot, User, Sparkles, ExternalLink, FileText, Maximize2, Minimize2, HelpCircle, RotateCcw } from "lucide-react"
 import { ChatMarkdown } from "@/components/chat/chat-markdown"
 import { Button } from "@/components/ui/button"
 import { CopyButton } from "@/components/ui/copy-button"
 import { cn } from "@/lib/utils"
-import { searchNotices, askNoticeQuestion, isQuotaError, NoticeSearchResponse, type QuotaDenial, type SearchClarification } from "@/lib/api"
+import { searchNotices, askNoticeQuestion, isQuotaError, NoticeSearchResponse, type QuotaDenial } from "@/lib/api"
 import { useNoticeContext } from "@/lib/notice-context"
+import { useChatStore, type ChatMessage as Message } from "@/lib/chat-store"
 import { UpgradePrompt } from "@/components/billing/upgrade-prompt"
 import gsap from "gsap"
-
-interface Source {
-  id: string
-  title: string
-  category: string
-  sourceUrl: string
-}
-
-interface Message {
-  id: string
-  role: "user" | "assistant"
-  content: string
-  sources?: Source[]
-  contextUsed?: "notice" | "general"
-  // Present instead of an answer when the question was ambiguous against the
-  // corpus; rendered as pickable choices rather than prose.
-  clarification?: SearchClarification
-  // The question that triggered the clarification, so "Show all" can re-ask
-  // it with the gate bypassed.
-  clarifiedFrom?: string
-}
 
 const GENERAL_SUGGESTIONS = [
   "What exams are coming up?",
@@ -70,16 +50,22 @@ function clampSize(size: ChatSize): ChatSize {
 
 export function FloatingChat() {
   const pathname = usePathname()
+  // The notice on screen right now — null as soon as the detail page unmounts.
   const { activeNotice } = useNoticeContext()
-  const [open, setOpen] = useState(false)
-  const [messages, setMessages] = useState<Message[]>([])
+  // The thread itself lives in a store so route changes can't reset it.
+  const open = useChatStore((s) => s.open)
+  const setOpen = useChatStore((s) => s.setOpen)
+  const messages = useChatStore((s) => s.messages)
+  const addMessage = useChatStore((s) => s.addMessage)
+  const resetChat = useChatStore((s) => s.resetChat)
+  const contextNotice = useChatStore((s) => s.contextNotice)
+  const setContextNotice = useChatStore((s) => s.setContextNotice)
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [quota, setQuota] = useState<QuotaDenial | null>(null)
   const chatRef = useRef<HTMLDivElement>(null)
   const messagesEnd = useRef<HTMLDivElement>(null)
   const fabRef = useRef<HTMLButtonElement>(null)
-  const prevNoticeId = useRef<string | null>(null)
 
   // Custom size the user dragged/toggled to — null means "use the default
   // responsive Tailwind sizing" (no inline override, so mobile's full-width
@@ -166,15 +152,15 @@ export function FloatingChat() {
     window.addEventListener("pointerup", onUp)
   }, [size])
 
-  // Reset messages when switching between notices
+  // Adopt whatever notice is on screen as the thread's context, and keep it
+  // after navigating away — leaving the page is not "I'm done with this
+  // notice", so follow-ups still resolve against it. The thread is only
+  // cleared by the explicit "New chat" control.
   useEffect(() => {
-    if (activeNotice?.id !== prevNoticeId.current) {
-      if (prevNoticeId.current !== null) {
-        setMessages([])
-      }
-      prevNoticeId.current = activeNotice?.id ?? null
+    if (activeNotice && activeNotice.id !== contextNotice?.id) {
+      setContextNotice(activeNotice)
     }
-  }, [activeNotice?.id])
+  }, [activeNotice, contextNotice?.id, setContextNotice])
 
   useEffect(() => {
     if (fabRef.current) {
@@ -203,25 +189,26 @@ export function FloatingChat() {
     if (!query || loading) return
 
     const userMsg: Message = { id: Date.now().toString(), role: "user", content: query }
-    setMessages(prev => [...prev, userMsg])
+    addMessage(userMsg)
     setInput("")
     setLoading(true)
     setQuota(null)
 
     try {
-      // If we have an active notice context, try notice-specific Q&A first
-      if (activeNotice?.id && activeNotice.contentText) {
-        const isAboutCurrentNotice = isNoticeRelatedQuery(query, activeNotice.title)
+      // Answer from the thread's notice — which outlives the detail page, so
+      // a follow-up asked from the dashboard still resolves against it.
+      if (contextNotice?.id && contextNotice.contentText) {
+        const isAboutCurrentNotice = isNoticeRelatedQuery(query, contextNotice.title)
 
         if (isAboutCurrentNotice) {
-          const { answer } = await askNoticeQuestion(activeNotice.id, query)
+          const { answer } = await askNoticeQuestion(contextNotice.id, query)
           const botMsg: Message = {
             id: (Date.now() + 1).toString(),
             role: "assistant",
             content: answer,
             contextUsed: "notice",
           }
-          setMessages(prev => [...prev, botMsg])
+          addMessage(botMsg)
           return
         }
       }
@@ -246,7 +233,7 @@ export function FloatingChat() {
         clarification: result.clarification,
         clarifiedFrom: result.clarification ? query : undefined,
       }
-      setMessages(prev => [...prev, botMsg])
+      addMessage(botMsg)
     } catch (e) {
       // A spent AI allowance is a billing state, not a chat failure — surface
       // it as an upgrade prompt below the composer instead of a bot apology.
@@ -259,17 +246,17 @@ export function FloatingChat() {
         role: "assistant",
         content: "Sorry, I couldn't process that request right now. Please try again.",
       }
-      setMessages(prev => [...prev, errorMsg])
+      addMessage(errorMsg)
     } finally {
       setLoading(false)
     }
-  }, [input, loading, activeNotice])
+  }, [input, loading, contextNotice, addMessage])
 
   if (pathname?.startsWith("/documents")) return null
 
-  const suggestions = activeNotice ? NOTICE_SUGGESTIONS : GENERAL_SUGGESTIONS
-  const subtitle = activeNotice
-    ? `Answering about: ${activeNotice.title.slice(0, 40)}${activeNotice.title.length > 40 ? "…" : ""}`
+  const suggestions = contextNotice ? NOTICE_SUGGESTIONS : GENERAL_SUGGESTIONS
+  const subtitle = contextNotice
+    ? `Answering about: ${contextNotice.title.slice(0, 40)}${contextNotice.title.length > 40 ? "…" : ""}`
     : "Ask about any government notice"
 
   return (
@@ -317,6 +304,18 @@ export function FloatingChat() {
               </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
+              {messages.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8"
+                  onClick={resetChat}
+                  aria-label="Start a new chat"
+                  title="New chat"
+                >
+                  <RotateCcw className="size-3.5" />
+                </Button>
+              )}
               {isDesktop && (
                 <Button
                   variant="ghost"
@@ -346,11 +345,11 @@ export function FloatingChat() {
           </div>
 
           {/* Context badge */}
-          {activeNotice && (
+          {contextNotice && (
             <div className="flex items-center gap-2 px-4 py-2 border-b border-border/40 bg-primary/3">
               <FileText className="size-3 text-primary shrink-0" />
               <p className="text-[10px] text-primary truncate flex-1">
-                Context: {activeNotice.title}
+                Context: {contextNotice.title}
               </p>
               <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">
                 Locked
@@ -366,10 +365,10 @@ export function FloatingChat() {
                   <Sparkles className="size-6 text-primary" />
                 </div>
                 <p className="text-sm font-medium mb-1">
-                  {activeNotice ? "Ask about this notice" : "How can I help?"}
+                  {contextNotice ? "Ask about this notice" : "How can I help?"}
                 </p>
                 <p className="text-xs text-muted-foreground mb-4">
-                  {activeNotice
+                  {contextNotice
                     ? "I have the full context of this notice — ask me anything"
                     : "Ask about notices, exams, tenders, or policies"}
                 </p>
@@ -499,7 +498,7 @@ export function FloatingChat() {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder={activeNotice ? "Ask about this notice…" : "Ask about notices..."}
+                placeholder={contextNotice ? "Ask about this notice…" : "Ask about notices..."}
                 className="flex-1 h-9 rounded-lg border border-border/60 bg-background px-3 text-sm outline-none focus:border-primary/50 transition-colors"
                 disabled={loading}
               />
