@@ -52,55 +52,41 @@ function NoticeCard({
   saved: boolean
   onToggleSave: () => void
 }) {
+  // One summary line only — English preferred, Nepali as fallback. Showing both
+  // stacked was the main reason only two notices fit on screen.
+  const summary = notice.aiSummary || notice.aiSummaryNe || notice.summary
+  const summaryIsNepali = !notice.aiSummary && !!notice.aiSummaryNe
+
   return (
     <Link
       href={`/notices/${generateSlug(notice.title, notice.id)}`}
-      className="vz-sweep group flex cursor-pointer rounded-[20px] bg-white"
+      className="vz-sweep group flex cursor-pointer items-center gap-3 rounded-xl bg-white px-4 py-3"
     >
-      <div className="min-w-0 flex-1 p-5 md:p-6">
-        {/* Top row - badges */}
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-vez-sky/30 px-3 py-1 text-xs text-vez-navy">
+      <div className="min-w-0 flex-1">
+        {/* Category + title on a single line */}
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 rounded-full bg-vez-sky/30 px-2.5 py-0.5 text-[11px] text-vez-navy">
             {categoryLabel(notice.category)}
           </span>
           <UrgencyBadge urgency={notice.aiUrgency} />
+          <h3 className="min-w-0 flex-1 truncate text-sm text-vez-ink transition-colors group-hover:text-vez-navy">
+            {notice.title}
+          </h3>
         </div>
 
-        {/* Title */}
-        <h3 className="mb-2 line-clamp-2 text-base leading-snug text-vez-ink transition-colors group-hover:text-vez-navy md:text-lg">
-          {notice.title}
-        </h3>
-
-        {/* AI Summary — English & Nepali */}
-        {(notice.aiSummary || notice.aiSummaryNe || notice.summary) && (
-          <div className="mb-3 space-y-2">
-            {notice.aiSummary && (
-              <div className="flex items-start gap-2 rounded-[10px] bg-vez-sky/8 px-3 py-2">
-                <Sparkles className="mt-0.5 size-3 shrink-0 text-vez-navy/60" />
-                <p className="line-clamp-2 text-sm leading-relaxed text-vez-ink/80">
-                  {notice.aiSummary}
-                </p>
-              </div>
-            )}
-            {notice.aiSummaryNe && (
-              <div className="flex items-start gap-2 rounded-[10px] bg-amber-50/60 px-3 py-2">
-                <span className="mt-0.5 shrink-0 text-[10px] font-medium text-amber-600">ने</span>
-                <p className="line-clamp-2 text-sm leading-relaxed text-vez-ink/80" lang="ne">
-                  {notice.aiSummaryNe}
-                </p>
-              </div>
-            )}
-            {!notice.aiSummary && !notice.aiSummaryNe && notice.summary && (
-              <p className="line-clamp-2 text-sm leading-relaxed text-vez-mute">
-                {notice.summary}
-              </p>
-            )}
-          </div>
+        {summary && (
+          <p
+            className="mt-1 truncate text-xs leading-relaxed text-vez-mute"
+            lang={summaryIsNepali ? "ne" : undefined}
+          >
+            {notice.aiSummary && <Sparkles className="mr-1 inline size-3 align-[-1px] text-vez-navy/50" />}
+            {summary}
+          </p>
         )}
 
         {/* Meta row */}
-        <div className="flex flex-wrap items-center gap-3 text-xs text-vez-mute">
-          <span className="flex items-center gap-1 text-vez-ink/80">
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-vez-mute">
+          <span className="flex items-center gap-1 text-vez-ink/70">
             <Building2 className="size-3" /> {notice.sourceLabel}
           </span>
           {notice.publishedAt && (
@@ -122,7 +108,7 @@ function NoticeCard({
       </div>
 
       {/* Right actions - 44px touch target, hidden label for a11y */}
-      <div className="flex shrink-0 flex-col items-center justify-between gap-2 border-l border-vez-line/60 p-3 sm:p-4">
+      <div className="flex shrink-0 items-center gap-1">
         <button
           onClick={(e) => { e.stopPropagation(); e.preventDefault(); onToggleSave() }}
           className="flex size-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full text-vez-mute transition-colors hover:bg-vez-surface hover:text-vez-navy cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vez-navy/20"
@@ -131,7 +117,7 @@ function NoticeCard({
         >
           {saved ? <BookmarkCheck className="size-4 text-vez-navy" /> : <Bookmark className="size-4" />}
         </button>
-        <ChevronRight className="size-4 text-vez-mute/50 transition-all group-hover:translate-x-0.5 group-hover:text-vez-navy" />
+        <ChevronRight className="size-4 shrink-0 text-vez-mute/50 transition-all group-hover:translate-x-0.5 group-hover:text-vez-navy" />
       </div>
     </Link>
   )
@@ -345,11 +331,11 @@ function NoticesPageContent() {
     searchQuery !== "" || selectedCategory !== "all" || selectedSourceId !== "" || selectedTag !== ""
 
   return (
-    <div className="flex min-h-[calc(100dvh-5rem)] flex-col bg-white font-poppins md:h-screen md:overflow-hidden overflow-x-hidden">
+    <div className="flex min-h-[calc(100dvh-5rem)] flex-col bg-white font-poppins overflow-x-hidden">
       <Header />
 
       {/* Responsive workspace - natural scroll on mobile, fixed-height on desktop */}
-      <div className="mx-auto flex w-full max-w-[1480px] min-h-0 flex-1 flex-col gap-4 px-4 py-4 sm:px-6 sm:py-5 md:px-8 lg:px-12">
+      <div className="mx-auto flex w-full max-w-[1480px] flex-1 flex-col gap-4 px-4 py-4 sm:px-6 sm:py-5 md:px-8 lg:px-12">
 
         {/* Top bar - stacks vertically on mobile (375px), horizontal on desktop */}
         <div className="flex shrink-0 flex-col gap-4 md:flex-row md:flex-wrap md:items-center md:justify-between">
@@ -497,10 +483,10 @@ function NoticesPageContent() {
           )}
         </div>
 
-        {/* Panels - on mobile natural scroll, on desktop fixed-height internal scroll */}
-        <div className="flex min-h-0 flex-1 flex-col gap-4 pb-5 md:flex-row">
-          {/* ── Notice feed — full-width card on mobile, scrolls internally only on desktop */}
-          <div className="flex min-h-[50vh] w-full min-w-0 flex-1 flex-col overflow-visible rounded-[20px] bg-vez-surface md:min-h-0 md:overflow-hidden">
+        {/* Panels - the feed grows with its content; the page itself scrolls */}
+        <div className="flex flex-1 flex-col gap-4 pb-5 md:flex-row">
+          {/* ── Notice feed — full-width card, no internal scroll container */}
+          <div className="flex w-full min-w-0 flex-1 flex-col overflow-visible rounded-[20px] bg-vez-surface">
             <div className="flex shrink-0 items-center justify-between border-b border-vez-line px-5 py-3.5">
               <p className="text-sm text-vez-ink">
                 {total.toLocaleString()} notice{total !== 1 ? "s" : ""}
@@ -525,7 +511,7 @@ function NoticesPageContent() {
               </span>
             </div>
 
-            <div ref={feedRef} className="flex-1 space-y-3 overflow-visible p-3 sm:p-4 md:overflow-y-auto md:overscroll-contain">
+            <div ref={feedRef} className="flex-1 space-y-2 overflow-visible p-3 sm:p-4">
               {loading ? (
                 <div className="flex h-full items-center justify-center text-vez-mute">
                   <Loader2 className="size-5 animate-spin" />
