@@ -71,6 +71,13 @@ def ensure_collection() -> None:
     )
 
 
+# The embedding model truncates around 512 tokens, so only the head of the body
+# is worth embedding. The stored excerpt is longer because the LLM reads it as
+# context, where more text is still useful.
+_EMBED_CONTENT_CHARS = 1200
+_EXCERPT_CHARS = 3000
+
+
 def index_notice(
     notice_id: str,
     title: str,
@@ -79,10 +86,16 @@ def index_notice(
     source_label: str = "",
     source_url: str = "",
     published_at: Optional[str] = None,
+    content: str = "",
 ) -> bool:
     """Embed and upsert a single notice into the notices collection.
     Returns True on success, False on failure."""
-    text = f"{title}\n{ai_summary}"
+    # Four out of five notices have no AI summary, so a title-only vector was
+    # all most of the corpus could be matched on — and the answer context had
+    # nothing but a title to work from. The body carries the actual facts.
+    body = (content or "").strip()
+    excerpt = body[:_EXCERPT_CHARS]
+    text = "\n".join(p for p in (title, ai_summary, body[:_EMBED_CONTENT_CHARS]) if p)
     try:
         vector = embeddings.get_embedding(text, kind="passage")
     except Exception as e:
@@ -94,6 +107,7 @@ def index_notice(
         "notice_id": notice_id,
         "title": title,
         "ai_summary": ai_summary,
+        "content_excerpt": excerpt,
         "category": category,
         "source_label": source_label,
         "source_url": source_url,
@@ -154,6 +168,7 @@ def search(
             "notice_id": point.payload.get("notice_id", ""),
             "title": point.payload.get("title", ""),
             "ai_summary": point.payload.get("ai_summary", ""),
+            "content_excerpt": point.payload.get("content_excerpt", ""),
             "category": point.payload.get("category", ""),
             "source_label": point.payload.get("source_label", ""),
             "source_url": point.payload.get("source_url", ""),

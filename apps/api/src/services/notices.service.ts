@@ -593,7 +593,11 @@ export class NoticesService {
             published_at: notice.publishedAt?.toISOString() ?? null,
             attachments: this.attachmentContext(notice),
           },
-          { timeout: 30000 },
+          // Walking the provider fallback chain costs a retry+backoff per
+          // failed provider, so a degraded chain answers in ~35s. At 30s the
+          // request was cut off and the user got an error instead of the
+          // answer the AI service was about to return.
+          { timeout: 90000 },
         ),
       );
       const answer = { answer: String(response.data?.answer ?? '') };

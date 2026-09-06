@@ -362,6 +362,35 @@ async def _call_provider(provider: dict, messages: list[dict], max_tokens: int, 
     return await _openai_compatible_chat(messages, max_tokens, temperature, provider)
 
 
+# An 8-token health ping slips under a daily-token cap that blocks every real
+# answer, so the panel showed "ok" while nothing worked. Remember what real
+# calls hit and let /llm/health report that instead of the probe's optimism.
+_RECENT_FAILURES: dict[str, tuple[float, str]] = {}
+_FAILURE_TTL_SECONDS = 300
+
+
+def _note_failure(slug: str | None, message: str) -> None:
+    if slug:
+        _RECENT_FAILURES[slug] = (time.monotonic(), message)
+
+
+def _clear_failure(slug: str | None) -> None:
+    if slug:
+        _RECENT_FAILURES.pop(slug, None)
+
+
+def recent_failure(slug: str | None) -> str | None:
+    """Last real-call failure for this provider, if still recent."""
+    entry = _RECENT_FAILURES.get(slug or "")
+    if not entry:
+        return None
+    when, message = entry
+    if time.monotonic() - when > _FAILURE_TTL_SECONDS:
+        _RECENT_FAILURES.pop(slug or "", None)
+        return None
+    return message
+
+
 async def _llm_chat(
     messages: list[dict], max_tokens: int, temperature: float
 ) -> str | None:
@@ -581,6 +610,10 @@ async def _gemini_chat(
             logger.error(
                 "Gemini returned %d: %.200s", response.status_code, response.text
             )
+            _note_failure(
+                provider.get("slug"),
+                _describe_http_failure(response.status_code, response.text),
+            )
             return None
 
         try:
@@ -591,6 +624,7 @@ async def _gemini_chat(
             return None
 
         logger.debug("Gemini answer generated with model=%s", provider["model"])
+        _clear_failure(provider.get("slug"))
         return _clean_answer(content)
 
     return None
@@ -644,6 +678,10 @@ async def _openai_compatible_chat(
 
         if response.status_code != 200:
             logger.error("%s returned %d: %.200s", provider.get("slug"), response.status_code, response.text)
+            _note_failure(
+                provider.get("slug"),
+                _describe_http_failure(response.status_code, response.text),
+            )
             return None
 
         try:
@@ -661,8 +699,13 @@ async def _openai_compatible_chat(
                 "%s returned empty content (finish_reason=%s, max_tokens=%d) — likely exhausted on reasoning",
                 provider.get("slug"), choice.get("finish_reason"), max_tokens,
             )
+            _note_failure(
+                provider.get("slug"),
+                f"Returned an empty answer (finish_reason={choice.get('finish_reason')}).",
+            )
             return None
 
+        _clear_failure(provider.get("slug"))
         return _clean_answer(content)
 
     return None
@@ -772,6 +815,12 @@ async def _health_for(provider: dict) -> dict:
         return {**base, "ok": False,
                 "latencyMs": round((time.perf_counter() - started) * 1000),
                 "error": f"Probe failed: {e}"}
+    # A passing probe doesn't clear a real failure: the probe asks for 8 tokens
+    # and a daily-token cap only rejects the ~1.5k a real answer needs.
+    observed = recent_failure(provider.get("slug"))
+    if ok and observed:
+        ok, error = False, f"Probe succeeded, but real requests are failing: {observed}"
+
     return {**base, "ok": ok,
             "latencyMs": round((time.perf_counter() - started) * 1000),
             "error": error}

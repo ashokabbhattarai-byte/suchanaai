@@ -1159,13 +1159,20 @@ export class ScrapingService {
    */
   private async embedNewNotices(sourceId: string, ids?: string[]) {
     const notices = await this.prisma.scrapedItem.findMany({
+      // Requiring an AI summary kept 51% of the catalogue out of the vector
+      // store entirely — those notices have a body, so they are searchable and
+      // answerable; only ones with neither summary nor body are not.
       where: ids?.length
         ? { id: { in: ids } }
-        : { sourceId, aiSummary: { not: null } },
+        : {
+            sourceId,
+            OR: [{ aiSummary: { not: null } }, { contentText: { not: null } }],
+          },
       select: {
         id: true,
         title: true,
         aiSummary: true,
+        contentText: true,
         category: true,
         sourceLabel: true,
         sourceUrl: true,
@@ -1180,6 +1187,10 @@ export class ScrapingService {
       id: n.id,
       title: n.title,
       ai_summary: n.aiSummary || '',
+      // Most notices never get an AI summary, so the body is what makes them
+      // findable and answerable at all. Capped here rather than in the AI
+      // service so a 1.4MB notice doesn't become a 1.4MB HTTP payload.
+      content: (n.contentText || '').slice(0, 4000),
       category: n.category,
       source_label: n.sourceLabel,
       source_url: n.sourceUrl,

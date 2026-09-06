@@ -156,8 +156,8 @@ async def search_and_answer(
         f"Category: {s.get('category', 'NOTICE')}\n"
         f"Source: {s.get('sourceLabel', '')}\n"
         f"Published: {_published_label(s)}\n"
-        f"Summary: {s.get('aiSummary', '') or 'No summary available'}"
-        for i, s in enumerate(sources)
+        f"{_source_body(s, budget)}"
+        for i, (s, budget) in enumerate(_with_budgets(sources))
     )
 
     style = random.choice(_STYLE_HINTS)
@@ -222,6 +222,7 @@ def _semantic_search(question: str, category: str | None, top_k: int) -> list[di
             "id": r["notice_id"],
             "title": r["title"],
             "aiSummary": r["ai_summary"],
+            "contentExcerpt": r.get("content_excerpt", ""),
             "category": r["category"],
             "sourceLabel": r["source_label"],
             "sourceUrl": r["source_url"],
@@ -279,6 +280,59 @@ async def _generate_no_results(question: str, language: str) -> str:
             return answer
 
     return "I couldn't find any relevant notices for that question. Try different keywords or browse the notices page directly."
+
+
+# Bodies run from a few hundred characters to 1.4M, so the context needs a hard
+# ceiling as well as a per-notice cap — otherwise one long notice crowds out the
+# other four, or the request blows the model's context window entirely.
+_CONTEXT_CHAR_BUDGET = 14000
+_MIN_SOURCE_CHARS = 700
+
+
+def _with_budgets(sources: list[dict]) -> list[tuple[dict, int]]:
+    """Pair each source with the character budget its body may use.
+
+    Earlier sources rank higher, so they get the larger share; the floor keeps
+    the tail from collapsing to a title-only entry.
+    """
+    if not sources:
+        return []
+    per_source = max(_CONTEXT_CHAR_BUDGET // len(sources), _MIN_SOURCE_CHARS)
+    return [(s, per_source) for s in sources]
+
+
+def _source_body(source: dict, budget: int) -> str:
+    """Best available text for one notice, trimmed to its budget.
+
+    Prefers the AI summary because it is already condensed, but 4 out of 5
+    notices don't have one — for those the body is the only thing that can
+    answer a question, and sending "No summary available" guaranteed it
+    couldn't.
+    """
+    summary = (source.get("aiSummary") or "").strip()
+    body = (source.get("contentExcerpt") or source.get("contentText") or "").strip()
+
+    if summary and body:
+        room = budget - len(summary)
+        if room >= _MIN_SOURCE_CHARS // 2:
+            return f"Summary: {summary}\nExcerpt: {_trim(body, room)}"
+        return f"Summary: {_trim(summary, budget)}"
+    if summary:
+        return f"Summary: {_trim(summary, budget)}"
+    if body:
+        return f"Excerpt: {_trim(body, budget)}"
+    return "Summary: No summary available"
+
+
+def _trim(text: str, limit: int) -> str:
+    """Cut on a word boundary so the model never sees a half-word."""
+    if limit <= 0 or len(text) <= limit:
+        return text
+    cut = text[:limit]
+    space = cut.rfind(" ")
+    if space > limit * 0.6:
+        cut = cut[:space]
+    return cut.rstrip() + "…"
 
 
 def _published_label(source: dict) -> str:

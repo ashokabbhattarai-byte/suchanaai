@@ -1390,6 +1390,7 @@ async def _notices_embed(receive) -> tuple[int, dict]:
             source_label=n.get("source_label", ""),
             source_url=n.get("source_url", ""),
             published_at=n.get("published_at"),
+            content=n.get("content", "") or "",
         )
         if ok:
             indexed += 1

@@ -196,20 +196,25 @@ export function FloatingChat() {
 
     try {
       // Answer from the thread's notice — which outlives the detail page, so
-      // a follow-up asked from the dashboard still resolves against it.
+      // a follow-up asked from the dashboard still resolves against it. The
+      // lock is a preference, not a wall: if this notice can't answer, the
+      // question falls through to the whole embedded corpus below rather than
+      // dead-ending on a notice that simply doesn't cover it.
       if (contextNotice?.id && contextNotice.contentText) {
         const isAboutCurrentNotice = isNoticeRelatedQuery(query, contextNotice.title)
 
         if (isAboutCurrentNotice) {
           const { answer } = await askNoticeQuestion(contextNotice.id, query)
-          const botMsg: Message = {
-            id: (Date.now() + 1).toString(),
-            role: "assistant",
-            content: answer,
-            contextUsed: "notice",
+          if (!noticeAnswerFailed(answer)) {
+            const botMsg: Message = {
+              id: (Date.now() + 1).toString(),
+              role: "assistant",
+              content: answer,
+              contextUsed: "notice",
+            }
+            addMessage(botMsg)
+            return
           }
-          addMessage(botMsg)
-          return
         }
       }
 
@@ -550,6 +555,32 @@ function activeCategoryFromUrl(): string | undefined {
   if (typeof window === "undefined") return undefined
   const category = new URLSearchParams(window.location.search).get("category")?.toUpperCase()
   return category && URL_CATEGORIES.has(category) ? category : undefined
+}
+
+/**
+ * True when the single-notice answer isn't a real answer, so the question
+ * should be retried against the whole corpus.
+ *
+ * These are the deterministic non-answers the API and AI service return when
+ * the notice can't help — a provider outage, an unextractable body, or a
+ * notice that simply doesn't cover what was asked. Matching them is what lets
+ * a locked notice fall through to every embedded notice instead of dead-ending.
+ */
+const NOTICE_NON_ANSWERS = [
+  "could not process this question",
+  "couldn't process this question",
+  "no captured content",
+  "the most relevant points from the documents",
+  "doesn't contain the answer",
+  "does not contain the answer",
+  "couldn't generate a summary",
+  "is unavailable right now",
+]
+
+function noticeAnswerFailed(answer: string): boolean {
+  const a = (answer || "").trim().toLowerCase()
+  if (!a) return true
+  return NOTICE_NON_ANSWERS.some((p) => a.includes(p))
 }
 
 /**
