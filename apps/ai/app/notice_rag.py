@@ -170,7 +170,9 @@ async def search_and_answer(
         {"role": "user", "content": f"Context (notices found):\n{context}\n\nQuestion: {question}"},
     ]
 
-    answer = await llm._llm_chat(messages, max_tokens=800, temperature=config.TEMPERATURE_ANSWERS)
+    # Budget covers reasoning tokens too — a reasoning model spends most of
+    # this before emitting any content, and 800 left nothing for the answer.
+    answer = await llm._llm_chat(messages, max_tokens=2000, temperature=config.TEMPERATURE_ANSWERS)
     if answer is None:
         answer = _extractive_fallback(sources)
 
@@ -299,15 +301,19 @@ def _extractive_fallback(sources: list[dict]) -> str:
     notices") read as a considered response to whatever was asked, so a
     provider outage looked like a confidently wrong answer."""
     lines = []
-    for s in sources[:3]:
+    for s in sources[:5]:
         title = s.get("title", "Untitled")
-        summary = s.get("aiSummary", "")
+        # Fall through the summary fields — keying only on aiSummary rendered
+        # notices that have a Nepali or scraped summary as a bare title.
+        summary = s.get("aiSummary") or s.get("aiSummaryNe") or s.get("summary") or ""
         published = _published_label(s)
-        date_part = f" _(published {published})_" if published != "unknown" else ""
-        lines.append(f"**{title}**{date_part}" + (f": {summary}" if summary else ""))
+        source_label = s.get("sourceLabel") or ""
+        meta = " · ".join(p for p in (source_label, published if published != "unknown" else "") if p)
+        meta_part = f"\n_{meta}_" if meta else ""
+        lines.append(f"**{title}**" + (f"\n{summary}" if summary else "") + meta_part)
     return (
-        "The AI assistant is unavailable right now, so I can't summarise — "
-        "these are the notices matching your search:\n\n" + "\n\n".join(lines)
+        "I couldn't generate a summary just now, but here are the notices that "
+        "best match your search:\n\n" + "\n\n".join(lines)
     )
 
 

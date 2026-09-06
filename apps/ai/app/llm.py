@@ -647,9 +647,20 @@ async def _openai_compatible_chat(
             return None
 
         try:
-            content = response.json()["choices"][0]["message"]["content"]
+            choice = response.json()["choices"][0]
+            content = choice["message"]["content"]
         except (ValueError, KeyError, IndexError, TypeError):
             logger.error("%s response missing choices: %.200s", provider.get("slug"), response.text)
+            return None
+
+        # A reasoning model that burns the whole budget before writing an answer
+        # returns 200 with empty content — log it, or the retry looks like a
+        # network failure and the real cause (max_tokens too low) stays hidden.
+        if not (content or "").strip():
+            logger.error(
+                "%s returned empty content (finish_reason=%s, max_tokens=%d) — likely exhausted on reasoning",
+                provider.get("slug"), choice.get("finish_reason"), max_tokens,
+            )
             return None
 
         return _clean_answer(content)
