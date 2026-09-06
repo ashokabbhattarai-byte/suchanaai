@@ -3,6 +3,7 @@
 import React from "react"
 import Link from "next/link"
 import Image from "next/image"
+import logo from "@/public/images/logo.png"
 import { Github } from "lucide-react"
 
 const footerLinks = {
@@ -37,7 +38,7 @@ export function VezignoFooter() {
           <div className="sm:col-span-2">
             <Link href="/" className="inline-block">
               <Image
-                src="/images/logo.png"
+                src={logo}
                 alt="Suchana AI"
                 width={200}
                 height={200}

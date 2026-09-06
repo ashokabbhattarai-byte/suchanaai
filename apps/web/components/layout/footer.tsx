@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import Image from "next/image"
+import logo from "@/public/images/logo.png"
 import { useEffect, useState } from "react"
 import { Github } from "lucide-react"
 import { fetchPublicSettings } from "@/lib/api"
@@ -52,7 +53,7 @@ export function Footer() {
           <div className="sm:col-span-2">
             <Link href="/" className="inline-block">
               <Image
-                src="/images/logo.png"
+                src={logo}
                 alt={site?.title ?? "Suchana AI"}
                 width={200}
                 height={200}

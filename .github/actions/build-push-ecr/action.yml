@@ -6,7 +6,7 @@ description: >
 
 inputs:
   aws-role-arn:
-    description: IAM role ARN to assume via OIDC (repo secret AWS_DEPLOY_ROLE_ARN)
+    description: IAM role ARN to assume via GitHub OIDC
     required: true
   aws-region:
     required: true

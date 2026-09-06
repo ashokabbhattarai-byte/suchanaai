@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import Image from "next/image"
+import logo from "@/public/images/logo.png"
 import { usePathname } from "next/navigation"
 import { Bell, Menu, X, Globe, LogOut, LayoutDashboard, Shield, ArrowUpRight, ChevronDown } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
@@ -111,7 +112,7 @@ export function Header() {
           {/* Brand - responsive sizing to prevent overflow on 375px */}
           <Link href="/" className="shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vez-navy focus-visible:ring-offset-2 rounded-lg">
             <Image
-              src="/images/logo.png"
+              src={logo}
               alt="Suchana AI"
               width={220}
               height={220}

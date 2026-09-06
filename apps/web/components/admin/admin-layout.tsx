@@ -3,6 +3,7 @@
 import React, { useState } from "react"
 import Link from "next/link"
 import Image from "next/image"
+import logo from "@/public/images/logo.png"
 import { usePathname } from "next/navigation"
 import {
   Sparkles,
@@ -56,7 +57,7 @@ function SidebarContent({ pathname, onLinkClick }: { pathname: string; onLinkCli
       {/* Brand + back */}
       <div className="border-b border-vez-line px-4 pb-3 pt-4">
         <Link href="/" className="inline-block">
-          <Image src="/images/logo.png" alt="Suchana AI" width={160} height={160} className="h-12 w-auto" />
+          <Image src={logo} alt="Suchana AI" width={160} height={160} className="h-12 w-auto" />
         </Link>
         <div className="mt-2 flex items-center gap-1.5">
           <Shield className="size-3.5 text-vez-navy" />

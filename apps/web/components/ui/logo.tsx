@@ -2,6 +2,8 @@
 
 import React from "react"
 import Link from "next/link"
+import Image from "next/image"
+import logo from "@/public/images/logo.png"
 
 interface LogoProps {
   size?: "sm" | "md" | "lg"
@@ -18,9 +20,10 @@ const heights = {
 
 export function Logo({ size = "md", href = "/", className = "", invert = false }: LogoProps) {
   const inner = (
-    <img
-      src="/images/logo.png"
+    <Image
+      src={logo}
       alt="Suchana AI"
+      placeholder="blur"
       draggable={false}
       className={`${heights[size]} w-auto ${invert ? "brightness-0 invert" : ""} ${className}`}
     />

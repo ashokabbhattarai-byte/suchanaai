@@ -14,7 +14,9 @@ import {
   FileText,
 } from "lucide-react"
 import Link from "next/link"
+import Image from "next/image"
 import gsap from "gsap"
+import logo from "@/public/images/logo.png"
 import { mockNotices } from "@/lib/mock-data"
 import type { ScrapedItem } from "@/lib/types"
 
@@ -135,7 +137,7 @@ export function NoticesDashboardMockup({ notices }: { notices?: ScrapedItem[] })
         <div className="hidden w-48 shrink-0 flex-col border-r border-vez-line bg-vez-surface/60 sm:flex">
           {/* Brand */}
           <div className="flex items-center gap-2 border-b border-vez-line px-4 py-3">
-            <img src="/images/logo.png" alt="Suchana AI" className="h-8 w-auto" />
+            <Image src={logo} alt="Suchana AI" className="h-8 w-auto" />
           </div>
 
           {/* Nav */}
