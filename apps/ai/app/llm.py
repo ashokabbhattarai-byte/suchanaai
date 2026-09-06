@@ -317,7 +317,7 @@ def _env_fallback_providers() -> list[dict]:
         })
     if config.BEDROCK_API_KEY:
         out.append({
-            "slug": "bedrock", "label": "AWS Bedrock (Claude Sonnet 4.6)", "kind": "BEDROCK",
+            "slug": "bedrock", "label": "AWS Bedrock (Claude Sonnet 5)", "kind": "BEDROCK",
             "base_url": None, "region": config.BEDROCK_REGION, "model": config.BEDROCK_MODEL,
             "api_key": config.BEDROCK_API_KEY, "enabled": True,
         })
@@ -414,37 +414,74 @@ def _split_system(messages: list[dict]) -> tuple[str, list[dict]]:
     return "\n\n".join(system_parts), turns
 
 
+def _bedrock_base_url(region: str) -> str:
+    """Messages-API Bedrock endpoint for a region."""
+    return f"https://bedrock-mantle.{region}.api.aws/anthropic"
+
+
+# Inference-profile prefixes and ARN-style version suffixes both mark a model
+# as belonging to the legacy `bedrock-runtime` InvokeModel API. Sonnet 4.6 and
+# Opus 4.6 are only served there; Sonnet 5 and newer only on the Messages
+# endpoint. Routing on the ID means an admin can switch between them from the
+# panel without a code change.
+_BEDROCK_LEGACY_PREFIXES = ("global.", "us.", "eu.", "jp.", "apac.", "au.", "ca.")
+
+
+def _is_legacy_bedrock_model(model: str) -> bool:
+    return model.startswith(_BEDROCK_LEGACY_PREFIXES) or ":" in model
+
+
 def _bedrock_client(provider: dict):
-    """Build a Bedrock client. Imported lazily so a deployment that hasn't
-    installed `anthropic[bedrock]` yet still starts and serves every other
-    provider."""
-    from anthropic import AnthropicBedrock
+    """Client for Claude on Bedrock, authenticated with a bearer token.
 
-    return AnthropicBedrock(
-        # A Bedrock bearer token, not an Anthropic API key — Bedrock accepts
-        # it in place of SigV4 credentials.
-        api_key=provider.get("api_key"),
-        aws_region=provider.get("region") or config.BEDROCK_REGION,
-    )
+    Two wire APIs exist and the model ID decides which one applies:
+
+    * Legacy `bedrock-runtime` InvokeModel — inference-profile IDs like
+      `global.anthropic.claude-sonnet-4-6` or ARN-versioned ones ending in
+      `-v1:0`. Served by `AnthropicBedrock`.
+    * Bedrock Messages endpoint — plain `anthropic.`-prefixed IDs such as
+      `anthropic.claude-sonnet-5`. Reached with the standard `Anthropic`
+      client pointed at bedrock-mantle; the dedicated `AnthropicBedrockMantle`
+      class signs with SigV4, whereas the admin panel stores a bearer token.
+
+    Imported lazily so a deployment that hasn't installed the SDK yet still
+    starts and serves every other provider.
+    """
+    region = provider.get("region") or config.BEDROCK_REGION
+    model = provider.get("model") or config.BEDROCK_MODEL
+    api_key = provider.get("api_key")
+
+    if _is_legacy_bedrock_model(model):
+        from anthropic import AnthropicBedrock
+
+        return AnthropicBedrock(api_key=api_key, aws_region=region)
+
+    from anthropic import Anthropic
+
+    return Anthropic(api_key=api_key, base_url=_bedrock_base_url(region))
 
 
-async def _bedrock_chat(
+async def _bedrock_call(
     messages: list[dict], max_tokens: int, temperature: float, provider: dict
-) -> str | None:
-    """Call Claude on AWS Bedrock. Returns None on any failure."""
+) -> tuple[str | None, str | None]:
+    """Call Claude on Bedrock. Returns (text, error) — exactly one is set.
+
+    The error string is the provider's own message, surfaced verbatim to the
+    admin panel. A generic "check the token, region and model" would hide the
+    difference between a bad token, a model that doesn't exist on this
+    endpoint, and an account without Bedrock model access — three problems
+    with three different fixes.
+    """
     system, turns = _split_system(messages)
     if not turns:
-        logger.error("Bedrock: no user turn to send")
-        return None
+        return None, "No user turn to send."
 
     try:
         client = _bedrock_client(provider)
     except ImportError:
-        logger.error("Bedrock provider configured but `anthropic[bedrock]` is not installed")
-        return None
-    except Exception as e:  # noqa: BLE001 — bad region/credentials surface here
-        logger.error("Bedrock client construction failed: %.200s", e)
-        return None
+        return None, "`anthropic` is not installed on the AI service."
+    except Exception as e:  # noqa: BLE001 — bad region/token surfaces here
+        return None, f"Could not build the Bedrock client: {e}"
 
     kwargs = {
         "model": provider.get("model") or config.BEDROCK_MODEL,
@@ -460,8 +497,9 @@ async def _bedrock_chat(
         # Bedrock call doesn't stall every other request this worker serves.
         message = await asyncio.to_thread(lambda: client.messages.create(**kwargs))
     except Exception as e:  # noqa: BLE001 — one provider must never break the chain
-        logger.error("Bedrock request failed: %.200s", e)
-        return None
+        detail = getattr(e, "message", None) or str(e)
+        logger.error("Bedrock request failed: %.300s", detail)
+        return None, detail[:300]
     finally:
         with contextlib.suppress(Exception):
             client.close()
@@ -469,15 +507,23 @@ async def _bedrock_chat(
     # A safety decline is a real outcome, not a transport error: report it and
     # let _llm_chat move to the next provider rather than retrying here.
     if getattr(message, "stop_reason", None) == "refusal":
-        logger.warning("Bedrock declined the request (stop_reason=refusal)")
-        return None
+        return None, "Bedrock declined the request (stop_reason=refusal)."
 
     text = "".join(
         block.text for block in (message.content or []) if getattr(block, "type", None) == "text"
     ).strip()
     if not text:
-        logger.warning("Bedrock returned no text (stop_reason=%s)", getattr(message, "stop_reason", None))
-        return None
+        return None, f"Bedrock returned no text (stop_reason={getattr(message, 'stop_reason', None)})."
+    return text, None
+
+
+async def _bedrock_chat(
+    messages: list[dict], max_tokens: int, temperature: float, provider: dict
+) -> str | None:
+    """Chat-path wrapper: text on success, None so the chain falls through."""
+    text, error = await _bedrock_call(messages, max_tokens, temperature, provider)
+    if error:
+        logger.warning("Bedrock provider unavailable: %.200s", error)
     return text
 
 
@@ -650,19 +696,10 @@ async def _probe_provider(provider: dict) -> tuple[bool, str | None]:
     if provider.get("kind") == "BEDROCK":
         # No raw HTTP path here — Bedrock is reached through the SDK client,
         # so the probe is the same one-token call the chat path would make.
-        try:
-            _bedrock_client(provider)
-        except ImportError:
-            return False, "`anthropic[bedrock]` is not installed on the AI service."
-        except Exception as e:  # noqa: BLE001 — bad region surfaces at construction
-            return False, f"Could not build the Bedrock client: {e}"
-
-        answer = await _bedrock_chat(
+        _, error = await _bedrock_call(
             [{"role": "user", "content": "ping"}], 8, 0.0, provider
         )
-        if answer is None:
-            return False, "Bedrock rejected the request — check the token, region and model ID."
-        return True, None
+        return (error is None), error
 
     if provider.get("kind") == "GEMINI":
         url = GEMINI_API_URL.format(model=provider["model"]) + f"?key={provider['api_key']}"

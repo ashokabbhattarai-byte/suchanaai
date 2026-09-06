@@ -13,11 +13,25 @@ const PRESETS: Array<{
   region?: string
 }> = [
   {
+    label: "AWS Bedrock (Claude Sonnet 5)",
+    kind: "BEDROCK",
+    baseUrl: "",
+    region: "us-east-1",
+    model: "anthropic.claude-sonnet-5",
+  },
+  {
     label: "AWS Bedrock (Claude Sonnet 4.6)",
     kind: "BEDROCK",
     baseUrl: "",
-    region: "us-west-2",
+    region: "us-east-1",
     model: "global.anthropic.claude-sonnet-4-6",
+  },
+  {
+    label: "AWS Bedrock (Claude Opus 4.6)",
+    kind: "BEDROCK",
+    baseUrl: "",
+    region: "us-east-1",
+    model: "us.anthropic.claude-opus-4-6-v1",
   },
   {
     label: "OpenAI",
@@ -71,7 +85,7 @@ export function ProviderDialog({
   const [label, setLabel] = useState(provider?.label ?? "")
   const [kind, setKind] = useState<AiProviderKind>(provider?.kind ?? "OPENAI_COMPATIBLE")
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? "")
-  const [region, setRegion] = useState(provider?.region ?? "us-west-2")
+  const [region, setRegion] = useState(provider?.region ?? "us-east-1")
   const [model, setModel] = useState(provider?.model ?? "")
   const [apiKey, setApiKey] = useState("")
   const [showKey, setShowKey] = useState(false)
@@ -219,7 +233,7 @@ export function ProviderDialog({
               <input
                 value={region}
                 onChange={(e) => setRegion(e.target.value)}
-                placeholder="us-west-2"
+                placeholder="us-east-1"
                 spellCheck={false}
                 className={inputCls + " font-mono text-[13px]"}
               />
@@ -230,7 +244,7 @@ export function ProviderDialog({
             label="Model"
             hint={
               kind === "BEDROCK"
-                ? "Bedrock model ID. The global.* prefix routes cross-region — best availability, no regional pricing premium."
+                ? "anthropic.claude-sonnet-5 (Messages endpoint) or an inference-profile ID like global.anthropic.claude-sonnet-4-6 / us.anthropic.claude-opus-4-6-v1 (legacy InvokeModel). Both work — the ID picks the API."
                 : undefined
             }
           >
@@ -238,7 +252,7 @@ export function ProviderDialog({
               value={model}
               onChange={(e) => setModel(e.target.value)}
               placeholder={
-                kind === "BEDROCK" ? "global.anthropic.claude-sonnet-4-6" : "gpt-4o-mini"
+                kind === "BEDROCK" ? "anthropic.claude-sonnet-5" : "gpt-4o-mini"
               }
               spellCheck={false}
               className={inputCls + " font-mono text-[13px]"}

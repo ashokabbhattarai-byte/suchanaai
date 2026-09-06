@@ -42,7 +42,7 @@ export interface UpsertProviderInput {
 }
 
 /** Fallback AWS region when an admin adds a Bedrock provider without one. */
-const DEFAULT_BEDROCK_REGION = 'us-west-2';
+const DEFAULT_BEDROCK_REGION = 'us-east-1';
 
 /**
  * The provider registry behind /admin/ai. Built-ins are seeded rows, so an
@@ -87,15 +87,15 @@ export class AiProvidersService implements OnModuleInit {
     },
     // Last in the chain: the paid, high-reliability backstop for when every
     // free tier above has refused, rate-limited, or run out of credit.
-    // `global.` is the cross-region endpoint — highest availability and no
-    // regional pricing premium.
+    // Model IDs on the Bedrock Messages endpoint carry an `anthropic.` prefix
+    // and no inference-profile prefix; Sonnet 4.6 is not served there at all.
     {
       slug: 'bedrock',
-      label: 'AWS Bedrock (Claude Sonnet 4.6)',
+      label: 'AWS Bedrock (Claude Sonnet 5)',
       kind: AiProviderKind.BEDROCK,
       baseUrl: null,
-      region: 'us-west-2',
-      model: 'global.anthropic.claude-sonnet-4-6',
+      region: 'us-east-1',
+      model: 'anthropic.claude-sonnet-5',
       sortOrder: 3,
     },
   ];

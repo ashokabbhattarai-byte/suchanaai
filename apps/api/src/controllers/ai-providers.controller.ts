@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Logger,
   Param,
   ParseUUIDPipe,
   Post,
@@ -42,6 +43,8 @@ interface ProviderBody {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.admin)
 export class AiProvidersController {
+  private readonly logger = new Logger(AiProvidersController.name);
+
   constructor(
     private readonly providers: AiProvidersService,
     private readonly http: HttpService,
@@ -57,9 +60,29 @@ export class AiProvidersController {
     return this.providers.list();
   }
 
+  /**
+   * Tell the AI service to re-pull the registry now.
+   *
+   * Its background sync runs on a multi-minute timer, so without this an
+   * admin who saves a key sees "No API key configured" on Test and gets the
+   * old provider chain on real calls until the timer happens to fire.
+   * Best-effort: a provider edit must still succeed if the AI service is down.
+   */
+  private async notifyAiService(): Promise<void> {
+    try {
+      await firstValueFrom(
+        this.http.post(`${this.aiUrl}/llm/providers/refresh`, {}, { timeout: 10000 }),
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `Provider registry saved but the AI service refresh failed: ${err?.message ?? err}`,
+      );
+    }
+  }
+
   @Post()
-  create(@Body() body: ProviderBody) {
-    return this.providers.create({
+  async create(@Body() body: ProviderBody) {
+    const created = await this.providers.create({
       label: body.label ?? '',
       kind: body.kind ?? AiProviderKind.OPENAI_COMPATIBLE,
       model: body.model ?? '',
@@ -68,6 +91,8 @@ export class AiProvidersController {
       apiKey: body.apiKey,
       enabled: body.enabled,
     });
+    await this.notifyAiService();
+    return created;
   }
 
   /**
@@ -75,18 +100,24 @@ export class AiProvidersController {
    * routes in declaration order.
    */
   @Put('order')
-  reorder(@Body() body: { ids?: string[] }) {
-    return this.providers.reorder(body.ids ?? []);
+  async reorder(@Body() body: { ids?: string[] }) {
+    const result = await this.providers.reorder(body.ids ?? []);
+    await this.notifyAiService();
+    return result;
   }
 
   @Put(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() body: ProviderBody) {
-    return this.providers.update(id, body);
+  async update(@Param('id', ParseUUIDPipe) id: string, @Body() body: ProviderBody) {
+    const updated = await this.providers.update(id, body);
+    await this.notifyAiService();
+    return updated;
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.providers.remove(id);
+  async remove(@Param('id', ParseUUIDPipe) id: string) {
+    const removed = await this.providers.remove(id);
+    await this.notifyAiService();
+    return removed;
   }
 
   /** Probe a single provider — the per-card "Test" button. */

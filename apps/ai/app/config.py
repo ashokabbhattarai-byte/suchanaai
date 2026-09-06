@@ -79,8 +79,12 @@ OPENCODE_ZEN_MODEL: str = _env("OPENCODE_ZEN_MODEL", "deepseek-v4-flash-free")
 # `global.` is the cross-region endpoint: best availability, and no regional
 # pricing premium.
 BEDROCK_API_KEY: str = _env("BEDROCK_API_KEY") or _env("AWS_BEARER_TOKEN_BEDROCK")
-BEDROCK_REGION: str = _env("BEDROCK_REGION", "us-west-2")
-BEDROCK_MODEL: str = _env("BEDROCK_MODEL", "global.anthropic.claude-sonnet-4-6")
+BEDROCK_REGION: str = _env("BEDROCK_REGION", "us-east-1")
+# Sonnet 4.6 is NOT served by the Bedrock Messages endpoint (it 404s there);
+# Sonnet 5 is the current Sonnet on that endpoint. IDs carry an `anthropic.`
+# prefix and no `global.`/`us.` inference-profile prefix — those belong to the
+# legacy InvokeModel API, not this one.
+BEDROCK_MODEL: str = _env("BEDROCK_MODEL", "anthropic.claude-sonnet-5")
 
 # Order in which LLM providers are tried; the first one that returns a
 # non-empty answer wins. Providers omitted here are never called at all, which

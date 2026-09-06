@@ -296,6 +296,14 @@ async def _route(method: str, path: str, scope: dict, receive, send) -> tuple[in
     if method == "GET" and path == "/health":
         return await _health()
 
+    if method == "POST" and path == "/llm/providers/refresh":
+        # Pull the provider registry immediately instead of waiting out the
+        # background interval. apps/api calls this after any provider edit so
+        # a newly saved key is live for real LLM calls, not just for the next
+        # health probe.
+        applied = await ai_config_sync.refresh_once()
+        return 200, {"refreshed": applied}
+
     if path == "/llm/health" and method in ("GET", "POST"):
         # Live provider probe for the admin "AI & Models" panel. Makes a real
         # (tiny) call, so it is deliberately NOT part of /health, which load
@@ -308,6 +316,12 @@ async def _route(method: str, path: str, scope: dict, receive, send) -> tuple[in
                 slug = (json.loads(body) if body else {}).get("slug")
             except json.JSONDecodeError:
                 return 400, {"error": "Invalid JSON body"}
+        # Pull the registry before probing. The background sync only runs
+        # every few minutes, so without this an admin who saves a key and
+        # immediately hits "Test" is probing the previous snapshot and gets
+        # "No API key configured" for a key that is definitely stored.
+        # Best-effort: a failed pull leaves the cached registry in place.
+        await ai_config_sync.refresh_once()
         return 200, await llm.health_snapshot(slug)
 
     if method == "POST" and path == "/documents":
