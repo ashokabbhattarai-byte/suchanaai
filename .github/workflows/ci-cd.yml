@@ -34,10 +34,6 @@ env:
   NEXT_PUBLIC_API_URL: https://ci.invalid
   NEXT_PUBLIC_AI_URL: https://ci.invalid
   NEXT_PUBLIC_GOOGLE_CLIENT_ID: ci-placeholder
-  # An IAM role ARN is a public identifier, not a credential. Keeping the
-  # verified OIDC role here prevents a stale GitHub secret from sending every
-  # deploy job to an old role with a non-OIDC trust policy.
-  AWS_DEPLOY_ROLE_ARN: arn:aws:iam::917909628524:role/suchanaai-github-deploy
   # apps/api's `postinstall` runs `prisma generate`, which only reads
   # prisma/schema.prisma for env("DATABASE_URL") to resolve — never connects.
   DATABASE_URL: postgresql://ci:ci@localhost:5432/ci_placeholder_unused
@@ -147,7 +143,7 @@ jobs:
         id: image
         uses: ./.github/actions/build-push-ecr
         with:
-          aws-role-arn: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-role-arn: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
           ecr-repo: ${{ vars.ECR_WEB_REPO || 'suchanaai-web' }}
           dockerfile: apps/web/Dockerfile
@@ -190,7 +186,7 @@ jobs:
         id: image
         uses: ./.github/actions/build-push-ecr
         with:
-          aws-role-arn: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-role-arn: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
           ecr-repo: ${{ vars.ECR_API_REPO || 'suchanaai-api' }}
           dockerfile: apps/api/Dockerfile
@@ -227,7 +223,7 @@ jobs:
         id: image
         uses: ./.github/actions/build-push-ecr
         with:
-          aws-role-arn: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-role-arn: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
           ecr-repo: ${{ vars.ECR_AI_REPO || 'suchanaai-ai-service' }}
           dockerfile: apps/ai/Dockerfile
