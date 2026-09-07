@@ -70,12 +70,41 @@ export class AiProvidersController {
    */
   private async notifyAiService(): Promise<void> {
     try {
-      await firstValueFrom(
+      const res = await firstValueFrom(
         this.http.post(`${this.aiUrl}/llm/providers/refresh`, {}, { timeout: 10000 }),
       );
+      // The AI service answers 200 whether or not the pull worked, so a
+      // failed sync used to look like a successful save while the service
+      // carried on with its env-var providers.
+      if (res.data && res.data.refreshed === false) {
+        this.logger.warn(
+          `AI service could not reload the provider registry: ${res.data.error ?? 'no reason given'}`,
+        );
+      }
     } catch (err: any) {
       this.logger.warn(
         `Provider registry saved but the AI service refresh failed: ${err?.message ?? err}`,
+      );
+    }
+  }
+
+  /**
+   * Force the AI service to re-pull the registry and report what happened.
+   *
+   * Exposed because a silently failing sync is indistinguishable from a
+   * working one in the panel: the list comes from this database, but the
+   * chain that actually answers is whatever the AI service last synced.
+   */
+  @Post('refresh')
+  async refresh() {
+    try {
+      const res = await firstValueFrom(
+        this.http.post(`${this.aiUrl}/llm/providers/refresh`, {}, { timeout: 15000 }),
+      );
+      return res.data;
+    } catch (err: any) {
+      throw new ServiceUnavailableException(
+        `Could not reach the AI service at ${this.aiUrl} — ${err?.message ?? err}`,
       );
     }
   }

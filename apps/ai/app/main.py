@@ -302,7 +302,14 @@ async def _route(method: str, path: str, scope: dict, receive, send) -> tuple[in
         # a newly saved key is live for real LLM calls, not just for the next
         # health probe.
         applied = await ai_config_sync.refresh_once()
-        return 200, {"refreshed": applied}
+        return 200, {
+            "refreshed": applied,
+            # Without a reason a failed sync is invisible: the service quietly
+            # keeps using env-var providers while the admin panel lists the
+            # database ones, and the two disagree with nothing to explain it.
+            "error": None if applied else ai_config_sync.last_sync_error(),
+            "providers": len(llm.all_providers()),
+        }
 
     if path == "/llm/health" and method in ("GET", "POST"):
         # Live provider probe for the admin "AI & Models" panel. Makes a real

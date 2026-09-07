@@ -86,36 +86,58 @@ def _apply_temperatures(temperatures: object) -> None:
         setattr(config, attribute, clamped)
 
 
+# Why the last sync attempt failed, surfaced by /llm/providers/refresh. A bare
+# "refreshed: false" gave an admin nothing to act on — the registry silently
+# fell back to env vars and the panel showed a provider list the service was
+# not actually using.
+LAST_SYNC_ERROR: str | None = None
+
+
+def last_sync_error() -> str | None:
+    return LAST_SYNC_ERROR
+
+
+def _fail(reason: str) -> bool:
+    global LAST_SYNC_ERROR
+    LAST_SYNC_ERROR = reason
+    logger.warning("AI config sync: %s", reason)
+    return False
+
+
 async def refresh_once() -> bool:
     """Fetch overrides and apply them. Returns True on a successful fetch
     (even if every field was null, i.e. nothing to override) so callers can
     log distinctly from a network/config failure."""
+    global LAST_SYNC_ERROR
     if not config.INTERNAL_SERVICE_SECRET:
-        return False
+        return _fail("INTERNAL_SERVICE_SECRET is not set on the AI service, so sync is disabled.")
 
+    url = f"{config.API_INTERNAL_URL.rstrip('/')}{_ENDPOINT}"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
-                f"{config.API_INTERNAL_URL.rstrip('/')}{_ENDPOINT}",
+                url,
                 headers={"x-internal-secret": config.INTERNAL_SERVICE_SECRET},
             )
     except httpx.HTTPError as e:
-        logger.warning("AI config sync: request failed: %s", e)
-        return False
+        return _fail(f"could not reach {url}: {e}")
 
     if response.status_code != 200:
-        logger.warning(
-            "AI config sync: API returned %d: %.200s",
-            response.status_code,
-            response.text,
+        return _fail(
+            f"{url} returned {response.status_code}: {response.text[:200]}"
+            + (
+                " — INTERNAL_SERVICE_SECRET likely differs from the API's."
+                if response.status_code in (401, 403)
+                else ""
+            )
         )
-        return False
 
     try:
         data = response.json()
     except ValueError:
-        logger.warning("AI config sync: response was not valid JSON")
-        return False
+        return _fail(f"{url} did not return valid JSON")
+
+    LAST_SYNC_ERROR = None
 
     _apply_temperatures(data.get("temperatures"))
 

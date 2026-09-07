@@ -374,6 +374,22 @@ async def _call_provider(provider: dict, messages: list[dict], max_tokens: int, 
 _RECENT_FAILURES: dict[str, tuple[float, str]] = {}
 _FAILURE_TTL_SECONDS = 300
 
+# Health probe. Devanagari round-trip because the corpus is mostly Nepali: a
+# model that mangles the script is useless here even when it answers quickly.
+_PROBE_PROMPT = 'Reply with exactly this and nothing else: २०७१'
+_PROBE_MAX_TOKENS = 512
+
+
+def _probe_text(response, kind: str | None) -> str:
+    """Pull the assistant text out of either provider's response shape."""
+    try:
+        data = response.json()
+        if kind == "GEMINI":
+            return data["candidates"][0]["content"]["parts"][0]["text"] or ""
+        return data["choices"][0]["message"]["content"] or ""
+    except (ValueError, KeyError, IndexError, TypeError):
+        return ""
+
 
 def _note_failure(slug: str | None, message: str) -> None:
     if slug:
@@ -761,11 +777,15 @@ async def _probe_provider(provider: dict) -> tuple[bool, str | None]:
         )
         return (error is None), error
 
+    # A real instruction with a checkable answer, sized like an actual call.
+    # "ping" with max_tokens=8 passed on quota that rejects every real request
+    # and on models too weak to follow an instruction — so the panel showed
+    # green while the chatbot returned nothing but fallbacks.
     if provider.get("kind") == "GEMINI":
         url = GEMINI_API_URL.format(model=provider["model"]) + f"?key={provider['api_key']}"
         payload = {
-            "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
-            "generationConfig": {"maxOutputTokens": 8, "temperature": 0.0},
+            "contents": [{"role": "user", "parts": [{"text": _PROBE_PROMPT}]}],
+            "generationConfig": {"maxOutputTokens": _PROBE_MAX_TOKENS, "temperature": 0.0},
         }
         async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT_SECONDS) as client:
             response = await client.post(url, json=payload)
@@ -775,8 +795,8 @@ async def _probe_provider(provider: dict) -> tuple[bool, str | None]:
             return False, "No endpoint URL configured."
         payload = {
             "model": provider["model"],
-            "messages": [{"role": "user", "content": "ping"}],
-            "max_tokens": 8,
+            "messages": [{"role": "user", "content": _PROBE_PROMPT}],
+            "max_tokens": _PROBE_MAX_TOKENS,
             "temperature": 0.0,
         }
         async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT_SECONDS) as client:
@@ -791,6 +811,22 @@ async def _probe_provider(provider: dict) -> tuple[bool, str | None]:
 
     if response.status_code != 200:
         return False, _describe_http_failure(response.status_code, response.text)
+
+    text = _probe_text(response, provider.get("kind"))
+    if not text.strip():
+        return False, (
+            "Returned an empty answer — the model produced no text. On reasoning "
+            "models this usually means the token budget was spent before any output."
+        )
+    # The prompt asks for the Devanagari digits back, which is the cheapest
+    # check that the model both followed an instruction and can emit the script
+    # this corpus is written in.
+    if "२०७१" not in text:
+        return False, (
+            f"Reachable, but the model did not follow the test instruction "
+            f"(returned {text.strip()[:60]!r}). It may be a non-chat or "
+            f"non-multilingual model."
+        )
     return True, None
 
 
@@ -841,7 +877,22 @@ async def health_snapshot(slug: str | None = None) -> dict:
     if slug:
         providers = [p for p in providers if p.get("slug") == slug]
         if not providers:
-            return {"providers": [], "activeProvider": None, "healthy": False}
+            # An empty list rendered as "Not tested yet", so a provider the
+            # service has never heard of looked identical to one nobody had
+            # clicked Test on. Say what is actually wrong: the registry the
+            # panel lists comes from the database, but this service is running
+            # on whatever the last successful config sync gave it.
+            known = ", ".join(p.get("slug") or "?" for p in all_providers()) or "none"
+            return {
+                "providers": [],
+                "activeProvider": None,
+                "healthy": False,
+                "error": (
+                    f'"{slug}" is not in the AI service\'s registry, so it is never called. '
+                    f"Loaded providers: {known}. This means the config sync from the API has "
+                    f"not succeeded — POST /llm/providers/refresh returns the reason."
+                ),
+            }
 
     results = list(await asyncio.gather(*(_health_for(p) for p in providers)))
 
