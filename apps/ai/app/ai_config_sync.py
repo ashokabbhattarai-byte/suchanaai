@@ -114,7 +114,12 @@ async def refresh_once() -> bool:
 
     url = f"{config.API_INTERNAL_URL.rstrip('/')}{_ENDPOINT}"
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        # follow_redirects: an API_INTERNAL_URL on http:// gets a 301 to https
+        # once TLS is in front of the API, and httpx does not follow redirects
+        # by default — so the sync failed permanently while every other health
+        # signal stayed green. Custom headers survive the hop, so the internal
+        # secret still reaches the API.
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             response = await client.get(
                 url,
                 headers={"x-internal-secret": config.INTERNAL_SERVICE_SECRET},

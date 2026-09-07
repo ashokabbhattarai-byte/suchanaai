@@ -82,7 +82,7 @@ export class AiProvidersService implements OnModuleInit {
       label: 'OpenRouter',
       kind: AiProviderKind.OPENAI_COMPATIBLE,
       baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
-      model: 'google/gemma-4-31b-it:free',
+      model: 'minimax/minimax-m3:free',
       sortOrder: -1,
     },
     {

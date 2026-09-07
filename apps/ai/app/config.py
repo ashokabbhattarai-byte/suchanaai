@@ -60,9 +60,10 @@ INTERNAL_SERVICE_SECRET: str = _env("INTERNAL_SERVICE_SECRET")
 # Groq's 200k tokens/day cap is what this workload kept exhausting.
 OPENROUTER_API_KEY: str = _env("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL: str = _env("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
-# Instruction-tuned, strong on Devanagari, and a 262k context the notice
-# corpus will never come close to filling.
-OPENROUTER_MODEL: str = _env("OPENROUTER_MODEL", "google/gemma-4-31b-it:free")
+# Verified answering Nepali correctly, with a 1M context the notice corpus will
+# never come close to filling. gemma-4-31b-it:free reads like the safer pick but
+# is permanently 429 — the shared free pool for it is exhausted.
+OPENROUTER_MODEL: str = _env("OPENROUTER_MODEL", "minimax/minimax-m3:free")
 
 GROQ_API_KEY: str = _env("GROQ_API_KEY")
 GROQ_API_KEYS: list[str] = [k.strip() for k in _env("GROQ_API_KEYS", "").split(",") if k.strip()] or ([GROQ_API_KEY] if GROQ_API_KEY else [])
@@ -95,14 +96,15 @@ BEDROCK_REGION: str = _env("BEDROCK_REGION", "us-east-1")
 # legacy InvokeModel API, not this one.
 BEDROCK_MODEL: str = _env("BEDROCK_MODEL", "anthropic.claude-sonnet-5")
 
-# Order in which LLM providers are tried; the first one that returns a
-# non-empty answer wins. Providers omitted here are never called at all, which
-# is how an admin disables one without deleting its key. Overridable live from
-# the admin settings panel (see ai_config_sync.py) — this env value is only
-# the fallback default.
+# NOTE: nothing reads this. Order comes from the registry's sort_order (or the
+# order _env_fallback_providers builds when the sync is down), and disabling is
+# the `enabled` flag — not omission from this list. Kept only so an existing
+# LLM_PROVIDER_PRIORITY in a deployed env doesn't look like it was dropped.
 LLM_PROVIDER_PRIORITY: list[str] = [
     p.strip()
-    for p in _env("LLM_PROVIDER_PRIORITY", "gemini,groq,opencode,bedrock").split(",")
+    for p in _env(
+        "LLM_PROVIDER_PRIORITY", "openrouter,gemini,groq,opencode,bedrock"
+    ).split(",")
     if p.strip()
 ]
 
