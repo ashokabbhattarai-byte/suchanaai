@@ -1,5 +1,13 @@
 # Deploying Evolution API (WhatsApp integration) on the Oracle box
 
+> **Superseded for the current deployment.** This system now runs on AWS
+> (see `docs/AWS_DEPLOYMENT.md`), and Evolution API is live there — see
+> `docs/EVOLUTION_API_AWS_DEPLOYMENT.md` for the actual, current deployment
+> (a dedicated private EC2 instance wired into `suchanaai-api-prod`). This
+> doc is kept for reference (the Evolution API concepts in §1 and the
+> general open-source-project evaluation checklist in §14 are unchanged)
+> but its docker-compose/Caddy steps apply to the Oracle box, not AWS.
+
 > Companion to `DEPLOY.md` (the Oracle Cloud production setup this extends)
 > and `apps/api/src/webhooks/` (the code that receives what this produces).
 > `DEPLOY.md` explicitly deferred this: *"WhatsApp (Evolution API) integration

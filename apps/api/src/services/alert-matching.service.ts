@@ -2,7 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AlertRule, ScrapedItem, User } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { QuotaService } from './quota.service';
+import { SettingsService } from './settings.service';
 import { EvolutionApiService } from '../integrations/evolution/evolution-api.service';
+import { DEFAULT_WHATSAPP_TEMPLATE, renderTemplate } from './alert-template';
 
 // Deliberately NOT WEB_ORIGIN — that's the local-dev CORS allowlist entry
 // (e.g. http://localhost:3535) and would produce links WhatsApp never
@@ -73,6 +75,7 @@ export class AlertMatchingService {
     private readonly prisma: PrismaService,
     private readonly evolutionApi: EvolutionApiService,
     private readonly quota: QuotaService,
+    private readonly settings: SettingsService,
   ) {}
 
   /** Non-blocking, cannot throw — safe to call inline from the scrape loop. */
@@ -240,58 +243,43 @@ export class AlertMatchingService {
     return parts.join(', ');
   }
 
-  /** Builds a detailed, formatted WhatsApp alert message (WhatsApp markdown: *bold* _italic_). */
-  buildMessage(rule: AlertRule, result: MatchResult, item: ScrapedItem): string {
+  /** Token values for the WhatsApp template — see alert-template.ts's TEMPLATE_TOKENS. */
+  private buildTemplateData(rule: AlertRule, result: MatchResult, item: ScrapedItem): Record<string, string> {
     const category = CATEGORY_META[item.category] ?? CATEGORY_META.OTHER;
-    const url = `${NOTICE_URL_BASE.replace(/\/+$/, '')}/notices/${item.id}`;
-    const manageUrl = `${NOTICE_URL_BASE.replace(/\/+$/, '')}/dashboard/alerts`;
-
-    const lines: string[] = [];
-    lines.push(`${category.emoji} *${category.label} Alert*`);
-    lines.push('───────────────');
-    lines.push(`*${item.title}*`);
-    lines.push('');
-
-    if (item.sourceLabel) lines.push(`🏛️ *Organization:* ${item.sourceLabel}`);
-    const published = this.formatDate(item.publishedAt);
-    if (published) lines.push(`📅 *Published:* ${published}`);
-
-    const deadline = this.extractDeadline(item.metadata);
-    const formattedDeadline = this.formatDate(deadline);
-    if (formattedDeadline) lines.push(`⏰ *Deadline:* ${formattedDeadline}`);
-
     const urgency = item.aiUrgency ? URGENCY_META[item.aiUrgency.toUpperCase()] : null;
-    if (urgency) lines.push(`${urgency.emoji} *${urgency.label}*`);
-
     const summary = item.aiSummary || item.summary;
-    if (summary) {
-      lines.push('');
-      lines.push(`📝 *Summary:*`);
-      lines.push(this.truncate(summary, 320));
-    }
-
     const keyFacts = Array.isArray(item.keyFacts) ? (item.keyFacts as unknown[]).map(String).filter(Boolean) : [];
-    if (keyFacts.length > 0) {
-      lines.push('');
-      lines.push('🔑 *Key facts:*');
-      for (const fact of keyFacts.slice(0, 5)) {
-        lines.push(`• ${this.truncate(fact, 140)}`);
-      }
-    }
 
-    lines.push('');
-    lines.push(`🔎 *Matched alert:* _${rule.name}_ (${this.matchSummary(result)})`);
-    lines.push('');
-    lines.push('🔗 *View full notice:*');
-    // URL alone on its own line — WhatsApp's link auto-detection is most
-    // reliable this way; anything sharing the line (emoji, markdown) risks
-    // the link not rendering as tappable on some clients.
-    lines.push(url);
-    lines.push('───────────────');
-    lines.push('_Manage your alerts:_');
-    lines.push(manageUrl);
+    return {
+      categoryEmoji: category.emoji,
+      categoryLabel: category.label,
+      title: item.title,
+      organization: item.sourceLabel ?? '',
+      publishedDate: this.formatDate(item.publishedAt) ?? '',
+      deadlineDate: this.formatDate(this.extractDeadline(item.metadata)) ?? '',
+      urgencyEmoji: urgency?.emoji ?? '',
+      urgencyLabel: urgency?.label ?? '',
+      summary: summary ? this.truncate(summary, 320) : '',
+      keyFacts: keyFacts.length
+        ? keyFacts.slice(0, 5).map((f) => `• ${this.truncate(f, 140)}`).join('\n')
+        : '',
+      matchReason: this.matchSummary(result),
+      ruleName: rule.name,
+      // URL alone on its own line in the default template — WhatsApp's link
+      // auto-detection is most reliable that way; anything sharing the line
+      // risks the link not rendering as tappable on some clients. An admin
+      // editing the template should keep that convention.
+      noticeUrl: `${NOTICE_URL_BASE.replace(/\/+$/, '')}/notices/${item.id}`,
+      manageUrl: `${NOTICE_URL_BASE.replace(/\/+$/, '')}/dashboard/alerts`,
+    };
+  }
 
-    return lines.join('\n');
+  /** Builds a detailed, formatted WhatsApp alert message (WhatsApp markdown: *bold* _italic_).
+   * Renders the admin-configurable template (default: DEFAULT_WHATSAPP_TEMPLATE) —
+   * see /admin/alerts' template editor and alert-template.ts. */
+  async buildMessage(rule: AlertRule, result: MatchResult, item: ScrapedItem): Promise<string> {
+    const template = await this.settings.getString('alerts.whatsappTemplate', DEFAULT_WHATSAPP_TEMPLATE);
+    return renderTemplate(template, this.buildTemplateData(rule, result, item));
   }
 
   /** Instant send, or queue as PENDING for the next digest — see User.digestFrequency / AlertRule.priority. */
@@ -314,7 +302,7 @@ export class AlertMatchingService {
   }
 
   private async notifyOne(user: User, rule: AlertRule, result: MatchResult, item: ScrapedItem): Promise<void> {
-    const text = this.buildMessage(rule, result, item);
+    const text = await this.buildMessage(rule, result, item);
 
     // WhatsApp delivery costs money per message, so the plan's monthly cap is
     // enforced by the sender. Over the cap the notification is recorded as

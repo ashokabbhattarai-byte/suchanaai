@@ -3,13 +3,16 @@
 import { AdminLayout } from "@/components/admin/admin-layout"
 import { AdminWhatsappCard } from "@/components/admin/admin-whatsapp-card"
 import { AdminEmailCard } from "@/components/admin/admin-email-card"
+import { AlertTemplateCard } from "@/components/admin/alert-template-card"
 import { Header } from "@/components/layout/header"
 
 /**
  * The two — and only two — delivery channels for user alerts: WhatsApp (the
  * shared Evolution API sender) and email (admin-configured SMTP). Both cards
  * read and write real server state; neither ever receives a stored
- * credential back from the API.
+ * credential back from the API. AlertTemplateCard edits what the WhatsApp
+ * channel actually sends — kept on this page since it's meaningless without
+ * the sender being connected.
  */
 export default function AdminAlertChannelsPage() {
   return (
@@ -27,6 +30,7 @@ export default function AdminAlertChannelsPage() {
 
         <div className="space-y-6">
           <AdminWhatsappCard />
+          <AlertTemplateCard />
           <AdminEmailCard />
         </div>
       </AdminLayout>

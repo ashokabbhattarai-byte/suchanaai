@@ -1067,6 +1067,29 @@ export async function logoutAdminWhatsapp(): Promise<{ loggedOut: boolean }> {
   return apiFetch("/admin/whatsapp/logout", { method: "POST" })
 }
 
+// ─── Admin: WhatsApp alert message template ─────────────────────────────────
+// The template itself is stored as the `alerts.whatsappTemplate` setting
+// (save/reset reuse updateSettings/resetSetting above) — these two just add
+// what the generic settings endpoints can't: the token reference list and a
+// live preview rendered against sample data.
+
+export interface AlertTemplateToken {
+  token: string
+  description: string
+  optional: boolean
+}
+
+export async function fetchAlertTemplateTokens(): Promise<{ tokens: AlertTemplateToken[]; default: string }> {
+  return apiFetch("/admin/alerts/template/tokens")
+}
+
+export async function previewAlertTemplate(template: string): Promise<{ preview: string }> {
+  return apiFetch("/admin/alerts/template/preview", {
+    method: "POST",
+    body: JSON.stringify({ template }),
+  })
+}
+
 /**
  * Admin SMTP channel. The password is write-only by design: it is never in a
  * GET response, only `passwordConfigured` + a masked preview, so this type

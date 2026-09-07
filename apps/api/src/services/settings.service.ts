@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { CronJob } from 'cron';
 import { PrismaService } from '../prisma/prisma.service';
 import { SecretCryptoService } from '../common/crypto/secret-crypto.service';
+import { DEFAULT_WHATSAPP_TEMPLATE } from './alert-template';
 
 /**
  * Setting-type contract. `cron` is validated with the same `cron` library the
@@ -89,6 +90,11 @@ export class SettingsService implements OnModuleInit {
       label: 'AI behaviour',
       description:
         'Sampling temperature per task. Applied by the AI service on its next config poll (within ~3 minutes) — no redeploy.',
+    },
+    {
+      id: 'alerts',
+      label: 'Alerts',
+      description: 'WhatsApp alert message template. Manage this from /admin/alerts for a live preview.',
     },
   ];
 
@@ -246,6 +252,15 @@ export class SettingsService implements OnModuleInit {
         'When on, public API routes return 503. Admin routes, /health and /auth stay reachable so you can always turn it back off.',
       type: 'boolean',
       default: 'false',
+    },
+    {
+      key: 'alerts.whatsappTemplate',
+      group: 'alerts',
+      label: 'WhatsApp alert message template',
+      description:
+        'Template for the instant WhatsApp message sent when a notice matches a user\'s alert rule. Use {{token}} placeholders and {{#token}}...{{/token}} for content shown only when that field is present. Edit and preview this from /admin/alerts — the field list and a live preview live there; this raw text also works. Digest (batched) messages are formatted separately and not covered by this template.',
+      type: 'textarea',
+      default: DEFAULT_WHATSAPP_TEMPLATE,
     },
   ];
 
