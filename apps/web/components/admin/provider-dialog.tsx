@@ -1,8 +1,21 @@
 "use client"
 
 import { useState } from "react"
-import { AlertCircle, Eye, EyeOff, Loader2, X } from "lucide-react"
-import type { AiProvider, AiProviderInput, AiProviderKind } from "@/lib/types"
+import { AlertCircle, Eye, EyeOff, Loader2, RefreshCw, X } from "lucide-react"
+import { fetchAiProviderModels } from "@/lib/api"
+import type {
+  AiProvider,
+  AiProviderInput,
+  AiProviderKind,
+  AiProviderModel,
+} from "@/lib/types"
+
+/** 262144 → "262k", 1048576 → "1M" — model lists are dense enough already. */
+function formatContext(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_048_576).toFixed(tokens % 1_048_576 ? 1 : 0)}M`
+  if (tokens >= 1000) return `${Math.round(tokens / 1024)}k`
+  return String(tokens)
+}
 
 /** Presets so the common vendors are one click, not a URL hunt. */
 const PRESETS: Array<{
@@ -43,7 +56,9 @@ const PRESETS: Array<{
     label: "OpenRouter",
     kind: "OPENAI_COMPATIBLE",
     baseUrl: "https://openrouter.ai/api/v1/chat/completions",
-    model: "meta-llama/llama-3.3-70b-instruct",
+    // A starting point only — "Load" lists what OpenRouter actually serves
+    // today, which is the point of the picker.
+    model: "google/gemma-4-31b-it:free",
   },
   {
     label: "Together AI",
@@ -91,6 +106,41 @@ export function ProviderDialog({
   const [showKey, setShowKey] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Model picker. Bedrock has no catalogue endpoint, so it always falls back
+  // to free text; everything else lists what the provider actually serves.
+  const [models, setModels] = useState<AiProviderModel[]>([])
+  const [modelQuery, setModelQuery] = useState("")
+  const [loadingModels, setLoadingModels] = useState(false)
+  const [modelError, setModelError] = useState<string | null>(null)
+  const [customModel, setCustomModel] = useState(false)
+
+  const loadModels = async () => {
+    setLoadingModels(true)
+    setModelError(null)
+    try {
+      const { models: found, note } = await fetchAiProviderModels({
+        id: provider?.id,
+        kind,
+        baseUrl: baseUrl || null,
+        // Only send a key the admin just typed — omitted means "use the one
+        // already stored for this provider", which the server can decrypt.
+        apiKey: apiKey.trim() || undefined,
+      })
+      setModels(found)
+      if (note) setModelError(note)
+      else if (!found.length) setModelError("The provider returned no models.")
+    } catch (e) {
+      setModels([])
+      setModelError(e instanceof Error ? e.message : "Could not load models.")
+    } finally {
+      setLoadingModels(false)
+    }
+  }
+
+  const visibleModels = models.filter((m) =>
+    m.id.toLowerCase().includes(modelQuery.trim().toLowerCase()),
+  )
 
   const applyPreset = (p: (typeof PRESETS)[number]) => {
     setLabel((l) => l || p.label)
@@ -248,15 +298,104 @@ export function ProviderDialog({
                 : undefined
             }
           >
-            <input
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder={
-                kind === "BEDROCK" ? "anthropic.claude-sonnet-5" : "gpt-4o-mini"
-              }
-              spellCheck={false}
-              className={inputCls + " font-mono text-[13px]"}
-            />
+            {kind !== "BEDROCK" && !customModel ? (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    value={modelQuery}
+                    onChange={(e) => setModelQuery(e.target.value)}
+                    placeholder={models.length ? "Search models…" : "Load models to pick one"}
+                    spellCheck={false}
+                    className={inputCls + " font-mono text-[13px]"}
+                  />
+                  <button
+                    type="button"
+                    onClick={loadModels}
+                    disabled={loadingModels}
+                    className="flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-lg border border-vez-line px-3 text-xs text-vez-ink transition-colors hover:bg-vez-surface disabled:opacity-50 cursor-pointer"
+                  >
+                    {loadingModels ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="size-3.5" />
+                    )}
+                    {models.length ? "Refresh" : "Load"}
+                  </button>
+                </div>
+
+                {modelError && (
+                  <p className="text-xs text-red-600">{modelError}</p>
+                )}
+
+                {models.length > 0 && (
+                  <ul className="max-h-52 overflow-y-auto rounded-lg border border-vez-line">
+                    {visibleModels.map((m) => (
+                      <li key={m.id}>
+                        <button
+                          type="button"
+                          onClick={() => setModel(m.id)}
+                          className={`flex w-full flex-col items-start gap-0.5 border-b border-vez-line/60 px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-vez-surface cursor-pointer ${
+                            model === m.id ? "bg-vez-sky/20" : ""
+                          }`}
+                        >
+                          <span className="font-mono text-[12px] text-vez-ink">{m.id}</span>
+                          <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-vez-mute">
+                            {m.free && (
+                              <span className="rounded-full bg-emerald-100 px-1.5 text-emerald-700">FREE</span>
+                            )}
+                            {m.contextLength && <span>{formatContext(m.contextLength)} ctx</span>}
+                            {m.modality && <span>· {m.modality}</span>}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                    {visibleModels.length === 0 && (
+                      <li className="px-3 py-2 text-xs text-vez-mute">No model matches that search.</li>
+                    )}
+                  </ul>
+                )}
+
+                <div className="flex items-center justify-between text-[11px] text-vez-mute">
+                  <span>
+                    {model ? (
+                      <>
+                        Selected: <span className="font-mono text-vez-ink">{model}</span>
+                      </>
+                    ) : (
+                      "No model selected"
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCustomModel(true)}
+                    className="underline transition-colors hover:text-vez-ink cursor-pointer"
+                  >
+                    Use a custom model ID
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                <input
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder={
+                    kind === "BEDROCK" ? "anthropic.claude-sonnet-5" : "gpt-4o-mini"
+                  }
+                  spellCheck={false}
+                  className={inputCls + " font-mono text-[13px]"}
+                />
+                {kind !== "BEDROCK" && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomModel(false)}
+                    className="self-end text-[11px] text-vez-mute underline transition-colors hover:text-vez-ink cursor-pointer"
+                  >
+                    Pick from the provider&rsquo;s model list
+                  </button>
+                )}
+              </div>
+            )}
           </Field>
 
           <Field

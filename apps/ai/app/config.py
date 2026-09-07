@@ -55,6 +55,15 @@ EMBEDDING_BATCH_SIZE: int = _env_int("EMBEDDING_BATCH_SIZE", 32)
 API_INTERNAL_URL: str = _env("API_INTERNAL_URL", "http://localhost:5005")
 INTERNAL_SERVICE_SECRET: str = _env("INTERNAL_SERVICE_SECRET")
 
+# OpenRouter — first in the chain. It meters requests per day rather than
+# tokens per day, so a long RAG context costs the same as a one-line question;
+# Groq's 200k tokens/day cap is what this workload kept exhausting.
+OPENROUTER_API_KEY: str = _env("OPENROUTER_API_KEY")
+OPENROUTER_BASE_URL: str = _env("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
+# Instruction-tuned, strong on Devanagari, and a 262k context the notice
+# corpus will never come close to filling.
+OPENROUTER_MODEL: str = _env("OPENROUTER_MODEL", "google/gemma-4-31b-it:free")
+
 GROQ_API_KEY: str = _env("GROQ_API_KEY")
 GROQ_API_KEYS: list[str] = [k.strip() for k in _env("GROQ_API_KEYS", "").split(",") if k.strip()] or ([GROQ_API_KEY] if GROQ_API_KEY else [])
 # llama-3.3-70b-versatile was retired from Groq's catalog (404 model_not_found).

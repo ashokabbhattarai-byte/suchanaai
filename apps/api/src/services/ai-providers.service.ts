@@ -6,11 +6,21 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 import { AiProvider, AiProviderKind } from '@prisma/client';
 import * as dns from 'dns/promises';
 import * as net from 'net';
 import { PrismaService } from '../prisma/prisma.service';
 import { SecretCryptoService } from '../common/crypto/secret-crypto.service';
+
+/** One entry of a provider's live model catalogue, for the admin picker. */
+export interface ProviderModel {
+  id: string;
+  contextLength: number | null;
+  free: boolean;
+  modality: string | null;
+}
 
 /** Shape sent to the admin UI — never contains a decrypted key. */
 export interface AiProviderView {
@@ -61,6 +71,20 @@ export class AiProvidersService implements OnModuleInit {
     Pick<AiProvider, 'slug' | 'label' | 'kind' | 'baseUrl' | 'model' | 'sortOrder'> &
       Partial<Pick<AiProvider, 'region'>>
   > = [
+    // First in the chain. OpenRouter meters requests per day, not tokens per
+    // day, so a long RAG context costs no more than a one-line question —
+    // Groq's 200k tokens/day cap is what this workload kept exhausting.
+    // sortOrder is -1 rather than 0 so it also lands ahead of the providers
+    // already seeded at 0..3 on installs that predate it; seeding only inserts
+    // missing slugs and never renumbers existing rows.
+    {
+      slug: 'openrouter',
+      label: 'OpenRouter',
+      kind: AiProviderKind.OPENAI_COMPATIBLE,
+      baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
+      model: 'google/gemma-4-31b-it:free',
+      sortOrder: -1,
+    },
     {
       slug: 'gemini',
       label: 'Google Gemini',
@@ -104,6 +128,7 @@ export class AiProvidersService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly crypto: SecretCryptoService,
     private readonly config: ConfigService,
+    private readonly http: HttpService,
   ) {}
 
   /**
@@ -257,6 +282,141 @@ export class AiProvidersService implements OnModuleInit {
     const row = await this.prisma.aiProvider.findUnique({ where: { id } });
     if (!row) throw new NotFoundException('Provider not found');
     return row;
+  }
+
+  /**
+   * Live model catalogue for a provider, so the admin picks an ID that exists
+   * instead of typing one.
+   *
+   * Typed model IDs are how the registry ended up pointing at models the
+   * vendor had retired — the call then fails at answer time, which reads as
+   * "the AI is down" rather than "that model is gone".
+   *
+   * `apiKey` is the plaintext key when the admin is entering a new one; when
+   * omitted the stored key for `id` is used, so listing models works while
+   * editing a saved provider without re-typing its key.
+   */
+  async listModels(input: {
+    id?: string;
+    kind: AiProviderKind;
+    baseUrl?: string | null;
+    apiKey?: string;
+  }): Promise<{ models: ProviderModel[]; note?: string }> {
+    let key = input.apiKey?.trim() || null;
+    let kind = input.kind;
+    let baseUrl = input.baseUrl ?? null;
+
+    if (input.id) {
+      const saved = await this.findOne(input.id);
+      kind = input.kind ?? saved.kind;
+      baseUrl = baseUrl ?? saved.baseUrl;
+      if (!key && saved.apiKeyEnc) key = this.safeDecrypt(saved.apiKeyEnc, saved.slug);
+    }
+
+    if (kind === AiProviderKind.BEDROCK) {
+      return {
+        models: [],
+        note: 'Bedrock has no public model-list endpoint here — enter the model ID manually.',
+      };
+    }
+
+    if (kind === AiProviderKind.GEMINI) {
+      if (!key) throw new BadRequestException('An API key is required to list Gemini models.');
+      return { models: await this.fetchGeminiModels(key) };
+    }
+
+    if (!baseUrl?.trim()) {
+      throw new BadRequestException('An endpoint URL is required to list models.');
+    }
+    return { models: await this.fetchOpenAiCompatibleModels(baseUrl, key) };
+  }
+
+  /**
+   * Providers expose the catalogue at /models alongside /chat/completions, so
+   * the listing URL is derived from the endpoint already configured rather
+   * than asking the admin for a second URL.
+   */
+  private modelsUrlFrom(chatUrl: string): string {
+    const trimmed = chatUrl.trim().replace(/\/+$/, '');
+    const idx = trimmed.lastIndexOf('/chat/completions');
+    if (idx !== -1) return `${trimmed.slice(0, idx)}/models`;
+    return `${trimmed}/models`;
+  }
+
+  private async fetchOpenAiCompatibleModels(
+    chatUrl: string,
+    apiKey: string | null,
+  ): Promise<ProviderModel[]> {
+    const url = this.modelsUrlFrom(chatUrl);
+    let data: any;
+    try {
+      const res = await firstValueFrom(
+        this.http.get(url, {
+          timeout: 20000,
+          headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+        }),
+      );
+      data = res.data;
+    } catch (err: any) {
+      const status = err?.response?.status;
+      throw new BadRequestException(
+        status === 401 || status === 403
+          ? 'The provider rejected that API key when listing models.'
+          : `Could not list models from ${url}: ${err?.message ?? err}`,
+      );
+    }
+
+    const rows: any[] = Array.isArray(data?.data) ? data.data : [];
+    return rows
+      .map((m) => {
+        const id = String(m?.id ?? '');
+        // OpenRouter reports pricing per token as decimal strings; "0" in both
+        // prompt and completion is what makes a model actually free, which is
+        // more reliable than the ":free" suffix convention.
+        const prompt = Number(m?.pricing?.prompt ?? NaN);
+        const completion = Number(m?.pricing?.completion ?? NaN);
+        const free =
+          id.endsWith(':free') ||
+          (Number.isFinite(prompt) && prompt === 0 && Number.isFinite(completion) && completion === 0);
+        return {
+          id,
+          contextLength: Number(m?.context_length ?? m?.top_provider?.context_length) || null,
+          free,
+          modality: m?.architecture?.modality ?? null,
+        };
+      })
+      .filter((m) => m.id)
+      .sort((a, b) => (b.contextLength ?? 0) - (a.contextLength ?? 0));
+  }
+
+  private async fetchGeminiModels(apiKey: string): Promise<ProviderModel[]> {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
+    let data: any;
+    try {
+      const res = await firstValueFrom(this.http.get(url, { timeout: 20000 }));
+      data = res.data;
+    } catch (err: any) {
+      const status = err?.response?.status;
+      throw new BadRequestException(
+        status === 400 || status === 401 || status === 403
+          ? 'Google rejected that key. Gemini needs an API key from aistudio.google.com (starts with "AIza"), not an OAuth token.'
+          : `Could not list Gemini models: ${err?.message ?? err}`,
+      );
+    }
+
+    const rows: any[] = Array.isArray(data?.models) ? data.models : [];
+    return rows
+      .filter((m) => (m?.supportedGenerationMethods ?? []).includes('generateContent'))
+      .map((m) => ({
+        id: String(m?.name ?? '').replace(/^models\//, ''),
+        contextLength: Number(m?.inputTokenLimit) || null,
+        // Gemini's free tier is per-key, not per-model, so nothing here is
+        // marked free — the model list can't tell us the caller's tier.
+        free: false,
+        modality: null,
+      }))
+      .filter((m) => m.id)
+      .sort((a, b) => (b.contextLength ?? 0) - (a.contextLength ?? 0));
   }
 
   // ── Writes ─────────────────────────────────────────────────────────────

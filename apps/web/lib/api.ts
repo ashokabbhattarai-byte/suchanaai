@@ -25,6 +25,8 @@ import {
   PublicSiteSettings,
   AiHealthSnapshot,
   AiProvider,
+  AiProviderKind,
+  AiProviderModel,
   AiProviderInput,
   SystemStatus,
 } from "./types"
@@ -755,6 +757,24 @@ export async function reorderAiProviders(ids: string[]): Promise<AiProvider[]> {
 /** Probe exactly one provider (the per-card Test button). */
 export async function testAiProvider(id: string): Promise<AiHealthSnapshot> {
   return apiFetch(`/admin/ai/providers/${id}/health`, { method: "POST", body: JSON.stringify({}) })
+}
+
+/**
+ * The provider's live model catalogue, for the picker in the provider dialog.
+ *
+ * POST because an unsaved provider has no id and the candidate key travels in
+ * the body — a key in a query string would end up in access logs.
+ */
+export async function fetchAiProviderModels(input: {
+  id?: string
+  kind: AiProviderKind
+  baseUrl?: string | null
+  apiKey?: string
+}): Promise<{ models: AiProviderModel[]; note?: string }> {
+  return apiFetch("/admin/ai/providers/models", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })
 }
 
 /** Public subset (site.title/description) for the footer. */

@@ -96,6 +96,26 @@ export class AiProvidersController {
   }
 
   /**
+   * Live model catalogue for the picker in the provider dialog.
+   *
+   * Declared before `:id` for the same reason as `order` below. POST rather
+   * than GET because an unsaved provider has no id and the candidate key is
+   * in the body — a key must never land in a URL, where it would be logged.
+   */
+  @Post('models')
+  listModels(
+    @Body()
+    body: { id?: string; kind?: AiProviderKind; baseUrl?: string | null; apiKey?: string },
+  ) {
+    return this.providers.listModels({
+      id: body.id,
+      kind: body.kind ?? AiProviderKind.OPENAI_COMPATIBLE,
+      baseUrl: body.baseUrl,
+      apiKey: body.apiKey,
+    });
+  }
+
+  /**
    * Declared before `:id` so "order" is never parsed as a UUID — Nest matches
    * routes in declaration order.
    */

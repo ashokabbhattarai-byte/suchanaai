@@ -297,6 +297,12 @@ RUNTIME_PROVIDERS: list[dict] = []
 def _env_fallback_providers() -> list[dict]:
     """Built-ins from environment variables, used until the registry syncs."""
     out = []
+    if config.OPENROUTER_API_KEY:
+        out.append({
+            "slug": "openrouter", "label": "OpenRouter", "kind": "OPENAI_COMPATIBLE",
+            "base_url": config.OPENROUTER_BASE_URL, "model": config.OPENROUTER_MODEL,
+            "api_key": config.OPENROUTER_API_KEY, "enabled": True,
+        })
     if config.GEMINI_API_KEY:
         out.append({
             "slug": "gemini", "label": "Google Gemini", "kind": "GEMINI",

@@ -476,6 +476,16 @@ export interface AiProvider {
   preview?: string
 }
 
+/** One entry of a provider's live model catalogue (POST .../providers/models). */
+export interface AiProviderModel {
+  id: string
+  /** Max input tokens, when the provider reports it. */
+  contextLength: number | null
+  free: boolean
+  /** e.g. "text+image->text"; null when the provider doesn't say. */
+  modality: string | null
+}
+
 export interface AiProviderInput {
   label: string
   kind: AiProviderKind
