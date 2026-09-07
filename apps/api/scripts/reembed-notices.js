@@ -9,18 +9,35 @@
 // This backfills both. Safe to re-run — upserts are keyed by notice id.
 //
 // Usage:
-//   node scripts/reembed-notices.js            # dry run — reports scope only
-//   node scripts/reembed-notices.js --apply    # embed
-//   node scripts/reembed-notices.js --apply --batch 100
+//   node scripts/reembed-notices.js                      # dry run — scope only
+//   node scripts/reembed-notices.js --apply              # embed, throttled
+//   node scripts/reembed-notices.js --apply --skip 390   # resume where it stopped
+//   node scripts/reembed-notices.js --apply --sleep 0    # full speed (offline only)
 const { PrismaClient } = require('@prisma/client')
 
 const prisma = new PrismaClient()
 const apply = process.argv.includes('--apply')
 const batchArg = process.argv.indexOf('--batch')
-const BATCH = batchArg !== -1 ? Number(process.argv[batchArg + 1]) : 50
+// 10 measured at ~24s on the t3.medium AI instance; 20 took 60.8s and hit
+// nginx's 60s proxy timeout with a 504, losing the whole batch.
+const BATCH = batchArg !== -1 ? Number(process.argv[batchArg + 1]) : 10
 const AI_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000'
 const SECRET = process.env.INTERNAL_SERVICE_SECRET || ''
 const CONTENT_CHARS = 4000
+
+// Pause between batches. The AI service is one t3.medium running uvicorn with
+// --workers 1, and embedding is CPU-bound, so back-to-back batches block the
+// same event loop that answers chat: /health went 0.1s -> 14.5s and a chat
+// query 4s -> 48s, which reads to a user as "the chatbot stopped working".
+// Sleeping ~the length of a batch keeps the service usable while this runs.
+const sleepArg = process.argv.indexOf('--sleep')
+const SLEEP_MS = (sleepArg !== -1 ? Number(process.argv[sleepArg + 1]) : 25) * 1000
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// Skip work already done, so a re-run after an interruption resumes instead of
+// re-embedding from the top.
+const resumeArg = process.argv.indexOf('--skip')
+const SKIP = resumeArg !== -1 ? Number(process.argv[resumeArg + 1]) : 0
 
 async function main() {
   const where = {
@@ -39,11 +56,12 @@ async function main() {
     return
   }
 
-  let done = 0
+  let done = SKIP
   let indexed = 0
   let failed = 0
+  if (SKIP) console.log(`resuming after ${SKIP} already-embedded notices\n`)
 
-  for (let skip = 0; skip < total; skip += BATCH) {
+  for (let skip = SKIP; skip < total; skip += BATCH) {
     const rows = await prisma.scrapedItem.findMany({
       where,
       select: {
@@ -93,6 +111,7 @@ async function main() {
 
     done += rows.length
     console.log(`  ${done}/${total} sent (indexed ${indexed}, failed ${failed})`)
+    if (SLEEP_MS > 0 && done < total) await sleep(SLEEP_MS)
   }
 
   console.log(`\ndone — indexed ${indexed}, failed ${failed}`)

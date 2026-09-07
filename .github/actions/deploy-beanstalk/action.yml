@@ -20,6 +20,15 @@ inputs:
   version-label:
     description: Unique label for this deploy, shown in the Beanstalk console's version history
     required: true
+  nginx-proxy-timeout:
+    description: >
+      Seconds Beanstalk's nginx will wait for the container before returning
+      504. Beanstalk's default is 60s, which is fine for a web request but not
+      for work measured in minutes — scraping a source or embedding a batch
+      both exceed it, and the caller sees "status code 504" with no clue that
+      a proxy, not the app, gave up. Leave unset to keep the default.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -37,7 +46,23 @@ runs:
           "Ports": [{ "ContainerPort": "${{ inputs.container-port }}" }]
         }
         EOF
-        zip deploy.zip Dockerrun.aws.json
+
+        # .platform/nginx/conf.d/*.conf is merged into Beanstalk's own nginx
+        # config at deploy time, which is the only supported way to raise the
+        # proxy timeout on the Docker platform.
+        TIMEOUT="${{ inputs.nginx-proxy-timeout }}"
+        if [ -n "$TIMEOUT" ]; then
+          mkdir -p .platform/nginx/conf.d
+          cat > .platform/nginx/conf.d/proxy_timeout.conf <<EOF
+        proxy_connect_timeout ${TIMEOUT}s;
+        proxy_send_timeout    ${TIMEOUT}s;
+        proxy_read_timeout    ${TIMEOUT}s;
+        EOF
+          echo "nginx proxy timeout set to ${TIMEOUT}s"
+          zip -r deploy.zip Dockerrun.aws.json .platform
+        else
+          zip deploy.zip Dockerrun.aws.json
+        fi
 
     # Beanstalk rejects a deploy outright — 400 InvalidParameterValue,
     # "Environment ... is in an invalid state for this operation. Must be

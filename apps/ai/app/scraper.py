@@ -29,7 +29,7 @@ import re
 import zlib
 from dataclasses import dataclass
 from datetime import datetime
-from urllib.parse import unquote, urljoin, urlparse
+from urllib.parse import parse_qs, unquote, urljoin, urlparse
 from xml.etree import ElementTree as ET
 
 import httpx
@@ -726,9 +726,10 @@ async def _fetch_raw_html(
     return result.html
 
 
-async def _extract_with_schema(
+async def _extract_rows_and_html(
     crawler: AsyncWebCrawler, url: str, schema: dict, failures: list[dict] | None = None
-) -> list[dict]:
+) -> tuple[list[dict], str | None]:
+    """Rows plus the page's own HTML — the pager widget lives in the latter."""
     result = await _arun_with_retry(
         crawler,
         url,
@@ -740,17 +741,24 @@ async def _extract_with_schema(
     )
     if result is None:
         _record_failure(failures, url, "listing", "Network error after retries")
-        return []
+        return [], None
     if not result.success:
         logger.warning("Listing crawl failed for %s: %s", url, result.error_message)
         _record_failure(failures, url, "listing", result.error_message)
-        return []
+        return [], None
     try:
-        return json.loads(result.extracted_content or "[]")
+        return json.loads(result.extracted_content or "[]"), result.html
     except json.JSONDecodeError as e:
         logger.warning("Listing extraction returned invalid JSON for %s: %s", url, e)
         _record_failure(failures, url, "listing", f"Extraction returned invalid JSON: {e}")
-        return []
+        return [], result.html
+
+
+async def _extract_with_schema(
+    crawler: AsyncWebCrawler, url: str, schema: dict, failures: list[dict] | None = None
+) -> list[dict]:
+    rows, _ = await _extract_rows_and_html(crawler, url, schema, failures)
+    return rows
 
 
 async def _resolve_schema(
@@ -1525,8 +1533,232 @@ def _page_adds_new(first: set[str], second: set[str]) -> bool:
     )
 
 
+def _page_adds_any_new(first: set[str], second: set[str]) -> bool:
+    """Deep-crawl variant: one unseen row is enough to keep walking.
+
+    The thresholds above exist to stop a run early when a site ignores the
+    page parameter and re-serves page 1 — but they also discard a genuine
+    final page holding fewer rows than the threshold (page 3 of 23 results
+    at 10/page has exactly 3). A deep crawl is explicitly asked to be
+    complete, so it only stops on a page that is wholly a repeat."""
+    return bool(second) and bool(second - first)
+
+
 def _path_template_url(listing_url: str, page_number: int) -> str:
     return listing_url.rstrip("/") + f"/page/{page_number}"
+
+
+# --- pager discovery ---
+#
+# Guessing a pagination scheme and probing page 2 tells us *a* way forward; it
+# never tells us how far the listing goes. The page itself does: almost every
+# one of these portals renders a "1 2 3 ›" widget and a "Showing 1 to 10 of 23
+# results" counter (moha.gov.np/page/act-regulation is the canonical example).
+# Reading both turns "walk pages until one repeats" into "walk exactly the 3
+# pages this listing has", which is what a deep crawl needs to be complete
+# without being unbounded.
+
+# Class/id substrings marking the pager container.
+_PAGER_HINTS = ("pagination", "pager", "page-numbers", "paging", "page-nav", "pagenav")
+
+# Query parameters that carry a 1-based page *number*. Deliberately excludes
+# offset/start-style params: those count rows, not pages, and feeding a page
+# number into one silently re-serves page 1.
+_PAGE_PARAMS = ("page", "paged", "p", "pg", "pageno", "page_no", "pagenumber", "page_number")
+
+_PATH_PAGE_RE = re.compile(r"/page/(\d+)/?$", re.IGNORECASE)
+
+# Livewire pagers: `wire:click="gotoPage(2, 'page')"` and the matching
+# `wire:key="paginator-page-page-2"` on the active item.
+_WIRE_GOTO_PAGE_RE = re.compile(r"gotoPage\(\s*(\d+)\s*,\s*['\"]([^'\"]+)['\"]")
+_WIRE_PAGINATOR_KEY_RE = re.compile(r"^paginator-page-(.+)-(\d+)$")
+
+# "Showing 1 to 10 of 23 results" / "Showing 1-10 of 23 entries" and the
+# bare "of 23 results" some themes render instead.
+_SHOWING_RE = re.compile(
+    r"showing\s+([\d,]+)\s*(?:to|-|–|—)\s*([\d,]+)\s+of\s+([\d,]+)", re.IGNORECASE
+)
+_TOTAL_RE = re.compile(r"of\s+([\d,]+)\s+(?:results?|entries|items|records)", re.IGNORECASE)
+
+# A pager link claiming more pages than this is markup we misread (a year
+# filter, a phone number in an href), not a page count.
+_MAX_CREDIBLE_PAGES = 5000
+
+
+@dataclass
+class PagerInfo:
+    """What the listing page says about its own pagination."""
+    config: PaginationConfig | None = None
+    last_page: int | None = None
+    total_results: int | None = None
+    per_page: int | None = None
+
+
+def _int_or_none(raw: str | None) -> int | None:
+    if not raw:
+        return None
+    try:
+        return int(raw.replace(",", ""))
+    except ValueError:
+        return None
+
+
+def _page_number_from_href(href: str, listing_url: str) -> tuple[str, str, int] | None:
+    """`(pagination_type, param, page_number)` for one pager link, or None."""
+    absolute = _absolute_url(listing_url, href)
+    if not absolute or not _is_same_origin(absolute, listing_url):
+        return None
+    parsed = urlparse(absolute)
+
+    for key, values in parse_qs(parsed.query).items():
+        if key.lower() in _PAGE_PARAMS and values:
+            number = _int_or_none(values[0])
+            if number is not None and 0 <= number <= _MAX_CREDIBLE_PAGES:
+                return ("QUERY_PARAM", key, number)
+
+    path_match = _PATH_PAGE_RE.search(parsed.path)
+    if path_match:
+        number = _int_or_none(path_match.group(1))
+        # The listing's own path must be the pager link's prefix, otherwise
+        # this is some other paginated section linked from the sidebar.
+        prefix = parsed.path[: path_match.start()].rstrip("/")
+        if number is not None and 0 <= number <= _MAX_CREDIBLE_PAGES:
+            if prefix and urlparse(listing_url).path.rstrip("/").endswith(prefix):
+                return ("PATH_TEMPLATE", "page", number)
+    return None
+
+
+def _pager_containers(soup: BeautifulSoup) -> list:
+    """Elements whose class/id/aria-label marks them as a pagination widget."""
+
+    def is_pager(attr_value) -> bool:
+        if not attr_value:
+            return False
+        text = " ".join(attr_value) if isinstance(attr_value, list) else str(attr_value)
+        return any(hint in text.lower() for hint in _PAGER_HINTS)
+
+    return soup.find_all(
+        lambda tag: is_pager(tag.get("class"))
+        or is_pager(tag.get("id"))
+        or is_pager(tag.get("aria-label"))
+    )
+
+
+def _pager_page_refs(soup: BeautifulSoup, listing_url: str) -> list[tuple[str, str, int]]:
+    """Every `(pagination_type, param, page_number)` the pager widget declares.
+
+    Covers three markups, because these portals use all three:
+      * plain `<a href="?page=2">` links;
+      * Livewire buttons — `wire:click="gotoPage(2, 'page')"` with no href at
+        all, which is what moha.gov.np and most Laravel gov portals render
+        (the query parameter still works server-side, the pager just doesn't
+        link it);
+      * unstyled pagers with no recognisable container, where the only signal
+        is an anchor whose visible text is a bare page number.
+    """
+    refs: list[tuple[str, str, int]] = []
+    containers = _pager_containers(soup)
+
+    for container in containers:
+        for anchor in container.find_all("a", href=True):
+            found = _page_number_from_href(anchor["href"], listing_url)
+            if found:
+                refs.append(found)
+
+        for el in container.find_all(attrs={"wire:click": True}):
+            match = _WIRE_GOTO_PAGE_RE.search(el["wire:click"])
+            if match:
+                number = _int_or_none(match.group(1))
+                if number is not None and 0 <= number <= _MAX_CREDIBLE_PAGES:
+                    refs.append(("QUERY_PARAM", match.group(2), number))
+
+        # Livewire also stamps `wire:key="paginator-page-<param>-<n>"` on the
+        # active page's <li>, which has no button to read the param off.
+        for el in container.find_all(attrs={"wire:key": True}):
+            match = _WIRE_PAGINATOR_KEY_RE.match(el["wire:key"])
+            if match:
+                number = _int_or_none(match.group(2))
+                if number is not None and 0 <= number <= _MAX_CREDIBLE_PAGES:
+                    refs.append(("QUERY_PARAM", match.group(1), number))
+
+    if refs or containers:
+        return refs
+
+    for anchor in soup.find_all("a", href=True):
+        if anchor.get_text(strip=True).isdigit():
+            found = _page_number_from_href(anchor["href"], listing_url)
+            if found:
+                refs.append(found)
+    return refs
+
+
+def _discover_pager(html: str | None, listing_url: str) -> PagerInfo:
+    """Read the listing's own pager widget and result counter.
+
+    Returns whatever could be established — a scheme with no page count, a
+    count with no scheme, or an empty PagerInfo. Nothing here is trusted
+    blindly: the caller still verifies the scheme by fetching page 2.
+    """
+    if not html:
+        return PagerInfo()
+
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+    except Exception:
+        return PagerInfo()
+
+    # Highest page number seen per scheme, and how many links voted for it.
+    schemes: dict[tuple[str, str], list[int]] = {}
+    for kind, param, number in _pager_page_refs(soup, listing_url):
+        schemes.setdefault((kind, param), []).append(number)
+
+    config: PaginationConfig | None = None
+    last_page: int | None = None
+    if schemes:
+        # Most-linked scheme wins; ties break toward the larger page range.
+        (kind, param), numbers = max(
+            schemes.items(), key=lambda kv: (len(kv[1]), max(kv[1]))
+        )
+        # A pager that only ever links page 1 is not pagination.
+        if max(numbers) > min(numbers) or max(numbers) > 1:
+            start_page = 0 if min(numbers) == 0 else 1
+            config = PaginationConfig(pagination_type=kind, param=param, start_page=start_page)
+            last_page = max(numbers)
+
+    text = soup.get_text(" ", strip=True)
+    total_results = None
+    per_page = None
+    showing = _SHOWING_RE.search(text)
+    if showing:
+        first, last, total = (_int_or_none(showing.group(i)) for i in (1, 2, 3))
+        total_results = total
+        # Only the first window is guaranteed to be a *full* page. "Showing 21
+        # to 23 of 23" is the last three rows of a 10-per-page listing, not a
+        # 3-per-page one, and treating it as the latter turns 3 pages into 8.
+        if first == 1 and last is not None and last >= first:
+            per_page = last
+        total_match = _TOTAL_RE.search(text)
+        if total_match:
+            total_results = _int_or_none(total_match.group(1))
+
+    # The counter is authoritative where the widget truncates ("1 2 3 … 47"
+    # renders only a few numbers on some themes).
+    if total_results and per_page:
+        counted_pages = -(-total_results // per_page)  # ceil
+        if counted_pages <= _MAX_CREDIBLE_PAGES:
+            last_page = max(last_page or 0, counted_pages) or None
+
+    if config or last_page or total_results:
+        logger.info(
+            "Pager for %s: scheme=%s last_page=%s total_results=%s",
+            listing_url,
+            f"{config.pagination_type}/{config.param}" if config else "none",
+            last_page,
+            total_results,
+        )
+    return PagerInfo(
+        config=config, last_page=last_page, total_results=total_results, per_page=per_page
+    )
 
 
 async def _detect_pagination(
@@ -1535,6 +1767,8 @@ async def _detect_pagination(
     schema: dict,
     page1: set[str],
     configured: PaginationConfig,
+    discovered: PaginationConfig | None = None,
+    accept_any_new: bool = False,
 ) -> tuple[PaginationConfig | None, list[dict]]:
     """Find a pagination scheme whose page 2 actually differs from page 1.
 
@@ -1544,12 +1778,18 @@ async def _detect_pagination(
     handed back so the caller can use them directly instead of re-fetching
     page 2, which otherwise costs an extra headless-browser load per
     category on every single run.
+
+    `discovered` is the scheme read off the page's own pager widget and is
+    tried first — it is the site's own answer, not a guess. `accept_any_new`
+    relaxes the "page 2 must add several rows" bar to "page 2 must add a
+    row", which a deep crawl needs so a short final page still counts.
     """
     tried: set[tuple[str, str]] = set()
-    candidates = [configured] + [
+    candidates = [c for c in (discovered, configured) if c] + [
         c for c in _PAGINATION_FALLBACKS
         if (c.pagination_type, c.param) != (configured.pagination_type, configured.param)
     ]
+    adds_new = _page_adds_any_new if accept_any_new else _page_adds_new
 
     for cand in candidates:
         key = (cand.pagination_type, cand.param)
@@ -1567,7 +1807,7 @@ async def _detect_pagination(
         rows = await _extract_with_schema(crawler, url, schema, None)
         if len(rows) < 2:
             continue
-        if _page_adds_new(page1, _row_fingerprints(rows)):
+        if adds_new(page1, _row_fingerprints(rows)):
             logger.info(
                 "Pagination for %s resolved to %s/%s",
                 listing_url, cand.pagination_type, cand.param,
@@ -2090,6 +2330,7 @@ async def scrape_source(
     fetch_detail: bool = True,
     summarize_concurrency: int | None = None,
     pagination: PaginationConfig | None = None,
+    deep: bool = False,
     on_progress=None,
 ) -> tuple[list[ScrapedItem], dict[str, dict], list[dict]]:
     """Scrape an admin-configured source's notice/news listings with concurrent
@@ -2098,7 +2339,13 @@ async def scrape_source(
     Returns (items, schemas_used, failures) — `failures` is a structured list
     of every page/URL that failed (stage: schema_detection/listing/detail,
     with crawl4ai's own error message), even when the run otherwise succeeds
-    with a partial item set, so the caller can show *why* and *where*."""
+    with a partial item set, so the caller can show *why* and *where*.
+
+    `deep=True` is the "scrape every page" archive crawl: the listing's own
+    pager decides how far to walk (up to config.SCRAPE_DEEP_MAX_PAGES), the
+    source's `max_pages` is ignored, and the incremental early-stops are
+    disabled — a page of already-known items is expected in the middle of an
+    archive and must not end the walk."""
     cached_schemas = cached_schemas or {}
     known_urls = known_urls or set()
     pagination = pagination or PaginationConfig()
@@ -2131,7 +2378,16 @@ async def scrape_source(
                 f"{'Detected' if is_new else 'Reused cached'} extraction pattern for {category.title()}"
             )
 
-            effective_max_pages = 1 if pagination.pagination_type == "NONE" else max_pages
+            # Deep runs ignore the source's max_pages — the listing's own
+            # pager, read from page 1 below, sets the real limit. Until then
+            # the hard ceiling stands in for it.
+            if pagination.pagination_type == "NONE":
+                page_limit = 1
+            elif deep:
+                page_limit = config.SCRAPE_DEEP_MAX_PAGES
+            else:
+                page_limit = max_pages
+            adds_new = _page_adds_any_new if deep else _page_adds_new
             # Resolved lazily from page 1's rows (see `_detect_pagination`);
             # `page_pagination` stays None until then.
             page_pagination: PaginationConfig | None = None
@@ -2139,7 +2395,8 @@ async def scrape_source(
             # Page 2's rows, already fetched by pagination detection.
             prefetched_rows: list[dict] | None = None
 
-            for page_index in range(effective_max_pages):
+            page_index = 0
+            while page_index < page_limit:
                 if page_index == 0:
                     url = listing_url
                 elif page_pagination is None:
@@ -2151,21 +2408,42 @@ async def scrape_source(
                 if not url:
                     break
 
+                page_html: str | None = None
                 if prefetched_rows is not None:
                     rows, prefetched_rows = prefetched_rows, None
                     report(f"Crawling {category.title()} listing, page {page_index + 1}…")
                 else:
-                    report(f"Crawling {category.title()} listing, page {page_index + 1}…")
-                    rows = await _extract_with_schema(crawler, url, schema, failures)
+                    report(
+                        f"Crawling {category.title()} listing, page {page_index + 1}"
+                        + (f" of {page_limit}" if deep and page_index else "")
+                        + "…"
+                    )
+                    rows, page_html = await _extract_rows_and_html(crawler, url, schema, failures)
                 if not rows:
                     break
 
                 fingerprints = _row_fingerprints(rows)
                 if page_index == 0:
                     previous_fingerprints = fingerprints
-                    if effective_max_pages > 1:
+                    # The page's own "1 2 3 ›" widget and "Showing 1 to 10 of
+                    # 23 results" counter — the site's answer to both "how do
+                    # I ask for page N" and "how many pages are there".
+                    pager = _discover_pager(page_html, listing_url)
+                    if deep and pager.last_page:
+                        page_limit = min(config.SCRAPE_DEEP_MAX_PAGES, pager.last_page)
+                        report(
+                            f"{category.title()} listing reports {pager.last_page} page(s)"
+                            + (f" / {pager.total_results} result(s)" if pager.total_results else "")
+                            + (
+                                f" — capped at {page_limit}"
+                                if pager.last_page > page_limit
+                                else ""
+                            )
+                        )
+                    if page_limit > 1:
                         page_pagination, prefetched_rows = await _detect_pagination(
-                            crawler, listing_url, schema, fingerprints, pagination
+                            crawler, listing_url, schema, fingerprints, pagination,
+                            discovered=pager.config, accept_any_new=deep,
                         )
                         prefetched_rows = prefetched_rows or None
                         if page_pagination is None:
@@ -2181,9 +2459,9 @@ async def scrape_source(
                 else:
                     # A page that just repeats what we already have means the
                     # site ignored the page parameter (or we ran off the end).
-                    # Continuing would re-walk page 1 up to `max_pages` times,
+                    # Continuing would re-walk page 1 up to `page_limit` times,
                     # burning detail crawls and LLM calls on known items.
-                    if not _page_adds_new(previous_fingerprints, fingerprints):
+                    if not adds_new(previous_fingerprints, fingerprints):
                         report(
                             f"{category.title()} page {page_index + 1} repeats the previous page; "
                             "stopping pagination"
@@ -2323,12 +2601,19 @@ async def scrape_source(
                 if new_rows_on_page == 0:
                     break
 
-                if known_urls and unknown_rows_on_page == 0:
+                # An incremental run stops as soon as a page holds nothing it
+                # hasn't already stored: newest-first listings mean everything
+                # behind it is known too. A deep run is asked for the whole
+                # archive, where already-known pages are exactly what sits
+                # between page 1 and the unscraped tail.
+                if not deep and known_urls and unknown_rows_on_page == 0:
                     report(
                         f"All {category.title()} items on page {page_index + 1} are already "
                         "scraped — stopping pagination early"
                     )
                     break
+
+                page_index += 1
 
     # Wait for all pending summarization tasks to complete
     if summarize_tasks:
@@ -2339,7 +2624,7 @@ async def scrape_source(
         report(f"Summarization complete: {succeeded} succeeded, {failed} failed/skipped")
 
     report(
-        f"Scrape complete — {len(items)} item(s) total"
+        f"{'Deep scrape' if deep else 'Scrape'} complete — {len(items)} item(s) total"
         + _issue_summary(failures)
     )
     logger.info(

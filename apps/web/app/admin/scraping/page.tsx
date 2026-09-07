@@ -31,6 +31,7 @@ import {
   RefreshCw,
   History,
   ExternalLink,
+  Layers,
 } from "lucide-react"
 import { AdminLayout } from "@/components/admin/admin-layout"
 import { Header } from "@/components/layout/header"
@@ -560,12 +561,14 @@ function AdminScrapingPageContent() {
     timer = setTimeout(tick, PROGRESS_POLL_MS)
   }
 
-  async function handleRun(id: string) {
+  /** `deep` walks every page of every listing instead of the newest few. */
+  async function handleRun(id: string, deep = false) {
     setRunningIds((prev) => new Set(prev).add(id))
     setProgressBySource((prev) => ({ ...prev, [id]: { run_id: "", stage: "running", messages: [], error: null } }))
     setError(null)
     try {
-      const { runId } = await runScrapeSource(id)
+      const { runId } = await runScrapeSource(id, undefined, deep)
+      if (deep) toast.success("Deep scrape started — walking every listing page")
       pollProgress(id, runId)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Scrape run failed")
@@ -604,13 +607,13 @@ function AdminScrapingPageContent() {
   }
 
   /** Bulk trigger: one run for every enabled source that isn't already scraping. */
-  async function handleRunAll() {
+  async function handleRunAll(deep = false) {
     if (runningAll) return
     setRunningAll(true)
     setRunAllNotice(null)
     setError(null)
     try {
-      const result = await runAllScrapeSources()
+      const result = await runAllScrapeSources(deep)
       const scheduled = result.results.filter((r) => r.status === "scheduled")
       for (const r of scheduled) {
         const runId = r.runId
@@ -628,7 +631,7 @@ function AdminScrapingPageContent() {
         tone: result.scheduled > 0 ? "ok" : "info",
         text:
           result.scheduled > 0
-            ? `Started ${result.scheduled} scrape run(s).${disabled > 0 || alreadyRunning > 0 ? ` Skipped: ${disabled} disabled, ${alreadyRunning} already running.` : ""}`
+            ? `Started ${result.scheduled} ${deep ? "deep " : ""}scrape run(s).${deep ? " Every listing page will be walked — this takes far longer than a normal run." : ""}${disabled > 0 || alreadyRunning > 0 ? ` Skipped: ${disabled} disabled, ${alreadyRunning} already running.` : ""}`
             : `Nothing to run — ${disabled} disabled, ${alreadyRunning} already running.`,
       })
       await loadAll()
@@ -809,7 +812,7 @@ function AdminScrapingPageContent() {
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-[20px] bg-white p-5">
           <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={handleRunAll}
+              onClick={() => handleRunAll(false)}
               disabled={runningAll || activeSources === 0}
               className="flex items-center gap-2 rounded-full bg-vez-navy px-6 py-2.5 text-sm text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               title={activeSources === 0 ? "No enabled sources to run" : "Run every enabled source once"}
@@ -820,6 +823,22 @@ function AdminScrapingPageContent() {
                 <Rocket className="size-4" />
               )}
               {runningAll ? "Starting runs…" : "Run all sources"}
+            </button>
+            <button
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Deep scrape every enabled source?\n\nEach source's listings are walked page by page to the end of the archive, not just the newest few. This can take an hour and makes far more requests to each site.",
+                  )
+                ) {
+                  void handleRunAll(true)
+                }
+              }}
+              disabled={runningAll || activeSources === 0}
+              className="flex items-center gap-2 rounded-full border border-vez-line px-5 py-2.5 text-sm text-vez-navy transition-colors hover:bg-vez-surface disabled:cursor-not-allowed disabled:opacity-50"
+              title="Walk every listing page of every enabled source (full archive backfill)"
+            >
+              <Layers className="size-4" /> Deep scrape all
             </button>
             <span className="text-xs text-vez-mute">
               {activeSources} enabled
@@ -1164,9 +1183,26 @@ function AdminScrapingPageContent() {
                               onClick={() => handleRun(source.id)}
                               disabled={isRunning || !source.enabled}
                               className="flex items-center gap-1.5 rounded-full bg-vez-navy px-4 py-2 text-xs text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                              title={`Crawl the newest ${source.maxPages} listing page(s)`}
                             >
                               {isRunning ? <Loader2 className="size-3 animate-spin" /> : <Play className="size-3" />}
                               {isRunning ? "Scraping…" : "Run now"}
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (
+                                  window.confirm(
+                                    `Deep scrape "${source.name}"?\n\nEvery listing page is walked to the end of the archive, not just the newest ${source.maxPages}. This takes much longer and makes many more requests to the site.`,
+                                  )
+                                ) {
+                                  void handleRun(source.id, true)
+                                }
+                              }}
+                              disabled={isRunning || !source.enabled}
+                              className="flex items-center gap-1.5 rounded-full border border-vez-line px-4 py-2 text-xs text-vez-navy transition-colors hover:bg-vez-surface disabled:opacity-50"
+                              title="Walk every listing page to the end of the archive"
+                            >
+                              <Layers className="size-3" /> All pages
                             </button>
                             <button
                               onClick={() => handleToggleEnabled(source)}

@@ -464,6 +464,45 @@ no record of that `run_id` (never started, or evicted — see
 `start_page + page_index`, so a site whose first page is `?page=0` (rather
 than `1`) is handled by setting `startPage: 0` on the source.
 
+**Pager discovery.** The configured scheme is a starting guess, not the
+answer. On page 1 `_discover_pager(html, listing_url)` reads what the listing
+says about itself and hands it to `_detect_pagination` as the first candidate
+to probe:
+
+- the pager widget's page links — plain `<a href="?paged=2">`, `/page/2`
+  paths, **and Livewire buttons** (`wire:click="gotoPage(2, 'page')"` /
+  `wire:key="paginator-page-page-2"`), which is what most Laravel-based
+  Nepali portals render and which carry no `href` at all;
+- the result counter — `Showing 1 to 10 of 23 results` gives the page size
+  and the total, hence the true page count (3). Only the *first* window is
+  read for page size: "Showing 21 to 23 of 23" is the tail of a 10-per-page
+  listing, not a 3-per-page one.
+
+Nothing here is trusted blindly — the discovered scheme still has to prove
+itself by returning a page 2 that differs from page 1.
+
+**Deep ("all pages") runs.** `scrape_source(..., deep=True)` is the archive
+backfill, triggered by *All pages* on a source card or *Deep scrape all* in
+the admin dashboard (`POST .../run` and `.../run-all` with `{ deep: true }`).
+It differs from an incremental run in exactly three ways:
+
+| | Incremental | Deep |
+|---|---|---|
+| Page limit | source's `maxPages` (default 3) | pager's reported last page, capped by `SCRAPE_DEEP_MAX_PAGES` (50) |
+| Stop when a page has no *unknown* items | yes — newest-first means everything behind it is known | no — known pages sit between page 1 and the unscraped tail |
+| "Page repeats the previous one" test | ≥3 new rows *and* ≥25% of the page | ≥1 new row, so a short final page still counts |
+
+Detail pages are still skipped for URLs already stored, so a deep re-run over
+a mostly-scraped archive costs listing loads plus the genuinely new items.
+Deep runs get their own time budgets — `DEEP_SCRAPE_TIMEOUT_SECONDS` (3300s)
+in the AI service, `DEEP_RUN_TIMEOUT_MS` (3480s) in `ScrapingService`, both
+under the default `SCRAPING_STALE_TIMEOUT_SECONDS` (3600) so the scheduler
+cannot reclaim a deep run that is still legitimately crawling. Because the
+AI service picks its timeout before reading the request body, deep mode is
+also sent as an `x-scrape-deep: 1` header.
+
+The scheduler never runs deep — automatic polling stays incremental.
+
 **Live progress.** `apps/ai/app/scrape_progress.py` mirrors the existing
 `app/progress.py` (used for document-ingestion progress) but tracks a
 rolling **message log** per `run_id` rather than a percent bar — a scrape

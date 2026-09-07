@@ -23,6 +23,18 @@ import * as crypto from 'crypto';
 const EXTRACTION_QUALITY_FLOOR = 0.55;
 
 /**
+ * Axios timeout for a deep ("scrape every page") run. An incremental run
+ * crawls the newest few listing pages and fits in 10 minutes; a deep run
+ * walks a whole archive — dozens of listing pages plus a detail fetch, OCR
+ * and an LLM summary for every unseen item behind them. Sits just above the
+ * AI service's own DEEP_SCRAPE_TIMEOUT_SECONDS so that service's error
+ * message surfaces instead of an opaque socket hang-up, and below the
+ * default SCRAPING_STALE_TIMEOUT_SECONDS (3600) so the scheduler cannot
+ * reclaim a deep run that is still legitimately crawling.
+ */
+const DEEP_RUN_TIMEOUT_MS = 3_480_000;
+
+/**
  * One page/URL the AI service's crawler (crawl4ai) failed to fetch or parse
  * during a run — surfaced by the scraper instead of being discarded into its
  * own stdout log, so the admin can see exactly where and why a run failed.
@@ -261,7 +273,11 @@ export class ScrapingService {
    * RUNNING ScrapeRun row acts as the lock, so it survives API restarts and
    * holds even if the API is scaled to multiple replicas.
    */
-  async runSource(id: string, categories?: ('NOTICE' | 'NEWS' | 'PRESS_RELEASE')[]) {
+  async runSource(
+    id: string,
+    categories?: ('NOTICE' | 'NEWS' | 'PRESS_RELEASE')[],
+    deep = false,
+  ) {
     const source = await this.getSource(id);
     if (!source.enabled) {
       throw new ConflictException('This source is disabled');
@@ -277,7 +293,7 @@ export class ScrapingService {
       data: { sourceId: id, sourceLabel: source.name, status: ScrapeRunStatus.RUNNING },
     });
 
-    this.executeRun(run.id, source, categories).catch((err: any) => {
+    this.executeRun(run.id, source, categories, deep).catch((err: any) => {
       this.logger.error(`Unhandled error in scrape run ${run.id}: ${err.message}`);
     });
 
@@ -339,7 +355,10 @@ export class ScrapingService {
    * runSource() path — the DB-backed lock prevents overlap, and disabled or
    * busy sources are reported rather than erroring the whole batch.
    */
-  async runAllSources(categories?: ('NOTICE' | 'NEWS' | 'PRESS_RELEASE')[]) {
+  async runAllSources(
+    categories?: ('NOTICE' | 'NEWS' | 'PRESS_RELEASE')[],
+    deep = false,
+  ) {
     const sources = await this.prisma.scrapeSource.findMany({
       orderBy: { createdAt: 'asc' },
     });
@@ -372,7 +391,7 @@ export class ScrapingService {
         continue;
       }
       try {
-        const { runId } = await this.runSource(source.id, categories);
+        const { runId } = await this.runSource(source.id, categories, deep);
         results.push({ sourceId: source.id, sourceName: source.name, runId, status: 'scheduled' });
         // Mark as active immediately to avoid double-scheduling within this same batch loop
         activeSourceIds.add(source.id);
@@ -638,6 +657,7 @@ export class ScrapingService {
     runId: string,
     source: ScrapeSource,
     categories?: ('NOTICE' | 'NEWS' | 'PRESS_RELEASE')[],
+    deep = false,
   ) {
     try {
       const categoryUrls: Record<string, string> = {};
@@ -688,13 +708,20 @@ export class ScrapingService {
             max_pages: source.maxPages,
             summarize_concurrency: summarizeConcurrency,
             run_id: runId,
+            // Deep runs walk every page the listing's own pager reports and
+            // ignore maxPages — an archive backfill, not an incremental poll.
+            deep,
             pagination: {
               type: source.paginationType,
               param: source.paginationParam,
               start_page: source.startPage,
             },
           },
-          { timeout: 600000 },
+          // The AI service reads the request timeout before parsing the body,
+          // so deep mode has to be visible as a header too.
+          deep
+            ? { timeout: DEEP_RUN_TIMEOUT_MS, headers: { 'x-scrape-deep': '1' } }
+            : { timeout: 600000 },
         ),
       );
 

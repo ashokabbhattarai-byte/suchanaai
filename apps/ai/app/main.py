@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import hmac
 import json
 import re
 import time
@@ -51,8 +52,17 @@ ROUTE_TIMEOUT_SECONDS = {
     "/scrape/listing/check": 120,
 }
 
+# A deep ("every page") crawl walks a whole archive rather than the newest 3
+# pages, so it needs a budget in the tens of minutes, not the single-digit
+# ones. Signalled by a header because the timeout is applied before the body
+# is read. Stays just under the API's own deep-run axios timeout.
+DEEP_SCRAPE_TIMEOUT_SECONDS = 3300
 
-def _timeout_for(path: str) -> int:
+
+def _timeout_for(path: str, scope: dict | None = None) -> int:
+    if path == "/scrape/source" and scope is not None:
+        if _get_header(scope, b"x-scrape-deep") == b"1":
+            return DEEP_SCRAPE_TIMEOUT_SECONDS
     return ROUTE_TIMEOUT_SECONDS.get(path, REQUEST_TIMEOUT_SECONDS)
 
 
@@ -81,7 +91,7 @@ async def app(scope, receive, send):
     # them mid-stream, so only bound the request/response endpoints below.
     is_sse = path.endswith("/progress/stream")
 
-    timeout_seconds = _timeout_for(path)
+    timeout_seconds = _timeout_for(path, scope)
 
     start = time.perf_counter()
     try:
@@ -289,12 +299,40 @@ async def _handle_lifespan(scope, receive, send):
             return
 
 
+# Reachable without the shared secret. `/` and `/health` are what the load
+# balancer polls, and neither reveals anything or spends an LLM call.
+_PUBLIC_PATHS = frozenset({"/", "/health"})
+
+
+def _is_authorised(scope: dict) -> bool:
+    """Every endpoint that can spend LLM quota or read the corpus requires the
+    shared secret.
+
+    This service used to answer anyone: port 80 was open to 0.0.0.0/0 and no
+    endpoint checked a credential, so a stranger could drain the daily token
+    budget through /notices/search. The secret is already shared with apps/api
+    for the config-sync call in the other direction.
+    """
+    expected = config.INTERNAL_SERVICE_SECRET
+    if not expected:
+        # No secret configured means single-machine dev; refusing everything
+        # there would just break local work.
+        return True
+    for name, value in scope.get("headers", []):
+        if name == b"x-internal-secret":
+            return hmac.compare_digest(value.decode("utf-8", "replace"), expected)
+    return False
+
+
 async def _route(method: str, path: str, scope: dict, receive, send) -> tuple[int, dict] | None:
     if method == "GET" and path == "/":
         return 200, {"service": "pnm-ai", "status": "running", "version": "1.0.0"}
 
     if method == "GET" and path == "/health":
         return await _health()
+
+    if path not in _PUBLIC_PATHS and not _is_authorised(scope):
+        return 401, {"error": "Unauthorized — this service requires the internal service secret."}
 
     if method == "POST" and path == "/llm/providers/refresh":
         # Pull the provider registry immediately instead of waiting out the
@@ -758,7 +796,9 @@ async def _scrape_source(receive) -> tuple[int, dict]:
     """POST /scrape/source — generic notice/news scrape for an admin-added
     website. Body: {base_url, category_urls: {"NOTICE"?: url, "NEWS"?: url},
     cached_schemas?: {"NOTICE"?: schema, "NEWS"?: schema}, known_urls?: [...],
-    max_pages?: int, run_id?: str, pagination?: {type, param, start_page}}.
+    max_pages?: int, run_id?: str, pagination?: {type, param, start_page},
+    deep?: bool}. `deep` walks every page the listing's pager reports rather
+    than the newest `max_pages` (see scraper.scrape_source).
     Returns {items: [...], schemas: {category: schema}} — `schemas` is
     whichever schema (cached or freshly detected) was actually used, for the
     caller to persist for the next run. When `run_id` is given, live status
@@ -780,6 +820,7 @@ async def _scrape_source(receive) -> tuple[int, dict]:
     cached_schemas = data.get("cached_schemas") or {}
     known_urls = set(data.get("known_urls") or [])
     max_pages = int(data.get("max_pages", scraper.DEFAULT_MAX_PAGES))
+    deep = bool(data.get("deep"))
     run_id = data.get("run_id")
     # Per-run cap on concurrent LLM summarizations, sent by the API from the
     # admin `scraping.summarizeConcurrency` setting. Absent → scraper default.
@@ -806,6 +847,7 @@ async def _scrape_source(receive) -> tuple[int, dict]:
             max_pages=max_pages,
             summarize_concurrency=summarize_concurrency or None,
             pagination=pagination,
+            deep=deep,
             on_progress=on_progress,
         )
         if run_id:

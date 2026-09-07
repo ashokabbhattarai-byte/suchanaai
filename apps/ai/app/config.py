@@ -151,6 +151,11 @@ OCR_MAX_CONCURRENCY: int = _env_int("OCR_MAX_CONCURRENCY", 1)
 # sent per-run by the API; this only applies when the API passes no value.
 SUMMARIZE_CONCURRENCY: int = _env_int("SUMMARIZE_CONCURRENCY", 2)
 
+# Hard ceiling on listing pages walked by a deep ("scrape every page") run.
+# Deep runs deliberately ignore the source's own max_pages, so this is the
+# only thing standing between a mis-detected pager and an unbounded crawl.
+SCRAPE_DEEP_MAX_PAGES: int = _env_int("SCRAPE_DEEP_MAX_PAGES", 50)
+
 # Process-wide cap on concurrent headless-browser crawl sessions. Every scrape
 # used to launch its own Chromium; with the scheduler polling ~30 sources the
 # constant launch/teardown churn exhausted the host's process table and every

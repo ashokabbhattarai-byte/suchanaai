@@ -617,14 +617,19 @@ export async function deleteScrapeSource(id: string): Promise<void> {
   await apiFetch(`/admin/scraping/sources/${id}`, { method: "DELETE" })
 }
 
-/** Trigger a scrape run for one source. Returns immediately; poll fetchScrapeRunProgress for live status. */
+/**
+ * Trigger a scrape run for one source. Returns immediately; poll
+ * fetchScrapeRunProgress for live status. `deep` walks every page of each
+ * listing (archive backfill) instead of the newest few.
+ */
 export async function runScrapeSource(
   id: string,
   categories?: ScrapedItemCategory[],
+  deep?: boolean,
 ): Promise<{ runId: string }> {
   return apiFetch(`/admin/scraping/sources/${id}/run`, {
     method: "POST",
-    body: JSON.stringify({ categories }),
+    body: JSON.stringify({ categories, deep }),
   })
 }
 
@@ -673,11 +678,12 @@ export async function setAutoScraping(enabled: boolean): Promise<SchedulerStatus
   })
 }
 
-/** Triggers a run of every enabled source that isn't already scraping. */
-export async function runAllScrapeSources(): Promise<RunAllResult> {
+/** Triggers a run of every enabled source that isn't already scraping.
+ * `deep` makes each of those runs walk every listing page. */
+export async function runAllScrapeSources(deep?: boolean): Promise<RunAllResult> {
   return apiFetch("/admin/scraping/sources/run-all", {
     method: "POST",
-    body: JSON.stringify({}),
+    body: JSON.stringify({ deep }),
   })
 }
 

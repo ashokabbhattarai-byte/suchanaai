@@ -47,12 +47,14 @@ export class ScrapingController {
     return this.scheduler.getSchedulerStatus();
   }
 
-  /** Bulk trigger: runs every enabled source that isn't already scraping. */
+  /** Bulk trigger: runs every enabled source that isn't already scraping.
+   * `deep: true` makes each run walk every listing page instead of the newest few. */
   @Post('sources/run-all')
   async runAllSources(
     @Body('categories') categories?: ('NOTICE' | 'NEWS' | 'PRESS_RELEASE')[],
+    @Body('deep') deep?: boolean,
   ) {
-    return this.scrapingService.runAllSources(categories);
+    return this.scrapingService.runAllSources(categories, deep === true);
   }
 
   @Get('sources')
@@ -89,12 +91,15 @@ export class ScrapingController {
     return this.scrapingService.deleteSource(id);
   }
 
+  /** `deep: true` crawls every page of each listing (archive backfill) rather
+   * than the newest `maxPages`, and does not stop on a page of known items. */
   @Post('sources/:id/run')
   async runSource(
     @Param('id', ParseUUIDPipe) id: string,
     @Body('categories') categories?: ('NOTICE' | 'NEWS')[],
+    @Body('deep') deep?: boolean,
   ) {
-    return this.scrapingService.runSource(id, categories);
+    return this.scrapingService.runSource(id, categories, deep === true);
   }
 
   /** Re-detect sitemaps for every source currently cached as having none. */

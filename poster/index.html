@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>NP069811 - Ashok Bhattarai - FYP Poster (24 x 60 in)</title>
+<style>
+/* DejaVu Sans is the exact face used in the source PDF. */
+@font-face { font-family:"DejaVu Sans"; src:url("assets/fonts/DejaVuSans.ttf") format("truetype"); font-weight:400; font-style:normal; }
+@font-face { font-family:"DejaVu Sans"; src:url("assets/fonts/DejaVuSans-Bold.ttf") format("truetype"); font-weight:700; font-style:normal; }
+@font-face { font-family:"DejaVu Sans"; src:url("assets/fonts/DejaVuSans-Oblique.ttf") format("truetype"); font-weight:400; font-style:italic; }
+
+:root{
+  --navy:#0B2347;
+  --body:#1F2937;
+  --accent:#2684C7;
+  --bar:#147CCA;
+  --border:#DCE5EC;
+  --tile-bg:#F5F9FC;
+  --tile-border:#D5E0E8;
+  --green:#16835B;
+  --orange:#F8691A;
+  --red:#ED1C24;
+  --footer-a:#061D2D;
+  --footer-b:#0C5885;
+  --gap:21pt;
+}
+
+*{ box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+html,body{ background:#5a6673; }
+body{ font-family:"DejaVu Sans", Verdana, Geneva, sans-serif; color:var(--body); }
+
+/* ---------- screen-only chrome ---------- */
+#toolbar{
+  position:fixed; top:14px; right:14px; z-index:50; display:flex; gap:8px; align-items:center;
+  background:#ffffff; border:1px solid #cbd5e1; border-radius:10px; padding:8px 10px;
+  box-shadow:0 6px 22px rgba(0,0,0,.28); font-size:13px;
+}
+#toolbar button, #toolbar select{
+  font-family:inherit; font-size:13px; border-radius:7px; border:1px solid #cbd5e1;
+  padding:7px 10px; background:#f8fafc; color:#0f172a; cursor:pointer;
+}
+#toolbar button.primary{ background:var(--bar); border-color:var(--bar); color:#fff; font-weight:700; }
+#toolbar span{ color:#475569; }
+#stage{ display:flex; justify-content:center; padding:28px 0; }
+#scaler{ transform-origin:top center; }
+
+/* ---------- poster: exactly 24in x 60in (2 x 5 feet) ---------- */
+@page { size:24in 60in; margin:0; }
+.poster{
+  width:1728pt; height:4320pt; background:#ffffff; position:relative; overflow:hidden;
+  display:flex; flex-direction:column;
+}
+
+/* header */
+.pad{ padding-left:32pt; padding-right:33pt; }
+.header{
+  margin-top:30pt; height:340pt;
+  background:linear-gradient(180deg,#FBFDFE 0%, #F7FAFD 100%);
+  display:flex; align-items:center; gap:0;
+}
+.header .logo{ width:575pt; flex:none; display:flex; align-items:center; }
+.header .logo img{ width:452pt; height:auto; display:block; margin-left:66pt; }
+.header .mid{ flex:1; padding-right:26pt; }
+.eyebrow{
+  font-size:15pt; font-weight:700; color:var(--accent); letter-spacing:.5pt; margin:18pt 0 14pt;
+}
+.title{ font-size:38.75pt; line-height:50pt; font-weight:700; color:var(--navy); }
+.byline{ font-size:18pt; font-weight:700; color:var(--navy); margin-top:22pt; }
+.chips{ display:flex; gap:11pt; }
+.chip{
+  font-size:12.5pt; padding:7pt 12pt; border-radius:5pt;
+  background:#EFF6FC; border:1pt solid #CFE2F3; color:#3A4A5E;
+}
+.chip b{ color:var(--navy); }
+.chip.solid{ background:var(--bar); border-color:var(--bar); color:#fff; font-weight:700; }
+.header .qr{ width:283pt; text-align:center; padding-right:33pt; }
+.header .qr .cap{ font-size:13pt; font-weight:700; color:var(--navy); letter-spacing:.6pt; margin-bottom:11pt; }
+.header .qr .box{ width:250pt; height:252pt; margin-left:auto; border:1pt solid var(--border); background:#fff; padding:6pt; }
+.header .qr .box img{ width:100%; height:100%; display:block; }
+
+.bluebar{ height:8pt; background:var(--bar); margin-top:14pt; }
+
+/* content grid */
+.content{ padding:28pt 33pt 0 32pt; display:flex; flex-direction:column; gap:var(--gap); }
+.row{ display:flex; gap:var(--gap); }
+.col{ display:flex; flex-direction:column; gap:var(--gap); }
+.c1{ width:540pt; flex:none; }
+.c2{ width:1101pt; flex:none; }
+.c3{ flex:1; }
+
+.card{
+  background:#fff; border:1pt solid var(--border); border-radius:8pt; padding:16pt;
+  display:flex; flex-direction:column;
+}
+h2{
+  font-size:24.75pt; font-weight:700; color:var(--navy); line-height:1.05;
+  padding-bottom:4pt; border-bottom:2pt solid var(--accent); margin-bottom:9pt;
+}
+p{ font-size:20.5pt; line-height:26pt; }
+p + p{ margin-top:16pt; }
+ul{ list-style:none; }
+li{
+  font-size:18.25pt; line-height:23.5pt; padding-left:17pt; position:relative; margin-bottom:2pt;
+}
+li::before{ content:"•"; position:absolute; left:2pt; color:var(--accent); font-size:18pt; }
+
+/* row 1 */
+.arch{ flex:1; display:flex; align-items:center; justify-content:center; padding-top:4pt; }
+.arch img{ width:100%; height:auto; display:block; }
+
+/* row 2 */
+.agile{ width:100%; margin:6pt 0 14pt; display:block; }
+.sdg-banner{
+  background:var(--orange); border-radius:6pt; height:243pt; display:flex; align-items:stretch; overflow:hidden;
+  margin-bottom:14pt;
+}
+.sdg-banner img{ width:243pt; height:243pt; display:block; }
+.sdg-banner .txt{ flex:1; padding:30pt 0 0 18pt; color:#fff; }
+.sdg-banner .txt h3{ font-size:21pt; line-height:26pt; font-weight:700; }
+.sdg-banner .txt p{ font-size:15.5pt; line-height:20pt; margin-top:14pt; color:#FFE7DA; }
+h3.sub{ font-size:17.75pt; font-weight:700; color:var(--navy); margin:0 0 6pt; }
+h3.sub.mt{ margin-top:14pt; }
+.minirow{ display:flex; gap:12pt; margin-top:auto; padding-top:16pt; }
+.minicard{ flex:1; background:#F2F8FD; border:1pt solid #CFE2F3; border-radius:5pt; padding:11pt 12pt; }
+.minicard b{ display:block; font-size:12.5pt; color:var(--accent); letter-spacing:.5pt; margin-bottom:5pt; }
+.minicard span{ font-size:13.5pt; line-height:17pt; display:block; color:var(--body); }
+
+/* technology stack */
+.techgrid{ display:grid; grid-template-columns:repeat(4,1fr); gap:12pt; }
+.tech{ background:var(--tile-bg); border:1pt solid var(--tile-border); border-radius:5pt; padding:11pt 10pt; }
+.tech b{ display:block; font-size:12pt; font-weight:700; color:var(--accent); letter-spacing:.7pt; margin-bottom:8pt; }
+.tech span{ font-size:11.5pt; line-height:15pt; display:block; }
+
+/* system output */
+.shots{ display:grid; grid-template-columns:1fr 1fr; gap:21pt 21pt; margin-top:4pt; }
+.shot{ position:relative; height:482pt; border:1pt solid var(--tile-border); border-radius:4pt; overflow:hidden; background:#fff; }
+.shot img{ width:100%; height:100%; object-fit:cover; object-position:top left; display:block; }
+.shot .tag{
+  position:absolute; top:9pt; left:9pt; background:var(--navy); color:#fff;
+  font-size:11.5pt; font-weight:700; padding:5pt 11pt; border-radius:4pt; letter-spacing:.3pt;
+}
+
+/* testing */
+.stats{ display:grid; grid-template-columns:repeat(5,1fr); gap:12pt; margin-bottom:16pt; }
+.stat{ background:var(--tile-bg); border:1pt solid var(--tile-border); border-radius:6pt; padding:14pt 8pt; text-align:center; }
+.stat b{ display:block; font-size:20pt; font-weight:700; color:var(--green); margin-bottom:9pt; }
+.stat span{ font-size:10.75pt; color:#4B5563; }
+.twocol{ display:grid; grid-template-columns:1fr 1fr; gap:24pt; }
+.twocol li, .small li{ font-size:12.5pt; line-height:16.5pt; padding-left:12pt; margin-bottom:5pt; }
+.twocol li::before, .small li::before{ font-size:12pt; left:1pt; }
+h4{ font-size:13.5pt; font-weight:700; color:var(--navy); margin-bottom:7pt; }
+.matrix-title{ font-size:13.5pt; font-weight:700; color:var(--navy); margin:22pt 0 9pt; }
+.matrix{ display:grid; grid-template-columns:repeat(4,1fr); gap:12pt; }
+.pass{ background:#F4FAF7; border:1pt solid #CFE7DC; border-radius:5pt; padding:8pt 10pt; }
+.pass b{ display:block; font-size:10.5pt; font-weight:700; color:var(--green); letter-spacing:.4pt; }
+.pass span{ font-size:10.5pt; color:#4B5563; }
+.result{ font-size:11pt; color:#4B5563; margin-top:18pt; }
+
+/* per-card body sizes, matching the source poster */
+.methodology p{ font-size:18pt; line-height:23pt; }
+.sdg p{ font-size:16.5pt; line-height:21pt; }
+.sdg li{ font-size:16.75pt; line-height:25pt; }
+.conclusion p{ font-size:17.75pt; line-height:23pt; }
+
+/* impact + references */
+.impact p{ font-size:12.5pt; line-height:16.5pt; }
+.impact h3.sub{ font-size:15.25pt; margin-top:12pt; }
+.impact li{ font-size:12.5pt; line-height:17.5pt; padding-left:12pt; margin-bottom:3pt; }
+.impact li::before{ font-size:12pt; left:1pt; }
+.refs{ display:flex; flex-direction:column; gap:14pt; margin-top:4pt; }
+.ref{ display:block; }
+.ref span{ font-size:11pt; line-height:14pt; color:#374151; }
+
+/* footer */
+.footer{ margin-top:auto; }
+.footer .redbar{ height:8pt; background:var(--red); }
+.footer .band{ height:188pt; display:flex; }
+.footer .left{ width:1175pt; background:var(--footer-a); color:#fff; padding:46pt 0 0 48pt; }
+.footer .left h5{ font-size:26pt; line-height:34pt; font-weight:700; max-width:900pt; }
+.footer .left h5 em{ font-style:normal; color:#5BA9DE; }
+.footer .left .meta{ font-size:14pt; color:#C9D7E2; margin-top:20pt; }
+.footer .right{ flex:1; background:var(--footer-b); color:#fff; text-align:right; padding:52pt 44pt 0 0; }
+.footer .right b{ font-size:20pt; font-weight:700; display:block; }
+.footer .right span{ font-size:14pt; line-height:22pt; display:block; color:#D3E5F2; margin-top:10pt; }
+
+@media print{
+  html,body{ background:#fff; }
+  #toolbar{ display:none !important; }
+  #stage{ padding:0; }
+  #scaler{ transform:none !important; }
+  .poster{ box-shadow:none; }
+}
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <button class="primary" onclick="exportPdf()">Export PDF (24 × 60 in)</button>
+  <span>Zoom</span>
+  <select id="zoom" onchange="setZoom(this.value)">
+    <option value="fit" selected>Fit width</option>
+    <option value="0.15">15%</option>
+    <option value="0.25">25%</option>
+    <option value="0.5">50%</option>
+    <option value="1">100%</option>
+  </select>
+</div>
+
+<div id="stage">
+<div id="scaler">
+<div class="poster" id="poster">
+
+  <!-- ============ HEADER ============ -->
+  <header class="header">
+    <div class="logo"><img src="assets/logo-strip.png" alt="LBEF College - in academic collaboration with Asia Pacific University" /></div>
+    <div class="mid">
+      <div class="title">Design and Development of an<br />AI-Powered Cloud-Based Public<br />Notice Management System for Nepal</div>
+      <div class="byline">Ashok Bhattarai&nbsp; |&nbsp; NP069811&nbsp; |&nbsp; NP3F2509IT</div>
+      <div class="eyebrow">B.Sc. (Hons) in Information Technology (NP3F2509IT)</div>
+      <div class="chips">
+        <div class="chip">Supervisor: <b>Dr. Laxman Mandal</b></div>
+        <div class="chip">2nd Marker: <b>Manish Kumar Tamang</b></div>
+        <div class="chip solid">Live system: suchanaai.tech</div>
+      </div>
+    </div>
+    <div class="qr">
+      <div class="cap">SCAN TO RATE / VOTE</div>
+      <div class="box"><img src="assets/qr.png" alt="QR code to rate the project" /></div>
+    </div>
+  </header>
+
+  <div class="bluebar"></div>
+
+  <!-- ============ CONTENT ============ -->
+  <div class="content">
+
+    <!-- ROW 1 -->
+    <div class="row" style="height:744pt">
+      <div class="col c1">
+        <div class="card" style="height:359pt">
+          <h2>Introduction &amp; Aim</h2>
+          <p>SuchanaAI is a cloud-based platform that consolidates public notices from Nepalese government and institutional portals into one responsive interface. It combines automated ingestion, structured search, AI summaries and document-grounded question answering.</p>
+          <p>Aim: automate the collection, categorisation, summarisation and intelligent delivery of public notices so citizens can find and understand official information more easily.</p>
+        </div>
+        <div class="card" style="height:364pt">
+          <h2>Problem Statement</h2>
+          <ul>
+            <li>Official notices are fragmented across many independent portals with inconsistent structures and update patterns.</li>
+            <li>Scanned PDFs and image-based notices are often not machine-searchable, creating extra effort and accessibility barriers.</li>
+            <li>Citizens repeatedly visit multiple sites to track vacancies, exams, tenders and policy updates.</li>
+            <li>There is no single interface combining aggregation, search, alerts, AI summaries and document-based Q&amp;A.;</li>
+          </ul>
+        </div>
+      </div>
+      <div class="card c2">
+        <h2>System Architecture</h2>
+        <div class="arch"><img src="assets/architecture.png" alt="SuchanaAI system architecture on AWS Elastic Beanstalk" /></div>
+      </div>
+    </div>
+
+    <!-- ROW 2 -->
+    <div class="row" style="height:726pt">
+      <div class="col c1">
+        <div class="card" style="height:381pt">
+          <h2>Objectives</h2>
+          <ul>
+            <li>1. Analyse current publication practices, extraction challenges and citizen access barriers.</li>
+            <li>2. Build automated collection, extraction, normalisation and storage for multiple Nepalese notice sources.</li>
+            <li>3. Integrate AI classification, plain-language summaries and retrieval-augmented question answering.</li>
+            <li>4. Develop, deploy and evaluate a cloud-hosted web application with unified search, filters, browsing and alerts.</li>
+          </ul>
+        </div>
+        <div class="card" style="height:324pt">
+          <h2>System / Product Features</h2>
+          <ul>
+            <li>Unified notice aggregation and category/source/date filtering</li>
+            <li>AI-generated plain-language summaries</li>
+            <li>Natural-language RAG search with grounded source results</li>
+            <li>Saved notices, alert rules and user dashboards</li>
+            <li>Admin source health, scraping control and notice management</li>
+            <li>Role-based authentication plus email / WhatsApp notification channels</li>
+          </ul>
+        </div>
+      </div>
+      <div class="card c1 methodology">
+        <h2>Methodology - Agile</h2>
+        <img class="agile" src="assets/agile.png" alt="Agile methodology cycle: plan, design, develop, test, deploy, review" />
+        <p>Iterative cycle: Plan → Design → Develop → Test → Deploy → Review.</p>
+        <p>The Agile approach supports continuous feedback across scraping, AI, backend and frontend work. Testing is performed throughout each increment so changes can be refined without restarting the full development process.</p>
+      </div>
+      <div class="card c3 sdg">
+        <h2>SDG Goal 9</h2>
+        <div class="sdg-banner">
+          <img src="assets/sdg9.jpg" alt="SDG 9 - Industry, Innovation and Infrastructure" />
+          <div class="txt">
+            <h3>Industry, Innovation<br />and Infrastructure</h3>
+            <p>A stronger digital foundation<br />for access to public information</p>
+          </div>
+        </div>
+        <h3 class="sub">Project alignment</h3>
+        <p>SuchanaAI applies cloud infrastructure, AI-assisted information processing and a scalable digital platform to improve how Nepalese public notices are collected, organised and accessed.</p>
+        <h3 class="sub mt">Measurable contribution</h3>
+        <ul>
+          <li>Digital public-information infrastructure</li>
+          <li>Innovation in notice discovery and understanding</li>
+          <li>More efficient, inclusive access to civic information</li>
+        </ul>
+        <div class="minirow">
+          <div class="minicard"><b>INFRASTRUCTURE</b><span>Cloud-hosted, scalable public platform</span></div>
+          <div class="minicard"><b>INNOVATION</b><span>AI summaries, OCR and grounded RAG</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TECHNOLOGY STACK -->
+    <div class="card" style="height:259pt">
+      <h2>Technology Stack</h2>
+      <div class="techgrid" style="margin-top:4pt">
+        <div class="tech"><b>FRONTEND</b><span>Next.js - React - Tailwind CSS - shadcn/ui</span></div>
+        <div class="tech"><b>BACKEND &amp; API</b><span>NestJS - Prisma - REST - Passport/JWT</span></div>
+        <div class="tech"><b>AI &amp; INGESTION</b><span>Python ASGI - Uvicorn - Crawl4AI - OCR - Embeddings - RAG</span></div>
+        <div class="tech"><b>DATA &amp; CLOUD</b><span>PostgreSQL - Qdrant - AWS Elastic Beanstalk - AWS S3</span></div>
+        <div class="tech"><b>INTEGRATIONS</b><span>Google OAuth - reCAPTCHA - SMTP - WhatsApp API - Stripe - PostHog</span></div>
+        <div class="tech"><b>SECURITY</b><span>HTTPS - JWT - OAuth 2.0 - reCAPTCHA - environment secrets</span></div>
+        <div class="tech"><b>OPERATIONS</b><span>Health checks - scheduled scraping - analytics - rollback verification</span></div>
+        <div class="tech"><b>DEPLOYMENT</b><span>Independent web, API and AI services with external data stores</span></div>
+      </div>
+    </div>
+
+    <!-- SYSTEM OUTPUT -->
+    <div class="card" style="height:1063pt">
+      <h2>System Output - Implemented Interface</h2>
+      <div class="shots">
+        <div class="shot"><img src="assets/shot-login.png" alt="Login screen" /><div class="tag">Login</div></div>
+        <div class="shot"><img src="assets/shot-notices.jpg" alt="Notice browsing and filters" /><div class="tag">Notice browsing + filters</div></div>
+        <div class="shot"><img src="assets/shot-dashboard.jpg" alt="User dashboard" /><div class="tag">User dashboard</div></div>
+        <div class="shot"><img src="assets/shot-admin.jpg" alt="Admin scraping console" /><div class="tag">Admin scraping console</div></div>
+      </div>
+    </div>
+
+    <!-- TESTING + CONCLUSION -->
+    <div class="row" style="height:445pt">
+      <div class="card c2">
+        <h2>Testing &amp; Evaluation</h2>
+        <div class="stats" style="margin-top:4pt">
+          <div class="stat"><b>16</b><span>Unit tests passed</span></div>
+          <div class="stat"><b>5</b><span>UAT participants</span></div>
+          <div class="stat"><b>8</b><span>UAT scenarios</span></div>
+          <div class="stat"><b>&lt;120 ms</b><span>p95 notices-list response</span></div>
+          <div class="stat"><b>&lt;250 ms</b><span>Top-5 vector retrieval</span></div>
+        </div>
+        <div class="twocol">
+          <div>
+            <h4>Functional verification</h4>
+            <ul>
+              <li>Registration, authentication, browse, filter and save workflows passed.</li>
+              <li>Scraping parsing, malformed-source handling and record access were verified.</li>
+              <li>RAG retrieval returned document-grounded results with controlled access.</li>
+            </ul>
+          </div>
+          <div>
+            <h4>User &amp; operational validation</h4>
+            <ul>
+              <li>Five target users completed eight scripted scenarios covering core journeys.</li>
+              <li>Feedback improved filter wording, guidance and empty-state presentation.</li>
+              <li>Responsive rendering, health checks, schedules and rollback behaviour passed.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="matrix-title">Coverage matrix - final verification</div>
+        <div class="matrix">
+          <div class="pass"><b>PASS</b><span>Registration</span></div>
+          <div class="pass"><b>PASS</b><span>Login / Logout</span></div>
+          <div class="pass"><b>PASS</b><span>Browse / Filter</span></div>
+          <div class="pass"><b>PASS</b><span>Save Notice</span></div>
+          <div class="pass"><b>PASS</b><span>Scraping Parse</span></div>
+          <div class="pass"><b>PASS</b><span>RAG Retrieval</span></div>
+          <div class="pass"><b>PASS</b><span>Alert Rules</span></div>
+          <div class="pass"><b>PASS</b><span>Record Access</span></div>
+        </div>
+        <div class="result">Result: All planned functional, user, performance and operational checks passed.</div>
+      </div>
+      <div class="card c3 conclusion">
+        <h2>Conclusion</h2>
+        <p>SuchanaAI delivers a coherent cloud platform that links notice ingestion, AI-assisted understanding, search, RAG and administrative control in one system. The implemented modules are traceable to design artefacts and test evidence, with stable retrieval and usable end-to-end workflows.</p>
+        <p>Outcomes: a unified searchable notice repository, AI-assisted understanding, grounded RAG answers, user alerts and an administrator control surface.</p>
+        <p>Key limitations: scraper selectors require maintenance when source portals change, and OCR quality can limit retrieval from scanned documents containing mixed Nepali and English text.</p>
+      </div>
+    </div>
+
+    <!-- IMPACT + REFERENCES -->
+    <div class="row" style="height:353pt">
+      <div class="card impact" style="width:821pt;flex:none">
+        <h2>Project Impact &amp; Future Scope</h2>
+        <p>SuchanaAI strengthens access to public information through unified notice aggregation, intelligent search and document-grounded AI.</p>
+        <h3 class="sub">Expected impact</h3>
+        <ul>
+          <li>Reduces repeated visits to fragmented public-sector portals.</li>
+          <li>Improves discovery through categories, filters and semantic search.</li>
+          <li>Supports understanding with summaries and grounded RAG answers.</li>
+          <li>Enables timely action through saved notices and alerts.</li>
+        </ul>
+        <h3 class="sub">Future scope</h3>
+        <ul>
+          <li>Expand national, provincial and local-government source coverage.</li>
+          <li>Improve mixed Nepali-English OCR and summary evaluation.</li>
+          <li>Add mobile-first delivery and broader accessibility support.</li>
+          <li>Strengthen selector repair, monitoring, privacy and reliability.</li>
+        </ul>
+      </div>
+      <div class="card c3">
+        <h2>References</h2>
+        <div class="refs">
+          <div class="ref"><span>Janssen, M., Charalabidis, Y., &amp; Zuiderwijk, A. (2012). Benefits, adoption barriers and myths of open data and open government. Information Systems Management, 29(4), 258-268. https://doi.org/10.1080/10580530.2012.716740</span></div>
+          <div class="ref"><span>Wirtz, B. W., Weyerer, J. C., &amp; Geyer, C. (2018). Artificial intelligence and the public sector: Applications and challenges. International Journal of Public Administration, 42(7), 67-79. https://doi.org/10.1080/01900692.2018.1498103</span></div>
+          <div class="ref"><span>Varade, S., Sayyed, E., Nagtode, V., &amp; Shinde, S. (2021). Text summarization using extractive and abstractive methods. ITM Web of Conferences, 5(3), 78-89. https://doi.org/10.1051/itmconf/2021400302384</span></div>
+          <div class="ref"><span>Bale, A. S., Ghorpade, N., Kamalesh, S., &amp; S, R. (2022). Web scraping approaches and their performance on modern websites. Third International Conference on Electronics and Sustainable Communication Systems, 8(1), 25-56. https://doi.org/10.1109/ICESC54411.2022.9885689</span></div>
+          <div class="ref"><span>Shakya, S., Basnet, A., Sharma, S., &amp; Gurung, A. (2023). Optical character recognition for Nepali, English character and simple sketch using neural network. Recent Advances in Information and Communication Technology, 6(1), 45-53. https://doi.org/10.1007/978-3-319-40415-8_6</span></div>
+          <div class="ref"><span>Sharma, B. P. (2025). Use of information and communication technology (ICT) and e-governance in Dhangadhi Sub-Metropolitan City, Nepal. NPRC Journal of Multidisciplinary Research, 2(10), 40-63. https://doi.org/10.3126/nprcjmr.v2i10.85865</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============ FOOTER ============ -->
+  <footer class="footer">
+    <div class="redbar"></div>
+    <div class="band">
+      <div class="left">
+        <h5>Making Nepal's public information <em>easier to find, understand and act on.</em></h5>
+        <div class="meta">AI-powered aggregation&nbsp; |&nbsp; intelligent retrieval&nbsp; |&nbsp; cloud-ready delivery</div>
+      </div>
+      <div class="right">
+        <b>Ashok Bhattarai</b>
+        <span>NP069811&nbsp; |&nbsp; NP3F2509IT<br />Final Year Project&nbsp; |&nbsp; 2026</span>
+      </div>
+    </div>
+  </footer>
+
+</div>
+</div>
+</div>
+
+<script>
+const POSTER_W_PX = 1728 * (96 / 72); // 24in at 96 CSS px/in
+
+function setZoom(v){
+  const s = document.getElementById('scaler');
+  const scale = v === 'fit' ? (window.innerWidth - 60) / POSTER_W_PX : parseFloat(v);
+  s.style.transform = 'scale(' + scale + ')';
+  s.style.height = (document.getElementById('poster').offsetHeight * scale) + 'px';
+}
+
+function exportPdf(){
+  // @page is fixed at 24in x 60in, so the print dialog's "Save as PDF"
+  // produces a vector PDF at exactly 2 x 5 feet.
+  window.print();
+}
+
+window.addEventListener('resize', () => {
+  if (document.getElementById('zoom').value === 'fit') setZoom('fit');
+});
+window.addEventListener('load', () => setZoom('fit'));
+</script>
+</body>
+</html>
