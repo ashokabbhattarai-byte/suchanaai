@@ -32,8 +32,11 @@ import {
   History,
   ExternalLink,
   Layers,
+  Stethoscope,
+  Compass,
 } from "lucide-react"
 import { AdminLayout } from "@/components/admin/admin-layout"
+import { SourceDiagnosis } from "@/components/admin/source-diagnosis"
 import { Header } from "@/components/layout/header"
 import {
   fetchScrapeSources,
@@ -50,6 +53,8 @@ import {
   setAutoScraping,
   runAllScrapeSources,
   quickScrapeUrl,
+  discoverScrapeRoutes,
+  diagnoseScrapeSource,
 } from "@/lib/api"
 import { getStoredJSON, setStoredJSON } from "@/lib/local-store"
 import { toast } from "sonner"
@@ -61,6 +66,8 @@ import type {
   ScrapeRunProgress,
   SchedulerStatus,
   SitemapCheckResult,
+  ScrapeDiagnosis,
+  RouteDiscoveryResult,
 } from "@/lib/types"
 
 interface SourceFormState {
@@ -265,6 +272,13 @@ function AdminScrapingPageContent() {
   const [checkingSitemap, setCheckingSitemap] = useState(false)
   const [sitemapNotice, setSitemapNotice] = useState<{ tone: "ok" | "info" | "error"; text: string } | null>(null)
   const [checkResult, setCheckResult] = useState<SitemapCheckResult | null>(null)
+  // Listing-URL auto-detection, in the add/edit dialog.
+  const [discovering, setDiscovering] = useState(false)
+  const [discovery, setDiscovery] = useState<RouteDiscoveryResult | null>(null)
+  // Per-source diagnosis state: which source is being re-diagnosed, which
+  // diagnosis fix is being applied, and which panels are expanded.
+  const [diagnosingId, setDiagnosingId] = useState<string | null>(null)
+  const [applyingFix, setApplyingFix] = useState<string | null>(null)
   // Global controls state.
   const [runningAll, setRunningAll] = useState(false)
   const [togglingAuto, setTogglingAuto] = useState(false)
@@ -396,6 +410,7 @@ function AdminScrapingPageContent() {
     setFormError(null)
     setSitemapNotice(null)
     setCheckResult(null)
+    setDiscovery(null)
     setDialogOpen(true)
   }
 
@@ -418,6 +433,7 @@ function AdminScrapingPageContent() {
     setFormError(null)
     setSitemapNotice(null)
     setCheckResult(null)
+    setDiscovery(null)
     setDialogOpen(true)
   }
 
@@ -444,6 +460,73 @@ function AdminScrapingPageContent() {
       })
     } finally {
       setDetectingSitemap(false)
+    }
+  }
+
+  /**
+   * Auto-detect this site's listing URLs from its own navigation. Works
+   * before the source is saved — it only needs the base URL — so it is the
+   * intended way to fill the form rather than browsing the site by hand.
+   */
+  async function handleDiscoverRoutes() {
+    const baseUrl = form.baseUrl.trim()
+    if (!baseUrl) {
+      setFormError("Enter the site's base URL first")
+      return
+    }
+    setDiscovering(true)
+    setDiscovery(null)
+    setFormError(null)
+    try {
+      const result = await discoverScrapeRoutes(baseUrl)
+      setDiscovery(result)
+      // Only fill fields the admin left empty — never overwrite a URL they
+      // typed themselves.
+      setForm((prev) => ({
+        ...prev,
+        noticeListUrl: prev.noticeListUrl || result.best.NOTICE || "",
+        newsListUrl: prev.newsListUrl || result.best.NEWS || "",
+        pressReleaseListUrl: prev.pressReleaseListUrl || result.best.PRESS_RELEASE || "",
+      }))
+      const found = Object.keys(result.best).length
+      if (found) toast.success(`Found ${found} listing URL(s)`)
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "URL detection failed")
+    } finally {
+      setDiscovering(false)
+    }
+  }
+
+  /** Re-run failure analysis for one source, on demand. */
+  async function handleDiagnose(id: string) {
+    setDiagnosingId(id)
+    try {
+      await diagnoseScrapeSource(id)
+      await loadAll()
+      toast.success("Diagnosis updated")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Diagnosis failed")
+    } finally {
+      setDiagnosingId(null)
+    }
+  }
+
+  /** Apply a diagnosis's suggested settings change to the source. */
+  async function handleApplyFix(source: ScrapeSource, diagnosis: ScrapeDiagnosis) {
+    const summary = Object.entries(diagnosis.patch)
+      .map(([field, value]) => `  ${field} → ${value}`)
+      .join("\n")
+    if (!window.confirm(`Apply this fix to "${source.name}"?\n\n${summary}`)) return
+
+    setApplyingFix(`${source.id}:${diagnosis.code}`)
+    try {
+      await updateScrapeSource(source.id, diagnosis.patch as Record<string, never>)
+      toast.success("Fix applied — run the source to confirm it works")
+      await loadAll()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not apply the fix")
+    } finally {
+      setApplyingFix(null)
     }
   }
 
@@ -1131,33 +1214,19 @@ function AdminScrapingPageContent() {
                         </p>
                       )}
 
-                      {/* Why the last run failed — aggregate reason plus which specific page(s)/URL(s) errored */}
-                      {source.lastStatus === "FAILED" && !isRunning && (source.lastError || (source.lastFailedUrls?.length ?? 0) > 0) && (
-                        <div className="mb-4 rounded-[12px] border border-red-100 bg-red-50/60 px-3 py-2.5 text-xs">
-                          <p className="flex items-start gap-1.5 text-red-700">
-                            <AlertCircle className="mt-0.5 size-3 shrink-0" />
-                            <span className="break-words">{source.lastError || "Scrape failed"}</span>
-                          </p>
-                          {source.lastFailedUrls && source.lastFailedUrls.length > 0 && (
-                            <ul className="mt-2 max-h-32 space-y-1.5 overflow-y-auto border-t border-red-100 pt-2">
-                              {source.lastFailedUrls.slice(0, 8).map((f, i) => (
-                                <li key={i} className="text-red-600/90">
-                                  <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
-                                    {f.stage}
-                                  </span>{" "}
-                                  <a href={f.url} target="_blank" rel="noopener noreferrer" className="break-all underline hover:text-red-800">
-                                    {f.url}
-                                  </a>
-                                  <span className="block text-red-600/70">{f.error}</span>
-                                </li>
-                              ))}
-                              {source.lastFailedUrls.length > 8 && (
-                                <li className="text-red-600/70">+{source.lastFailedUrls.length - 8} more</li>
-                              )}
-                            </ul>
-                          )}
-                        </div>
-                      )}
+                      {/* Why the last run failed and what to change about it */}
+                      <SourceDiagnosis
+                        source={source}
+                        isRunning={isRunning}
+                        applyingFix={applyingFix}
+                        diagnosing={diagnosingId === source.id}
+                        onApplyFix={(d) => handleApplyFix(source, d)}
+                        onAutoDetect={() => openEditDialog(source)}
+                        onEdit={() => openEditDialog(source)}
+                        onRun={() => handleRun(source.id)}
+                        onDiagnose={() => handleDiagnose(source.id)}
+                      />
+
 
                       {/* Live progress messages while a run is in flight */}
                       {isRunning && progress && (
@@ -1216,6 +1285,19 @@ function AdminScrapingPageContent() {
                               className="flex items-center gap-1.5 rounded-full px-4 py-2 text-xs text-vez-mute transition-colors hover:bg-vez-surface hover:text-vez-navy"
                             >
                               <Edit className="size-3" /> Edit
+                            </button>
+                            <button
+                              onClick={() => handleDiagnose(source.id)}
+                              disabled={diagnosingId === source.id}
+                              className="flex items-center gap-1.5 rounded-full px-4 py-2 text-xs text-vez-mute transition-colors hover:bg-vez-surface hover:text-vez-navy disabled:opacity-50"
+                              title="Work out why this source is failing and what to change"
+                            >
+                              {diagnosingId === source.id ? (
+                                <Loader2 className="size-3 animate-spin" />
+                              ) : (
+                                <Stethoscope className="size-3" />
+                              )}
+                              {diagnosingId === source.id ? "Diagnosing…" : "Diagnose"}
                             </button>
                           </>
                         )}
@@ -1661,7 +1743,83 @@ function AdminScrapingPageContent() {
 
                   {/* Listing pages */}
                   <div className="mt-5">
-                    <p className="mb-2 text-xs font-medium text-vez-ink">Listing pages</p>
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-vez-ink">Listing pages</p>
+                      <button
+                        type="button"
+                        onClick={handleDiscoverRoutes}
+                        disabled={discovering || !form.baseUrl.trim()}
+                        className="flex items-center gap-1.5 rounded-full border border-vez-line px-3 py-1.5 text-xs text-vez-navy transition-colors hover:bg-vez-surface disabled:opacity-50"
+                        title="Read the site's navigation and find its notice/news pages"
+                      >
+                        {discovering ? (
+                          <Loader2 className="size-3 animate-spin" />
+                        ) : (
+                          <Compass className="size-3" />
+                        )}
+                        {discovering ? "Detecting…" : "Auto-detect URLs"}
+                      </button>
+                    </div>
+
+                    {discovery && (
+                      <div className="mb-3 rounded-[12px] bg-vez-surface px-3 py-2.5 text-xs">
+                        {discovery.routes.length === 0 ? (
+                          <p className="text-vez-mute">
+                            No listing pages were found on this site.
+                          </p>
+                        ) : (
+                          <>
+                            <p className="mb-2 text-vez-mute">
+                              Checked {discovery.checked} page(s). Click one to use it.
+                            </p>
+                            <ul className="space-y-1.5">
+                              {discovery.routes.map((route) => (
+                                <li key={route.url} className="flex items-start gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setForm((prev) => ({
+                                        ...prev,
+                                        ...(route.category === "NOTICE"
+                                          ? { noticeListUrl: route.url }
+                                          : route.category === "NEWS"
+                                            ? { newsListUrl: route.url }
+                                            : { pressReleaseListUrl: route.url }),
+                                      }))
+                                    }
+                                    className="flex-1 text-left"
+                                  >
+                                    <span
+                                      className={`mr-1.5 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
+                                        route.verified
+                                          ? "bg-emerald-100 text-emerald-700"
+                                          : "bg-vez-navy/10 text-vez-mute"
+                                      }`}
+                                    >
+                                      {route.category.replace("_", " ")}
+                                    </span>
+                                    <span className="break-all text-vez-navy underline-offset-2 hover:underline">
+                                      {route.url}
+                                    </span>
+                                    <span className="block text-vez-mute">
+                                      {route.verified
+                                        ? `${route.row_count} notice link(s) found`
+                                        : route.evidence.join(" · ")}
+                                    </span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        )}
+                        {discovery.notes.map((note) => (
+                          <p key={note} className="mt-2 text-vez-mute">
+                            {note}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                       <div>
                         <label className="mb-1 block text-xs text-vez-mute">Notice listing page URL</label>

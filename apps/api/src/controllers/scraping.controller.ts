@@ -18,7 +18,12 @@ import { Roles } from '../decorators/roles.decorator';
 import { ScrapingService } from '../services/scraping.service';
 import { ScrapingSchedulerService } from '../services/scraping-scheduler.service';
 import { NoticesService } from '../services/notices.service';
-import { CreateScrapeSourceDto, UpdateScrapeSourceDto, QuickScrapeDto } from '../dto/scrape-source.dto';
+import {
+  CreateScrapeSourceDto,
+  UpdateScrapeSourceDto,
+  QuickScrapeDto,
+  DiscoverRoutesDto,
+} from '../dto/scrape-source.dto';
 import { ScrapedItemCategory } from '@prisma/client';
 
 @Controller('admin/scraping')
@@ -100,6 +105,25 @@ export class ScrapingController {
     @Body('deep') deep?: boolean,
   ) {
     return this.scrapingService.runSource(id, categories, deep === true);
+  }
+
+  /**
+   * Find a site's real notice/news/press-release listing routes from its own
+   * navigation, and prove each one by crawling it. Lets the admin paste a
+   * home page instead of hunting for the right listing URL.
+   */
+  @Post('discover-routes')
+  async discoverRoutes(@Body() dto: DiscoverRoutesDto) {
+    return this.scrapingService.discoverRoutes(dto.baseUrl);
+  }
+
+  /**
+   * Explain this source's most recent failure and what to change about it,
+   * on demand — the same analysis a failed run records automatically.
+   */
+  @Post('sources/:id/diagnose')
+  async diagnoseSource(@Param('id', ParseUUIDPipe) id: string) {
+    return this.scrapingService.diagnoseSource(id);
   }
 
   /** Re-detect sitemaps for every source currently cached as having none. */

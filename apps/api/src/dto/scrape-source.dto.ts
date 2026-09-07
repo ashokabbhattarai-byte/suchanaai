@@ -123,3 +123,8 @@ export class QuickScrapeDto {
   @IsUrl({ require_tld: false })
   url: string;
 }
+
+export class DiscoverRoutesDto {
+  @IsUrl({ require_tld: false })
+  baseUrl: string;
+}

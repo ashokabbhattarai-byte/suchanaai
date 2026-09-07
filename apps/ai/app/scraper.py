@@ -38,12 +38,10 @@ from bs4 import BeautifulSoup
 from crawl4ai import AsyncWebCrawler, CacheMode, CrawlerRunConfig
 from crawl4ai.extraction_strategy import JsonCssExtractionStrategy
 
-from app import browser_pool, config
+from app import browser_pool, config, llm
 from app.logger import get_logger
 
 logger = get_logger(__name__)
-
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 # Listing pages stop yielding new rows past this page number even if the site
 # reports another `?page=` link; keeps a single scrape run bounded.
@@ -474,44 +472,28 @@ Rules:
 
 
 async def _detect_schema_llm(html: str, category: str) -> dict | None:
-    # Support both single-key and rotation modes (config.GROQ_API_KEYS)
-    groq_key = config.GROQ_API_KEY or (config.GROQ_API_KEYS[0] if config.GROQ_API_KEYS else None)
-    if not groq_key:
-        return None
-
+    """Ask an LLM to propose a listing extraction schema. Routed through
+    llm.raw_chat's full provider fallback chain (OpenRouter's several free
+    models, then Groq/Gemini/OpenCode/Bedrock) rather than a single
+    hardcoded Groq call — a single-provider 429 used to make this fall
+    straight through to the free structural-heuristics detector below it,
+    silently skipping a step that reliably disambiguates the real listing
+    from sidebar "recent posts" widgets."""
     soup = BeautifulSoup(html, "html.parser")
     for tag_name in _STRIP_TAGS:
         for el in soup.find_all(tag_name):
             el.decompose()
     trimmed_html = str(soup)[:30000]
 
-    payload = {
-        "model": config.GROQ_MODEL,
-        "messages": [
-            {"role": "system", "content": _SCHEMA_PROMPT},
-            {
-                "role": "user",
-                "content": f"Category: {category}\n\nHTML:\n{trimmed_html}",
-            },
-        ],
-        "max_tokens": 800,
-        "temperature": 0.0,
-    }
-
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            response = await client.post(
-                GROQ_API_URL,
-                headers={
-                    "Authorization": f"Bearer {groq_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-        if response.status_code != 200:
-            logger.warning("LLM schema detection: Groq returned %d", response.status_code)
+        content = await llm.raw_chat(
+            _SCHEMA_PROMPT,
+            f"Category: {category}\n\nHTML:\n{trimmed_html}",
+            max_tokens=800,
+            temperature=0.0,
+        )
+        if not content:
             return None
-        content = response.json()["choices"][0]["message"]["content"]
         content = re.sub(r"^```(json)?|```$", "", content.strip(), flags=re.MULTILINE).strip()
         schema = json.loads(content)
         if not schema.get("baseSelector") or not schema.get("fields"):
@@ -1311,141 +1293,31 @@ def _extract_metadata(title: str, content: str | None) -> dict | None:
 
 
 # --- concurrent AI summarization ---
-
-_SUMMARIZE_PROMPT = """You analyze a Nepalese government notice/news item and produce a structured JSON response. Return ONLY valid JSON (no markdown fences).
-
-{
-  "summary": "<2-3 sentence plain-language summary in English>",
-  "summary_ne": "<2-3 sentence summary in Nepali (Devanagari script)>",
-  "urgency": "<LOW|MEDIUM|HIGH — HIGH for exam deadlines, visa deadlines, tenders with close dates, vacancy deadlines; MEDIUM for important policy/regulatory changes; LOW for routine press releases, general news>",
-  "category": "<one of: NOTICE, NEWS, PRESS_RELEASE, CIRCULAR, TENDER, VACANCY, JOB, INTERNSHIP, OTHER — JOB for job openings/career postings; INTERNSHIP for internship/trainee programs; VACANCY for generic openings with no clear job-vs-intern nature; classify based on content>",
-  "category_confidence": <0.0-1.0 float>,
-  "key_facts": ["<fact 1>", "<fact 2>", ...],
-  "tags": ["<tag1>", "<tag2>", ...]
-}
-
-Rules:
-- "summary" MUST always be in English regardless of source content language. Translate if needed.
-- "summary_ne" MUST always be in Nepali (Devanagari script) regardless of source content language. Translate if needed.
-- key_facts: extract 3-5 most important facts (dates, amounts, names, requirements) in English.
-- tags: 3-6 classification tags in English useful for filtering.
-- Be concise. Do not pad or restate."""
-
-
-def _next_groq_key() -> str:
-    """Round-robin through available Groq API keys."""
-    global _GROQ_KEY_INDEX
-    keys = config.GROQ_API_KEYS
-    if not keys:
-        return ""
-    key = keys[_GROQ_KEY_INDEX % len(keys)]
-    _GROQ_KEY_INDEX += 1
-    return key
-
-
-# Upper bound on a single 429 sleep. Groq occasionally reports a multi-minute
-# `Retry-After` on a hard daily cap; waiting that out would stall the whole
-# scrape, so past this point the item is better left unsummarized.
-_SUMMARIZE_MAX_BACKOFF = 30.0
-
-
-def _retry_after_seconds(response) -> float | None:
-    """Seconds to wait per the response's `Retry-After` header, if usable.
-
-    Groq sends a decimal seconds value; the HTTP spec also allows an integer,
-    so both are accepted and anything else (including the HTTP-date form,
-    which Groq does not send) falls through to caller-side backoff.
-    """
-    raw = response.headers.get("retry-after") or response.headers.get("x-ratelimit-reset-tokens")
-    if not raw:
-        return None
-    try:
-        return min(_SUMMARIZE_MAX_BACKOFF, max(0.0, float(str(raw).rstrip("s"))))
-    except ValueError:
-        return None
+#
+# Summarization/classification prompting and provider fallback both live in
+# app/llm.py now (_ANALYZE_PROMPT, analyze_notice) — shared with the
+# on-demand /notices/analyze route rather than duplicated here. See
+# _summarize_item below.
 
 
 async def _summarize_item(title: str, content: str, category_hint: str | None) -> dict | None:
-    """Call Groq/Gemini to summarize a single item. Returns parsed dict or None on failure.
-    Rotates across multiple API keys and retries on 429."""
-    if not config.GROQ_API_KEYS and not config.GEMINI_API_KEY:
-        return None
+    """Summarize + classify one scraped item. Delegates to llm.analyze_notice,
+    which runs the request through the full provider fallback chain —
+    OpenRouter's several free models (each with its own independent daily
+    quota), then Groq, Gemini, OpenCode, Bedrock, in the admin's configured
+    order — instead of this function's previous hand-rolled, Groq-only
+    implementation with its own key-rotation loop.
 
-    truncated_content = content[:4000] if content else ""
-    user_msg = f"Title: {title}\n"
-    if category_hint:
-        user_msg += f"Listing category: {category_hint}\n"
-    user_msg += f"\nContent:\n{truncated_content}"
-
-    payload = {
-        "model": config.GROQ_MODEL,
-        "messages": [
-            {"role": "system", "content": _SUMMARIZE_PROMPT},
-            {"role": "user", "content": user_msg},
-        ],
-        "max_tokens": 600,
-        "temperature": 0.1,
-    }
-
-    num_keys = len(config.GROQ_API_KEYS)
-    # A scrape summarizes every new item on a source back-to-back, so 429s are
-    # the normal steady state on Groq's free tier, not an exceptional case.
-    # The previous schedule gave up after ~5s of total backoff, which silently
-    # dropped the summary for most items in any run with more than a handful
-    # of notices (observed: 15 of 18 on one SEBON run). Groq reports exactly
-    # how long to wait in `Retry-After`, so honour that rather than guessing.
-    max_retries = max(6, num_keys * 3)
-
-    for attempt in range(max_retries + 1):
-        api_key = _next_groq_key()
-        if not api_key:
-            return None
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    GROQ_API_URL,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                )
-            if response.status_code == 429:
-                if attempt >= max_retries:
-                    logger.warning("Summarization: all retries exhausted for: %s", title[:60])
-                    return None
-                # Rotate to the next key first — a per-key limit often clears
-                # instantly on a different key. Only actually sleep once every
-                # key has been tried in this cycle.
-                if (attempt + 1) % num_keys:
-                    logger.info("Summarization: key rate-limited, rotating to next key")
-                    continue
-                wait = _retry_after_seconds(response)
-                if wait is None:
-                    wait = min(_SUMMARIZE_MAX_BACKOFF, 2.0 ** (attempt // max(1, num_keys)))
-                wait += random.uniform(0, 0.5)  # de-sync concurrent workers
-                logger.info(
-                    "Summarization: all keys rate-limited, sleeping %.1fs (attempt %d/%d)",
-                    wait, attempt + 1, max_retries,
-                )
-                await asyncio.sleep(wait)
-                continue
-            if response.status_code != 200:
-                logger.warning("Summarization: Groq returned %d", response.status_code)
-                return None
-            raw = response.json()["choices"][0]["message"]["content"]
-            raw = re.sub(r"^```(json)?|```$", "", raw.strip(), flags=re.MULTILINE).strip()
-            if not raw:
-                # Reasoning models can spend the whole token budget on hidden
-                # reasoning and return an empty body; that is not valid JSON
-                # and is worth naming rather than logging as a parse error.
-                logger.warning("Summarization: empty completion for: %s", title[:60])
-                return None
-            return json.loads(raw)
-        except Exception:
-            logger.exception("Summarization failed for: %s", title[:60])
-            return None
-    return None
+    That old implementation is why a source's whole run could stall on
+    Groq's free-tier rate limit even when every other configured provider
+    was healthy and idle: Groq was the ONLY thing this function knew how to
+    call. A scrape run now degrades the same way every other LLM call in
+    this service already does — by falling through its provider chain, not
+    by retrying one exhausted provider for up to ~30s per item."""
+    result = await llm.analyze_notice(title, content, category_hint)
+    if result is None:
+        logger.warning("Summarization failed for: %s", title[:60])
+    return result
 
 
 @dataclass
@@ -1819,7 +1691,6 @@ async def _detect_pagination(
 
 
 _SUMMARIZE_CONCURRENCY = config.SUMMARIZE_CONCURRENCY
-_GROQ_KEY_INDEX = 0
 
 
 # --- sitemap fast-path ---
@@ -2321,6 +2192,29 @@ async def _summarize_with_semaphore(
         return True
 
 
+async def _summarize_then_stream(
+    item: ScrapedItem,
+    category_hint: str,
+    report,
+    semaphore: asyncio.Semaphore,
+    on_item,
+) -> bool:
+    """Wraps _summarize_with_semaphore so the item is pushed to the caller
+    (apps/api's streaming ingestion endpoint) the moment ITS OWN work is
+    done — not after every other item in the run has also finished.
+
+    This is the difference between a run that survives a 504 with partial
+    progress and one that loses everything: previously all summarize tasks
+    for a page (or a whole run) were awaited together via asyncio.gather, so
+    even an item summarized in the first second of a 20-minute run sat in
+    memory, unpersisted, until the very last one finished too."""
+    try:
+        return await _summarize_with_semaphore(item, category_hint, report, semaphore)
+    finally:
+        if on_item is not None:
+            await on_item(item)
+
+
 async def scrape_source(
     base_url: str,
     category_urls: dict[str, str],
@@ -2332,20 +2226,33 @@ async def scrape_source(
     pagination: PaginationConfig | None = None,
     deep: bool = False,
     on_progress=None,
-) -> tuple[list[ScrapedItem], dict[str, dict], list[dict]]:
+    on_item=None,
+) -> tuple[list[ScrapedItem], dict[str, dict], list[dict], dict]:
     """Scrape an admin-configured source's notice/news listings with concurrent
     AI summarization. `summarize_concurrency` caps in-flight LLM calls (from
     the admin `scraping.summarizeConcurrency` setting); None → env default.
-    Returns (items, schemas_used, failures) — `failures` is a structured list
-    of every page/URL that failed (stage: schema_detection/listing/detail,
+    Returns (items, schemas_used, failures, stats). `failures` is a structured
+    list of every page/URL that failed (stage: schema_detection/listing/detail,
     with crawl4ai's own error message), even when the run otherwise succeeds
     with a partial item set, so the caller can show *why* and *where*.
+    `stats` is what the run learned about the site — the pagination scheme it
+    actually observed, pages walked, totals the pager reported — which is what
+    lets the caller diagnose a bad configuration instead of just reporting it.
 
     `deep=True` is the "scrape every page" archive crawl: the listing's own
     pager decides how far to walk (up to config.SCRAPE_DEEP_MAX_PAGES), the
     source's `max_pages` is ignored, and the incremental early-stops are
     disabled — a page of already-known items is expected in the middle of an
-    archive and must not end the walk."""
+    archive and must not end the walk.
+
+    `on_item`, when given, is awaited with each new item (never a known-URL
+    repeat) as soon as ITS OWN detail-fetch and summarization finish — not
+    batched, not held for the end of the page or the run. The returned
+    `items` list is still populated in full for backward compatibility (a
+    caller with no `on_item` gets the exact behavior of before), but a
+    caller that does supply one already has every item durably persisted by
+    the time this function returns, whether it returns normally or the
+    caller's own request times out first."""
     cached_schemas = cached_schemas or {}
     known_urls = known_urls or set()
     pagination = pagination or PaginationConfig()
@@ -2353,6 +2260,7 @@ async def scrape_source(
     items: list[ScrapedItem] = []
     schemas_used: dict[str, dict] = {}
     failures: list[dict] = []
+    stats: dict = {"deep": deep, "categories": {}}
     seen_urls: set[str] = set()
     summarize_tasks: list[asyncio.Task] = []
     semaphore = _summarize_semaphore(summarize_concurrency)
@@ -2395,6 +2303,11 @@ async def scrape_source(
             # Page 2's rows, already fetched by pagination detection.
             prefetched_rows: list[dict] | None = None
 
+            # What this category's crawl actually observed, for the caller's
+            # diagnosis of a mis-configured source.
+            category_stats: dict = {"listing_url": listing_url, "pages_crawled": 0}
+            stats["categories"][category] = category_stats
+
             page_index = 0
             while page_index < page_limit:
                 if page_index == 0:
@@ -2422,6 +2335,10 @@ async def scrape_source(
                 if not rows:
                     break
 
+                # Counted here, not at the bottom of the loop: every path out
+                # of the body below is a `break`, and a page that was crawled
+                # still counts even when its rows end the walk.
+                category_stats["pages_crawled"] = page_index + 1
                 fingerprints = _row_fingerprints(rows)
                 if page_index == 0:
                     previous_fingerprints = fingerprints
@@ -2429,6 +2346,13 @@ async def scrape_source(
                     # 23 results" counter — the site's answer to both "how do
                     # I ask for page N" and "how many pages are there".
                     pager = _discover_pager(page_html, listing_url)
+                    category_stats.update(
+                        {
+                            "reported_pages": pager.last_page,
+                            "reported_results": pager.total_results,
+                            "per_page": pager.per_page,
+                        }
+                    )
                     if deep and pager.last_page:
                         page_limit = min(config.SCRAPE_DEEP_MAX_PAGES, pager.last_page)
                         report(
@@ -2446,7 +2370,14 @@ async def scrape_source(
                             discovered=pager.config, accept_any_new=deep,
                         )
                         prefetched_rows = prefetched_rows or None
+                        if page_pagination is not None:
+                            category_stats["detected_pagination"] = {
+                                "type": page_pagination.pagination_type,
+                                "param": page_pagination.param,
+                                "start_page": page_pagination.start_page,
+                            }
                         if page_pagination is None:
+                            category_stats["single_page"] = True
                             report(f"{category.title()} listing is a single page")
                         elif (page_pagination.pagination_type, page_pagination.param) != (
                             pagination.pagination_type, pagination.param
@@ -2584,12 +2515,26 @@ async def scrape_source(
                     )
                     items.append(item)
 
-                    # Fire concurrent summarization task (non-blocking)
-                    if content_text and source_url not in known_urls:
+                    # A known URL was already persisted in an earlier run —
+                    # streaming it again is a guaranteed no-op round trip to
+                    # apps/api for every "already scraped" row on the page.
+                    # Only genuinely new items are worth pushing.
+                    is_new = source_url not in known_urls
+                    if content_text and is_new:
+                        # Fire concurrent summarization task (non-blocking);
+                        # the item streams itself once summarization finishes.
                         task = asyncio.create_task(
-                            _summarize_with_semaphore(item, category, report, semaphore)
+                            _summarize_then_stream(item, category, report, semaphore, on_item)
                         )
                         summarize_tasks.append(task)
+                    elif is_new and on_item is not None:
+                        # No content to summarize (e.g. detail fetch failed) —
+                        # nothing further will change on this item, so it can
+                        # stream right away instead of waiting on the batch.
+                        # Tracked in summarize_tasks (despite the name — it's
+                        # really "background tasks to await before returning")
+                        # so the function can't return before this push lands.
+                        summarize_tasks.append(asyncio.create_task(on_item(item)))
 
                 already_known_on_page = new_rows_on_page - unknown_rows_on_page
                 report(
@@ -2634,7 +2579,8 @@ async def scrape_source(
         list(category_urls.keys()),
         len(failures),
     )
-    return items, schemas_used, failures
+    stats["items"] = len(items)
+    return items, schemas_used, failures, stats
 
 
 async def check_listing(
@@ -2655,7 +2601,7 @@ async def check_listing(
     Returns (new_urls, total_seen).
     """
     known = set(known_urls or ())
-    items, _, _ = await scrape_source(
+    items, _, _, _ = await scrape_source(
         base_url=base_url,
         category_urls=category_urls,
         cached_schemas=cached_schemas,
@@ -2675,6 +2621,7 @@ async def scrape_sitemap_urls(
     known_urls: set[str] | None = None,
     summarize_concurrency: int | None = None,
     on_progress=None,
+    on_item=None,
 ) -> tuple[list[ScrapedItem], dict[str, dict], list[dict]]:
     """Scrape an explicit list of article URLs directly — the sitemap
     fast-path's own full crawl. The sitemap already tells us exactly which
@@ -2688,6 +2635,11 @@ async def scrape_sitemap_urls(
     SVG error page at /category/* — not anti-bot, just 404), yet expose a
     healthy articles sitemap. Returns (items, schemas_used, failures) with an
     empty schemas dict for API compatibility.
+
+    `on_item`, when given, is awaited with each item as soon as it is fully
+    resolved (see scrape_source's docstring — same streaming contract).
+    Every item built here is already new by construction (known URLs are
+    filtered out above), so unlike scrape_source there is no further check.
     """
     known_urls = known_urls or set()
     report = on_progress or (lambda _msg: None)
@@ -2777,8 +2729,12 @@ async def scrape_sitemap_urls(
             items.append(item)
 
             if content_text:
-                task = asyncio.create_task(_summarize_with_semaphore(item, resolved_category, report, semaphore))
+                task = asyncio.create_task(
+                    _summarize_then_stream(item, resolved_category, report, semaphore, on_item)
+                )
                 summarize_tasks.append(task)
+            elif on_item is not None:
+                summarize_tasks.append(asyncio.create_task(on_item(item)))
 
     if summarize_tasks:
         report(f"Waiting for {len(summarize_tasks)} summarization task(s) to complete…")

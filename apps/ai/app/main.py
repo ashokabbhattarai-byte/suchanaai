@@ -19,8 +19,11 @@ from app import notice_rag
 from app import notice_store
 from app import progress
 from app import rag
+from app import route_discovery
 from app import scraper
+from app import scrape_diagnosis
 from app import scrape_progress
+from app import scrape_stream
 from app import secure_http
 from app import store
 from app.metrics import metrics  # the registry instance, not the module
@@ -50,6 +53,10 @@ ROUTE_TIMEOUT_SECONDS = {
     "/scrape/sitemap/detect": 120,
     "/scrape/check": 120,
     "/scrape/listing/check": 120,
+    # Discovery verifies each candidate route by crawling it, so its budget
+    # scales with how many candidates it is allowed to check.
+    "/scrape/discover": 480,
+    "/scrape/diagnose": 540,
 }
 
 # A deep ("every page") crawl walks a whole archive rather than the newest 3
@@ -411,6 +418,12 @@ async def _route(method: str, path: str, scope: dict, receive, send) -> tuple[in
 
     if method == "POST" and path == "/scrape/sitemap-crawl":
         return await _scrape_sitemap_crawl(receive)
+
+    if method == "POST" and path == "/scrape/discover":
+        return await _scrape_discover(receive)
+
+    if method == "POST" and path == "/scrape/diagnose":
+        return await _scrape_diagnose(receive)
 
     scrape_progress_match = re.match(r"^/scrape/progress/([^/]+)$", path)
     if method == "GET" and scrape_progress_match:
@@ -797,8 +810,13 @@ async def _scrape_source(receive) -> tuple[int, dict]:
     website. Body: {base_url, category_urls: {"NOTICE"?: url, "NEWS"?: url},
     cached_schemas?: {"NOTICE"?: schema, "NEWS"?: schema}, known_urls?: [...],
     max_pages?: int, run_id?: str, pagination?: {type, param, start_page},
-    deep?: bool}. `deep` walks every page the listing's pager reports rather
-    than the newest `max_pages` (see scraper.scrape_source).
+    deep?: bool, auto_finish?: bool}. `deep` walks every page the listing's
+    pager reports rather than the newest `max_pages` (see
+    scraper.scrape_source). `auto_finish` (default true) controls whether
+    this call finalizes the run itself via POST .../runs/{run_id}/finish —
+    apps/api sends false when it may still fall back to a sitemap crawl
+    afterward for the same run_id, so it alone decides when the run's book
+    is closed instead of two independent finish calls racing each other.
     Returns {items: [...], schemas: {category: schema}} — `schemas` is
     whichever schema (cached or freshly detected) was actually used, for the
     caller to persist for the next run. When `run_id` is given, live status
@@ -822,6 +840,7 @@ async def _scrape_source(receive) -> tuple[int, dict]:
     max_pages = int(data.get("max_pages", scraper.DEFAULT_MAX_PAGES))
     deep = bool(data.get("deep"))
     run_id = data.get("run_id")
+    auto_finish = bool(data.get("auto_finish", True))
     # Per-run cap on concurrent LLM summarizations, sent by the API from the
     # admin `scraping.summarizeConcurrency` setting. Absent → scraper default.
     summarize_concurrency = int(data.get("summarize_concurrency") or 0)
@@ -838,8 +857,13 @@ async def _scrape_source(receive) -> tuple[int, dict]:
         scrape_progress.start(run_id)
         on_progress = lambda msg: scrape_progress.log(run_id, msg)  # noqa: E731
 
+    # Every item this run finds is pushed to apps/api the moment it's ready
+    # (see scrape_stream.RunStreamer) — the response built below is a
+    # backward-compatible echo, not the only way the data gets persisted.
+    streamer = scrape_stream.RunStreamer(run_id)
+
     try:
-        items, schemas_used, failed_urls = await scraper.scrape_source(
+        items, schemas_used, failed_urls, stats = await scraper.scrape_source(
             base_url=base_url,
             category_urls=category_urls,
             cached_schemas=cached_schemas,
@@ -849,41 +873,128 @@ async def _scrape_source(receive) -> tuple[int, dict]:
             pagination=pagination,
             deep=deep,
             on_progress=on_progress,
+            on_item=streamer.push if streamer.enabled else None,
         )
         if run_id:
             scrape_progress.finish(run_id, f"Done — {len(items)} item(s) found")
+        if auto_finish:
+            await streamer.finish(schemas_used, failed_urls, stats)
+        if streamer.push_failures:
+            logger.warning(
+                "Run %s: %d item(s) fell back to the end-of-run response after streaming failed",
+                run_id, streamer.push_failures,
+            )
         return 200, {
-            "items": [
-                {
-                    "category": item.category,
-                    "title": item.title,
-                    "source_url": item.source_url,
-                    "published_at": item.published_at,
-                    "summary": item.summary,
-                    "content_text": item.content_text,
-                    "content_html": item.content_html,
-                    "attachment_url": item.attachment_url,
-                    "source_slug": item.source_slug,
-                    "attachments": [
-                        {"url": a.url, "label": a.label, "mime_type": a.mime_type, "size_bytes": a.size_bytes}
-                        for a in (item.attachments or [])
-                    ],
-                    "ai_summary": item.ai_summary,
-                    "ai_summary_ne": item.ai_summary_ne,
-                    "ai_urgency": item.ai_urgency,
-                    "ai_category_confidence": item.ai_category_confidence,
-                    "metadata": item.metadata,
-                }
-                for item in items
-            ],
+            "items": streamer.response_items(items),
             "schemas": schemas_used,
             "failed_urls": failed_urls,
+            "stats": stats,
         }
     except Exception as e:
         logger.exception("Scrape failed for base_url=%s", base_url)
         if run_id:
             scrape_progress.fail(run_id, str(e))
+        # finish() even on a hard failure: whatever streamed successfully
+        # before the crawl blew up is real, persisted data — the run should
+        # be reported as a partial/failed run with that itemsFound count,
+        # not silently reconciled away because the crawl itself never
+        # reached its own return statement.
+        if auto_finish:
+            await streamer.finish({}, [], {}, error=f"Scrape failed: {str(e)}")
         return 502, {"error": f"Scrape failed: {str(e)}"}
+
+
+async def _scrape_discover(receive) -> tuple[int, dict]:
+    """POST /scrape/discover — body: {base_url, run_id?, max_verify?}.
+
+    Finds this site's real notice/news/press-release listing routes instead
+    of making the admin browse for them, and proves each one by crawling it.
+    Returns {base_url, routes: [...], best: {CATEGORY: url}, checked, notes}.
+    """
+    body = await _read_body(receive)
+    try:
+        data = json.loads(body) if body else {}
+    except json.JSONDecodeError:
+        return 400, {"error": "Invalid JSON body"}
+
+    base_url = (data.get("base_url") or "").strip()
+    if not base_url:
+        return 400, {"error": "Field 'base_url' is required"}
+
+    run_id = data.get("run_id")
+    on_progress = None
+    if run_id:
+        scrape_progress.start(run_id)
+        on_progress = lambda msg: scrape_progress.log(run_id, msg)  # noqa: E731
+
+    try:
+        result = await route_discovery.discover_routes(
+            base_url,
+            max_verify=int(data.get("max_verify") or 10),
+            on_progress=on_progress,
+        )
+        if run_id:
+            scrape_progress.finish(run_id, f"Found {len(result.get('best') or {})} route(s)")
+        return 200, result
+    except Exception as e:
+        logger.exception("Route discovery failed for %s", base_url)
+        if run_id:
+            scrape_progress.fail(run_id, str(e))
+        return 502, {"error": f"Route discovery failed: {str(e)}"}
+
+
+async def _scrape_diagnose(receive) -> tuple[int, dict]:
+    """POST /scrape/diagnose — explain a failed or empty run, with fixes.
+
+    Body: {base_url, failed_urls?, category_urls?, items_found?, items_new?,
+    has_sitemap?, pagination?, stats?, discover?}. With `discover: true` the
+    site's routes are re-detected first, so a "your listing URL is dead"
+    finding can name the URL that replaced it.
+    Returns {diagnoses: [...], discovered: {...} | null}.
+    """
+    body = await _read_body(receive)
+    try:
+        data = json.loads(body) if body else {}
+    except json.JSONDecodeError:
+        return 400, {"error": "Invalid JSON body"}
+
+    base_url = (data.get("base_url") or "").strip()
+    if not base_url:
+        return 400, {"error": "Field 'base_url' is required"}
+
+    discovered = None
+    if data.get("discover"):
+        try:
+            discovered = await route_discovery.discover_routes(base_url, max_verify=8)
+        except Exception:
+            # A diagnosis without replacement URLs is still worth returning.
+            logger.exception("Discovery during diagnosis failed for %s", base_url)
+
+    # The pagination the crawl actually observed, from any category that saw
+    # more than one page.
+    stats = data.get("stats") or {}
+    detected_pagination = None
+    for category_stats in (stats.get("categories") or {}).values():
+        if isinstance(category_stats, dict) and category_stats.get("detected_pagination"):
+            detected_pagination = category_stats["detected_pagination"]
+            break
+
+    diagnoses = scrape_diagnosis.diagnose(
+        data.get("failed_urls") or [],
+        category_urls=data.get("category_urls") or {},
+        base_url=base_url,
+        items_found=int(data.get("items_found") or 0),
+        items_new=int(data.get("items_new") or 0),
+        has_sitemap=bool(data.get("has_sitemap")),
+        pagination=data.get("pagination"),
+        detected_pagination=detected_pagination,
+        discovered_routes=discovered,
+    )
+    return 200, {
+        "diagnoses": diagnoses,
+        "discovered": discovered,
+        "checked_at": _now_iso(),
+    }
 
 
 def _scrape_progress(run_id: str) -> tuple[int, dict]:
@@ -1029,11 +1140,13 @@ async def _scrape_check(receive) -> tuple[int, dict]:
 
 async def _scrape_sitemap_crawl(receive) -> tuple[int, dict]:
     """POST /scrape/sitemap-crawl — body: {base_url, urls: [...],
-    known_urls?: [...], run_id?}. Fetches each sitemap URL directly as a
-    detail page — the sitemap fast-path's own full crawl. No listing page,
-    no CSS-extraction schema. Returns the same item shape as
+    known_urls?: [...], run_id?, auto_finish?}. Fetches each sitemap URL
+    directly as a detail page — the sitemap fast-path's own full crawl. No
+    listing page, no CSS-extraction schema. Returns the same item shape as
     /scrape/source ({items, schemas}) so the API reuses its full persistence
-    pipeline unchanged."""
+    pipeline unchanged. `auto_finish` (default true) — see
+    _scrape_source's docstring; apps/api sends false when this call is the
+    listing→sitemap fallback branch of the same run."""
     body = await _read_body(receive)
     try:
         data = json.loads(body) if body else {}
@@ -1049,6 +1162,7 @@ async def _scrape_sitemap_crawl(receive) -> tuple[int, dict]:
 
     known_urls = set(data.get("known_urls") or [])
     run_id = data.get("run_id")
+    auto_finish = bool(data.get("auto_finish", True))
     # Per-run cap on concurrent LLM summarizations, sent by the API from the
     # admin `scraping.summarizeConcurrency` setting. Absent → scraper default.
     summarize_concurrency = int(data.get("summarize_concurrency") or 0)
@@ -1058,6 +1172,8 @@ async def _scrape_sitemap_crawl(receive) -> tuple[int, dict]:
         scrape_progress.start(run_id)
         on_progress = lambda msg: scrape_progress.log(run_id, msg)  # noqa: E731
 
+    streamer = scrape_stream.RunStreamer(run_id)
+
     try:
         items, _, failed_urls = await scraper.scrape_sitemap_urls(
             base_url=base_url,
@@ -1065,33 +1181,14 @@ async def _scrape_sitemap_crawl(receive) -> tuple[int, dict]:
             known_urls=known_urls,
             summarize_concurrency=summarize_concurrency or None,
             on_progress=on_progress,
+            on_item=streamer.push if streamer.enabled else None,
         )
         if run_id:
             scrape_progress.finish(run_id, f"Done — {len(items)} item(s) found")
+        if auto_finish:
+            await streamer.finish({}, failed_urls)
         return 200, {
-            "items": [
-                {
-                    "category": item.category,
-                    "title": item.title,
-                    "source_url": item.source_url,
-                    "published_at": item.published_at,
-                    "summary": item.summary,
-                    "content_text": item.content_text,
-                    "content_html": item.content_html,
-                    "attachment_url": item.attachment_url,
-                    "source_slug": item.source_slug,
-                    "attachments": [
-                        {"url": a.url, "label": a.label, "mime_type": a.mime_type, "size_bytes": a.size_bytes}
-                        for a in (item.attachments or [])
-                    ],
-                    "ai_summary": item.ai_summary,
-                    "ai_summary_ne": item.ai_summary_ne,
-                    "ai_urgency": item.ai_urgency,
-                    "ai_category_confidence": item.ai_category_confidence,
-                    "metadata": item.metadata,
-                }
-                for item in items
-            ],
+            "items": streamer.response_items(items),
             "schemas": {},
             "failed_urls": failed_urls,
         }
@@ -1099,6 +1196,8 @@ async def _scrape_sitemap_crawl(receive) -> tuple[int, dict]:
         logger.exception("Sitemap crawl failed for base_url=%s", base_url)
         if run_id:
             scrape_progress.fail(run_id, str(e))
+        if auto_finish:
+            await streamer.finish({}, [], error=f"Sitemap crawl failed: {str(e)}")
         return 502, {"error": f"Sitemap crawl failed: {str(e)}"}
 
 

@@ -16,6 +16,7 @@ import {
   ScrapeSource,
   ScrapePaginationType,
   SitemapCheckResult,
+  RouteDiscoveryResult,
   SchedulerStatus,
   RunAllResult,
   PublicNoticeDetail,
@@ -660,6 +661,30 @@ export async function detectScrapeSitemap(id: string): Promise<ScrapeSource> {
  */
 export async function checkScrapeSitemap(id: string): Promise<SitemapCheckResult> {
   return apiFetch(`/admin/scraping/sources/${id}/check`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  })
+}
+
+/**
+ * Find a site's real notice/news/press-release listing routes from its own
+ * navigation, proving each one by crawling it. Lets an admin paste a home
+ * page instead of hunting for the right listing URL. Slow by nature — it
+ * loads several pages — so call it behind an explicit action.
+ */
+export async function discoverScrapeRoutes(baseUrl: string): Promise<RouteDiscoveryResult> {
+  return apiFetch("/admin/scraping/discover-routes", {
+    method: "POST",
+    body: JSON.stringify({ baseUrl }),
+  })
+}
+
+/**
+ * Explain a source's most recent failure and what to change about it. The
+ * same analysis a failed run records automatically, on demand.
+ */
+export async function diagnoseScrapeSource(id: string): Promise<ScrapeSource> {
+  return apiFetch(`/admin/scraping/sources/${id}/diagnose`, {
     method: "POST",
     body: JSON.stringify({}),
   })

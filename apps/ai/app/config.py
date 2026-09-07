@@ -65,6 +65,33 @@ OPENROUTER_BASE_URL: str = _env("OPENROUTER_BASE_URL", "https://openrouter.ai/ap
 # is permanently 429 — the shared free pool for it is exhausted.
 OPENROUTER_MODEL: str = _env("OPENROUTER_MODEL", "minimax/minimax-m3:free")
 
+# The rest of the OpenRouter free-model chain, tried in order after
+# OPENROUTER_MODEL — each `:free` model meters against its OWN daily quota
+# (confirmed against the live API: a 429 on one is independent of every
+# other), so one exhausted model no longer takes OpenRouter itself out of the
+# provider rotation for the rest of the day. A scrape of a few hundred
+# notices burns through a single free model's quota well before it finishes;
+# this is what makes a full run's worth of summarization actually complete
+# on free tiers instead of falling through to Gemini/Groq/Bedrock partway in.
+#
+# Verified live on 2026-09-07 against api/v1/models: thinkingmachines/inkling
+# (and -small) are listed as free but return 403 "only available on an
+# agentic harness" through the plain chat-completions endpoint used here —
+# excluded. Domain-flavored (…-sante, …-fin) and code-only models excluded as
+# poor fits for general Nepali notice summarization.
+OPENROUTER_FREE_MODELS: list[str] = [
+    m.strip() for m in _env(
+        "OPENROUTER_FREE_MODELS",
+        "nvidia/nemotron-3.5-lightning:free,"
+        "google/gemma-4-31b-it:free,"
+        "nvidia/nemotron-3-super-120b-a12b:free,"
+        "minimax/minimax-m2.7:free,"
+        "google/gemma-4-26b-a4b-it:free,"
+        "liquid/lfm-2.5-2.6b:free",
+    ).split(",")
+    if m.strip()
+]
+
 GROQ_API_KEY: str = _env("GROQ_API_KEY")
 GROQ_API_KEYS: list[str] = [k.strip() for k in _env("GROQ_API_KEYS", "").split(",") if k.strip()] or ([GROQ_API_KEY] if GROQ_API_KEY else [])
 # llama-3.3-70b-versatile was retired from Groq's catalog (404 model_not_found).

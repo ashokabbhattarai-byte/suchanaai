@@ -1,0 +1,323 @@
+[
+  {
+    "id": "00000000-0000-0000-0000-000000000016",
+    "name": "Ministry of Land Management, Cooperatives and Poverty Alleviation",
+    "status": "no_route",
+    "notes": "Only article-shaped URLs found for: ['noticeListUrl'] — needs manual review"
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000010",
+    "name": "Ministry of Industry, Commerce and Supplies",
+    "status": "would_update",
+    "changes": {
+      "noticeListUrl": "https://moics.gov.np/category/information/"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000005",
+    "name": "Ministry of Home Affairs",
+    "status": "would_update",
+    "changes": {
+      "noticeListUrl": "https://moha.gov.np/page/notice"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-00000000001d",
+    "name": "Election Commission Nepal",
+    "status": "would_update",
+    "changes": {
+      "noticeListUrl": "https://election.gov.np/notice",
+      "newsListUrl": "https://election.gov.np/news"
+    }
+  },
+  {
+    "id": "678e3e00-7e97-4380-ab30-2dc9d3b2e59c",
+    "name": "nea",
+    "status": "no_route",
+    "notes": "The home page could not be loaded, so only conventional paths were tried.; No page on this site listed individual notices. It may render its list with JavaScript after load, sit behind a different domain, or publish only through a sitemap — try sitemap detection."
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000011",
+    "name": "Ministry of Physical Infrastructure and Transport",
+    "status": "unchanged",
+    "best": {
+      "NEWS": "https://mopit.gov.np/category/news/",
+      "PRESS_RELEASE": "https://mopit.gov.np/category/press-release/",
+      "NOTICE": "https://mopit.gov.np/category/self-publishing-notices/"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000017",
+    "name": "Ministry of Women, Children and Senior Citizens",
+    "status": "unchanged",
+    "best": {
+      "PRESS_RELEASE": "https://mowcsc.gov.np/category/press-release",
+      "NOTICE": "https://mowcsc.gov.np/category/notice"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-00000000001e",
+    "name": "Commission for the Investigation of Abuse of Authority (CIAA)",
+    "status": "would_update",
+    "changes": {
+      "noticeListUrl": "https://ciaa.gov.np/notices",
+      "newsListUrl": "https://ciaa.gov.np/news",
+      "pressReleaseListUrl": "https://ciaa.gov.np/pressrelease"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000006",
+    "name": "Ministry of Education, Science & Technology",
+    "status": "no_route",
+    "notes": "Only article-shaped URLs found for: ['pressReleaseListUrl'] — needs manual review"
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000024",
+    "name": "Office of the Company Registrar",
+    "status": "error",
+    "error": "ReadTimeout"
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000025",
+    "name": "Securities Board of Nepal (SEBON)",
+    "status": "would_update",
+    "changes": {
+      "pressReleaseListUrl": "https://www.sebon.gov.np/press-release/प्रेस-विज्ञप्ती"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000012",
+    "name": "Ministry of Urban Development",
+    "status": "no_route",
+    "notes": "The home page could not be loaded, so only conventional paths were tried.; No page on this site listed individual notices. It may render its list with JavaScript after load, sit behind a different domain, or publish only through a sitemap — try sitemap detection."
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000018",
+    "name": "Ministry of Youth and Sports",
+    "status": "no_route",
+    "notes": "Only article-shaped URLs found for: ['noticeListUrl'] — needs manual review"
+  },
+  {
+    "id": "00000000-0000-0000-0000-00000000000b",
+    "name": "Office of the President",
+    "status": "no_route",
+    "notes": "No page on this site listed individual notices. It may render its list with JavaScript after load, sit behind a different domain, or publish only through a sitemap — try sitemap detection."
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000007",
+    "name": "Public Service Commission (Lok Sewa Aayog)",
+    "status": "no_route",
+    "notes": "No page on this site listed individual notices. It may render its list with JavaScript after load, sit behind a different domain, or publish only through a sitemap — try sitemap detection."
+  },
+  {
+    "id": "00000000-0000-0000-0000-00000000001f",
+    "name": "Department of Immigration",
+    "status": "would_update",
+    "changes": {
+      "noticeListUrl": "https://www.immigration.gov.np/news-notices",
+      "newsListUrl": "https://www.immigration.gov.np/bulletin",
+      "pressReleaseListUrl": "https://www.immigration.gov.np/press-release"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-00000000000c",
+    "name": "Ministry of Defence",
+    "status": "unchanged",
+    "best": {
+      "NOTICE": "https://mod.gov.np/category/notice",
+      "NEWS": "https://mod.gov.np/category/news"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000013",
+    "name": "Ministry of Energy, Water Resources and Irrigation",
+    "status": "unchanged",
+    "best": {
+      "NOTICE": "https://moewri.gov.np/category/notice-board",
+      "PRESS_RELEASE": "https://moewri.gov.np/category/press-release/"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000026",
+    "name": "Nepal Telecommunications Authority (NTA)",
+    "status": "would_update",
+    "changes": {
+      "noticeListUrl": "https://nta.gov.np/righttoinfo"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000020",
+    "name": "Inland Revenue Department",
+    "status": "would_update",
+    "changes": {
+      "newsListUrl": "https://ird.gov.np/category/tax-bulletins/"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000019",
+    "name": "Ministry of Culture, Tourism and Civil Aviation",
+    "status": "unchanged",
+    "best": {
+      "PRESS_RELEASE": "https://tourism.gov.np/category/press-release/",
+      "NOTICE": "https://tourism.gov.np/category/notice/",
+      "NEWS": "https://tourism.gov.np/category/News/"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000027",
+    "name": "National Vigilance Center",
+    "status": "would_update",
+    "changes": {
+      "newsListUrl": "https://nvc.gov.np/category/news/",
+      "pressReleaseListUrl": "https://nvc.gov.np/category/press-release/"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000008",
+    "name": "Ministry of Finance",
+    "status": "would_update",
+    "changes": {
+      "newsListUrl": "https://mof.gov.np/category/bulletin/"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-00000000000d",
+    "name": "Ministry of Agriculture and Livestock Development",
+    "status": "would_update",
+    "changes": {
+      "noticeListUrl": "https://moald.gov.np/category/information-centre",
+      "newsListUrl": "https://moald.gov.np/category/bulletin/"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000014",
+    "name": "Ministry of Forests and Environment",
+    "status": "unchanged",
+    "best": {
+      "PRESS_RELEASE": "https://mofe.gov.np/category/press-release/",
+      "NOTICE": "https://mofe.gov.np/category/notice-news/"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-00000000001a",
+    "name": "Ministry of Communication and Information Technology",
+    "status": "would_update",
+    "changes": {
+      "newsListUrl": "https://mocit.gov.np/category/e-bulletin/"
+    },
+    "dropped_suspect": {
+      "noticeListUrl": "https://mocit.gov.np/content/13226/notice-that-opinions-suggestions-are-requested-on-the/",
+      "pressReleaseListUrl": "https://mocit.gov.np/content/13200/press-releasenewbdhd/"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000021",
+    "name": "Department of Customs",
+    "status": "no_route",
+    "notes": "Only article-shaped URLs found for: ['noticeListUrl', 'pressReleaseListUrl'] — needs manual review"
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000002",
+    "name": "Nepal Rastra Bank (NRB)",
+    "status": "would_update",
+    "changes": {
+      "noticeListUrl": "https://www.nrb.org.np/category/notices/?department=ofg"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000009",
+    "name": "Ministry of Health and Population",
+    "status": "no_route",
+    "notes": "Only article-shaped URLs found for: ['noticeListUrl'] — needs manual review"
+  },
+  {
+    "id": "00000000-0000-0000-0000-00000000000e",
+    "name": "Ministry of Labour, Employment and Social Security",
+    "status": "error",
+    "error": "ReadTimeout"
+  },
+  {
+    "id": "00000000-0000-0000-0000-00000000001b",
+    "name": "Ministry of Law, Justice and Parliamentary Affairs",
+    "status": "no_route",
+    "notes": "No page on this site listed individual notices. It may render its list with JavaScript after load, sit behind a different domain, or publish only through a sitemap — try sitemap detection."
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000015",
+    "name": "Ministry of Water Supply",
+    "status": "error",
+    "error": "ReadTimeout"
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000022",
+    "name": "Department of Roads",
+    "status": "would_update",
+    "changes": {
+      "noticeListUrl": "https://dor.gov.np/ssdrp/notices",
+      "newsListUrl": "https://www.dor.gov.np/home/page/news"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-00000000000a",
+    "name": "Office of the Prime Minister and Council of Ministers",
+    "status": "no_route",
+    "notes": "Only article-shaped URLs found for: ['pressReleaseListUrl'] — needs manual review"
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000003",
+    "name": "Tribhuvan University (TU)",
+    "status": "unchanged",
+    "best": {
+      "NEWS": "https://tu.edu.np/news",
+      "NOTICE": "https://tu.edu.np/notices"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "name": "Ministry of Foreign Affairs (MOFA)",
+    "status": "would_update",
+    "changes": {
+      "noticeListUrl": "https://mofa.gov.np/category/automatic-publishing-notice/",
+      "newsListUrl": "https://mofa.gov.np/category/bulletin"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-00000000000f",
+    "name": "Ministry of Federal Affairs and General Administration",
+    "status": "unchanged",
+    "best": {
+      "NOTICE": "https://mofaga.gov.np/notices"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000004",
+    "name": "Kathmandu University (KU)",
+    "status": "would_update",
+    "changes": {
+      "newsListUrl": "https://ku.edu.np/static-page/ku-bulletin-archive"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000023",
+    "name": "Department of Foreign Employment",
+    "status": "would_update",
+    "changes": {
+      "newsListUrl": "https://dofe.gov.np/category/bulletin",
+      "pressReleaseListUrl": "https://dofe.gov.np/category/press-release"
+    }
+  },
+  {
+    "id": "00000000-0000-0000-0000-00000000001c",
+    "name": "Office of the Auditor General",
+    "status": "error",
+    "error": "ReadTimeout"
+  },
+  {
+    "id": "5c9a3c6e-f3b9-4a03-8d6d-e52c96a58ffa",
+    "name": "Homae affai",
+    "status": "would_update",
+    "changes": {
+      "pressReleaseListUrl": "http://moha.gov.np/en/page/press-release"
+    }
+  }
+]

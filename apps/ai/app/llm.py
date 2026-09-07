@@ -4,6 +4,7 @@ import json
 import random
 import re
 import time
+from urllib.parse import urlparse
 
 import httpx
 import numpy as np
@@ -359,13 +360,57 @@ def any_provider_configured() -> bool:
     return bool(active_providers())
 
 
+def _is_openrouter(provider: dict) -> bool:
+    """Match on the endpoint host, not the slug — an admin can rename or
+    duplicate the OpenRouter row, and the multi-model fallback below is a
+    property of the *account* (one shared key, one daily quota per model),
+    not of whatever label happens to be on it."""
+    base_url = provider.get("base_url") or ""
+    return urlparse(base_url).netloc == "openrouter.ai"
+
+
 async def _call_provider(provider: dict, messages: list[dict], max_tokens: int, temperature: float) -> str | None:
     kind = provider.get("kind")
     if kind == "GEMINI":
         return await _gemini_chat(messages, max_tokens, temperature, provider)
     if kind == "BEDROCK":
         return await _bedrock_chat(messages, max_tokens, temperature, provider)
+    if kind == "OPENAI_COMPATIBLE" and _is_openrouter(provider):
+        return await _openrouter_chat_with_fallback(messages, max_tokens, temperature, provider)
     return await _openai_compatible_chat(messages, max_tokens, temperature, provider)
+
+
+async def _openrouter_chat_with_fallback(
+    messages: list[dict], max_tokens: int, temperature: float, provider: dict
+) -> str | None:
+    """Try the admin-configured OpenRouter model, then walk the rest of
+    config.OPENROUTER_FREE_MODELS — each `:free` model has its own daily
+    quota, so a 429 here means "this model is exhausted today", not "every
+    free model on OpenRouter is". Only the LAST failure is recorded via
+    _note_failure (so the health panel reports "everything tried, nothing
+    worked" rather than flapping on whichever model happened to go first).
+    """
+    tried: set[str] = set()
+    candidates = [provider["model"], *config.OPENROUTER_FREE_MODELS]
+    last_failure: str | None = None
+
+    for model in candidates:
+        if model in tried:
+            continue
+        tried.add(model)
+        attempt_provider = {**provider, "model": model}
+        result = await _openai_compatible_chat(messages, max_tokens, temperature, attempt_provider)
+        if result:
+            return result
+        last_failure = recent_failure(provider.get("slug")) or last_failure
+        logger.info(
+            "OpenRouter model %s failed or returned empty; %d model(s) left in the free-tier chain",
+            model, len(candidates) - len(tried),
+        )
+
+    if last_failure:
+        _note_failure(provider.get("slug"), f"All {len(tried)} OpenRouter model(s) tried: {last_failure}")
+    return None
 
 
 # An 8-token health ping slips under a daily-token cap that blocks every real
@@ -411,6 +456,25 @@ def recent_failure(slug: str | None) -> str | None:
         _RECENT_FAILURES.pop(slug or "", None)
         return None
     return message
+
+
+async def raw_chat(
+    system_prompt: str, user_content: str, max_tokens: int, temperature: float = 0.0
+) -> str | None:
+    """Public one-shot chat call through the full provider fallback chain,
+    for callers outside this module that don't fit generate_answer/
+    generate_chat/analyze_notice's specific shapes — currently
+    scraper.py's LLM-assisted schema detection. Same fallback behavior as
+    everything else here: OpenRouter's free-model chain, then Groq, Gemini,
+    OpenCode, Bedrock, admin-ordered."""
+    return await _llm_chat(
+        [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        max_tokens,
+        temperature,
+    )
 
 
 async def _llm_chat(
@@ -998,11 +1062,12 @@ def _extractive_fallback(question: str, context_chunks: list[dict]) -> str:
 _ANALYZE_PROMPT = """You analyze a single Nepalese government/public notice or news item and produce a JSON summary for display on a notice detail page.
 
 Return ONLY a JSON object (no markdown fences, no commentary) with this exact shape:
-{"summary": "2-3 sentence plain-language summary in English", "summary_ne": "Same summary translated to Nepali (देवनागरी script)", "key_facts": ["short fact 1", "short fact 2", "..."], "tags": ["topic1", "topic2", "..."], "category": "<one of: NOTICE, NEWS, PRESS_RELEASE, CIRCULAR, TENDER, VACANCY, JOB, INTERNSHIP, OTHER>", "category_confidence": <0.0-1.0 float>}
+{"summary": "2-3 sentence plain-language summary in English", "summary_ne": "Same summary translated to Nepali (देवनागरी script)", "urgency": "<LOW|MEDIUM|HIGH>", "key_facts": ["short fact 1", "short fact 2", "..."], "tags": ["topic1", "topic2", "..."], "category": "<one of: NOTICE, NEWS, PRESS_RELEASE, CIRCULAR, TENDER, VACANCY, JOB, INTERNSHIP, OTHER>", "category_confidence": <0.0-1.0 float>}
 
 Rules:
 - summary: plain language English, no jargon, captures what the notice actually says and who it affects. If the content is in Nepali, translate and summarize in English.
 - summary_ne: the same summary written in Nepali (देवनागरी). If the content is already in Nepali, summarize directly. If in English, translate to Nepali.
+- urgency: HIGH for exam deadlines, visa deadlines, tenders with close dates, vacancy deadlines; MEDIUM for important policy/regulatory changes; LOW for routine press releases, general news.
 - key_facts: 3-6 short, concrete, standalone facts (dates, eligibility, amounts, deadlines, affected wards/groups, procedures) — each under ~12 words. Omit facts not actually stated in the content.
 - tags: 2-5 short topical keywords (organization name, subject area, affected group) useful for filtering — not generic words like "notice" or "government".
 - category: classify the notice type. JOB for job openings/career postings; INTERNSHIP for internship/trainee programs; VACANCY for generic openings with no clear job-vs-intern nature; CIRCULAR for internal directives; TENDER for procurement; PRESS_RELEASE for official statements; NEWS for general news; NOTICE for general public notices.
@@ -1025,15 +1090,27 @@ Rules:
 - Answer directly, no filler like "Based on the notice...\""""
 
 
-async def analyze_notice(title: str, content: str) -> dict | None:
+async def analyze_notice(title: str, content: str, category_hint: str | None = None) -> dict | None:
+    """Summarize + classify one notice. This is the single implementation
+    behind both scrape-time summarization (scraper.py's _summarize_item) and
+    the on-demand /notices/analyze route — both go through _llm_chat's full
+    provider fallback chain (OpenRouter's several free models, then Groq,
+    Gemini, OpenCode, Bedrock), not a hand-rolled single-provider call.
+    `category_hint` is the listing page's own category (when scraping),
+    which measurably improves classification for ambiguous content."""
     if not any_provider_configured():
         return None
 
     trimmed_content = content[:8000]
 
+    user_msg = f"Title: {title}\n"
+    if category_hint:
+        user_msg += f"Listing category: {category_hint}\n"
+    user_msg += f"\nContent:\n{trimmed_content}"
+
     messages = [
         {"role": "system", "content": _ANALYZE_PROMPT},
-        {"role": "user", "content": f"Title: {title}\n\nContent:\n{trimmed_content}"},
+        {"role": "user", "content": user_msg},
     ]
 
     # 600 truncated the JSON mid-object on real notices: the reply carries an
@@ -1067,9 +1144,14 @@ async def analyze_notice(title: str, content: str) -> dict | None:
         llm_category = None
     llm_confidence = float(data.get("category_confidence", 0.0)) if data.get("category_confidence") is not None else 0.0
 
+    urgency = str(data.get("urgency") or "").strip().upper()
+    if urgency not in ("LOW", "MEDIUM", "HIGH"):
+        urgency = "LOW"
+
     return {
         "summary": str(summary).strip(),
         "summary_ne": str(data.get("summary_ne") or "").strip() or None,
+        "urgency": urgency,
         "key_facts": [str(f).strip() for f in (data.get("key_facts") or []) if str(f).strip()][:6],
         "tags": [str(t).strip() for t in (data.get("tags") or []) if str(t).strip()][:5],
         "category": llm_category,

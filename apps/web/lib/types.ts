@@ -365,8 +365,49 @@ export interface ScrapeRun {
   itemsSummarized: number
   error: string | null
   failedUrls: ScrapeFailure[] | null
+  diagnosis: ScrapeDiagnosis[] | null
   startedAt: string
   finishedAt: string | null
+}
+
+/**
+ * One actionable finding about a failed or empty run: what happened, why, and
+ * what to change. `patch` is a partial source update the UI can apply in a
+ * single click (a moved listing URL, a wrong pagination param); `actions`
+ * names the other remedies to offer as buttons.
+ */
+export interface ScrapeDiagnosis {
+  code: string
+  severity: "error" | "warning" | "info"
+  title: string
+  detail: string
+  fix: string
+  // Keyed by ScrapeSource field name (noticeListUrl, paginationParam, …).
+  patch: Record<string, string | number | boolean>
+  actions: ("apply_patch" | "discover_routes" | "detect_sitemap" | "retry" | "edit_source")[]
+  urls: string[]
+}
+
+/** One listing route found by auto-detection, with the evidence for it. */
+export interface DiscoveredRoute {
+  url: string
+  category: "NOTICE" | "NEWS" | "PRESS_RELEASE"
+  label: string | null
+  score: number
+  // True only when crawling the page actually found individual notice links.
+  verified: boolean
+  row_count: number
+  sample_titles: string[]
+  evidence: string[]
+}
+
+export interface RouteDiscoveryResult {
+  base_url: string
+  routes: DiscoveredRoute[]
+  /** Confirmed route per category — directly usable as the source's listing URLs. */
+  best: Partial<Record<"NOTICE" | "NEWS" | "PRESS_RELEASE", string>>
+  checked: number
+  notes: string[]
 }
 
 export type ScrapePaginationType = "QUERY_PARAM" | "PATH_TEMPLATE" | "NONE"
@@ -398,6 +439,10 @@ export interface ScrapeSource {
   lastStatus: ScrapeRunStatus | null
   lastError: string | null
   lastFailedUrls: ScrapeFailure[] | null
+  // Actionable explanation of the most recent failed/empty run. Null once a
+  // run succeeds with items.
+  lastDiagnosis: ScrapeDiagnosis[] | null
+  lastDiagnosedAt: string | null
   itemCount: number
 }
 

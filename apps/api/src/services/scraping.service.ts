@@ -7,6 +7,7 @@ import {
   ScrapeRunStatus,
   ScrapePaginationType,
   ScrapeSource,
+  ScrapedItem,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -39,7 +40,7 @@ const DEEP_RUN_TIMEOUT_MS = 3_480_000;
  * during a run — surfaced by the scraper instead of being discarded into its
  * own stdout log, so the admin can see exactly where and why a run failed.
  */
-interface ScrapeFailure {
+export interface ScrapeFailure {
   url: string;
   stage: 'schema_detection' | 'listing' | 'detail' | 'raw_fetch' | 'sitemap' | string;
   error: string;
@@ -56,7 +57,7 @@ interface RawAttachment {
   size_bytes: number | null;
 }
 
-interface RawScrapedItem {
+export interface RawScrapedItem {
   category: string;
   title: string;
   source_url: string;
@@ -72,6 +73,12 @@ interface RawScrapedItem {
   ai_urgency: string | null;
   ai_category_confidence: number | null;
   metadata: Record<string, unknown> | null;
+  /**
+   * Set by the AI service's RunStreamer when this item already reached
+   * Postgres via the streaming ingestion endpoint DURING the run — every
+   * other field is then a stub (source_url only). See finalizeRun.
+   */
+  streamed?: boolean;
 }
 
 export interface CreateScrapeSourceInput {
@@ -697,6 +704,13 @@ export class ScrapingService {
       if (source.newsSchema) cachedSchemas.NEWS = source.newsSchema;
       if (source.pressReleaseSchema) cachedSchemas.PRESS_RELEASE = source.pressReleaseSchema;
 
+      // auto_finish: false on both calls below — this method alone decides
+      // when the run's book is closed (see finishStreamedRun's docstring),
+      // because it might still fall back to a sitemap crawl for the same
+      // run_id after seeing the listing crawl's result. Letting either AI
+      // service call finalize itself would race that decision: whichever
+      // call happened to return first would lock in a status/item-count
+      // that predates the fallback ever running.
       const response = await firstValueFrom(
         this.httpService.post(
           `${this.aiServiceUrl}/scrape/source`,
@@ -708,6 +722,7 @@ export class ScrapingService {
             max_pages: source.maxPages,
             summarize_concurrency: summarizeConcurrency,
             run_id: runId,
+            auto_finish: false,
             // Deep runs walk every page the listing's own pager reports and
             // ignore maxPages — an archive backfill, not an incremental poll.
             deep,
@@ -728,6 +743,7 @@ export class ScrapingService {
       const items: RawScrapedItem[] = response.data.items ?? [];
       const schemas: Record<string, unknown> = response.data.schemas ?? {};
       const failedUrls: ScrapeFailure[] = response.data.failed_urls ?? [];
+      const stats: Record<string, unknown> = response.data.stats ?? {};
 
       // Listing crawl produced nothing but a sitemap exists — some sites'
       // category URLs 404 while the sitemap stays healthy (mohp.gov.np).
@@ -749,6 +765,7 @@ export class ScrapingService {
                 known_urls: knownUrls,
                 summarize_concurrency: summarizeConcurrency,
                 run_id: runId,
+                auto_finish: false,
               },
               { timeout: 600000 },
             ),
@@ -756,32 +773,27 @@ export class ScrapingService {
           const sitemapItems: RawScrapedItem[] = sitemapResponse.data.items ?? [];
           const sitemapFailures: ScrapeFailure[] = sitemapResponse.data.failed_urls ?? [];
           failedUrls.push(...sitemapFailures);
-          if (sitemapItems.length) {
-            const freshIds = await this.persistItems(runId, source, sitemapItems, schemas, failedUrls);
-            if (freshIds.length) {
-              this.embedNewNotices(source.id, freshIds).catch((err: any) => {
-                this.logger.warn(`Background embedding failed: ${err.message}`);
-              });
-            }
-            return;
-          }
+          await this.finalizeRun(runId, source, sitemapItems, schemas, failedUrls, stats);
+          return;
         }
       }
 
-      const freshIds = await this.persistItems(runId, source, items, schemas, failedUrls);
-
-      // Embed newly summarized notices into vector store (fire-and-forget)
-      if (freshIds.length) {
-        this.embedNewNotices(source.id, freshIds).catch((err: any) => {
-          this.logger.warn(`Background embedding failed: ${err.message}`);
-        });
-      }
+      await this.finalizeRun(runId, source, items, schemas, failedUrls, stats);
     } catch (err: any) {
       // No per-URL detail available here — the AI service call itself failed
       // (network error, timeout, non-2xx before any page was even crawled),
       // so there's nothing more granular than the one error message.
       const message = err.response?.data?.error ?? err.message;
       this.logger.error(`Scrape run failed for source ${source.id}: ${message}`);
+      // finalizeRun (the try-block's own tail) can itself throw partway
+      // through — e.g. a DB error inside ingestStreamedItems — after it has
+      // already called finishStreamedRun successfully. Don't let that stomp
+      // a run Postgres already considers closed back to FAILED.
+      const alreadyFinished = await this.prisma.scrapeRun.findUnique({
+        where: { id: runId },
+        select: { finishedAt: true },
+      });
+      if (alreadyFinished?.finishedAt) return;
       await this.prisma.scrapeRun.update({
         where: { id: runId },
         data: {
@@ -799,6 +811,12 @@ export class ScrapingService {
           lastFailedUrls: Prisma.JsonNull,
         },
       });
+      // The run never reached the crawler, so there are no per-URL failures
+      // to reason from — synthesize one from the transport error so the
+      // diagnosis rules can still classify it (timeout, DNS, 403, ...).
+      void this.diagnoseRun(runId, source, [
+        { url: source.baseUrl, stage: 'raw_fetch', error: message, outcome: 'failed' },
+      ]);
     }
   }
 
@@ -835,6 +853,7 @@ export class ScrapingService {
             known_urls: knownUrls,
             summarize_concurrency: summarizeConcurrency,
             run_id: runId,
+            auto_finish: false,
           },
           { timeout: 600000 },
         ),
@@ -842,17 +861,19 @@ export class ScrapingService {
 
       const items: RawScrapedItem[] = response.data.items ?? [];
       const failedUrls: ScrapeFailure[] = response.data.failed_urls ?? [];
-      const freshIds = await this.persistItems(runId, source, items, {}, failedUrls);
-
-      // Embed newly summarized notices into vector store (fire-and-forget)
-      if (freshIds.length) {
-        this.embedNewNotices(source.id, freshIds).catch((err: any) => {
-          this.logger.warn(`Background embedding failed: ${err.message}`);
-        });
-      }
+      await this.finalizeRun(runId, source, items, {}, failedUrls);
     } catch (err: any) {
       const message = err.response?.data?.error ?? err.message;
       this.logger.error(`Sitemap scrape run failed for source ${source.id}: ${message}`);
+      // Guarded the same way as executeRun's catch block: a run the AI
+      // service already finished streaming (e.g. this axios call itself
+      // 504'd after the crawl was already done) must not be stomped back
+      // to FAILED — see finishStreamedRun's idempotency guard.
+      const alreadyFinished = await this.prisma.scrapeRun.findUnique({
+        where: { id: runId },
+        select: { finishedAt: true },
+      });
+      if (alreadyFinished?.finishedAt) return;
       await this.prisma.scrapeRun.update({
         where: { id: runId },
         data: {
@@ -870,6 +891,9 @@ export class ScrapingService {
           lastFailedUrls: Prisma.JsonNull,
         },
       });
+      void this.diagnoseRun(runId, source, [
+        { url: source.baseUrl, stage: 'raw_fetch', error: message, outcome: 'failed' },
+      ]);
     }
   }
 
@@ -956,33 +980,196 @@ export class ScrapingService {
     };
   }
 
-  private async persistItems(
-    runId: string,
+  private static readonly VALID_CATEGORIES = new Set([
+    'NOTICE', 'NEWS', 'PRESS_RELEASE', 'CIRCULAR', 'TENDER', 'VACANCY', 'JOB', 'INTERNSHIP', 'OTHER',
+  ]);
+
+  /**
+   * The one-item write path shared by both persistence routes: the classic
+   * end-of-run batch (`persistItems`, below) and the streaming ingestion a
+   * run in progress calls per item (`ingestStreamedItem`). Same dedup,
+   * create/update, attachment, PDF-extraction and alert-matching logic
+   * either way — a scrape run must behave identically regardless of which
+   * path delivered the item.
+   *
+   * `existing` follows the batch caller's pre-fetched-map convention:
+   * `undefined` means "look it up yourself" (the streaming path, one item at
+   * a time), an object or `null` means "already known, don't re-query" (the
+   * batch path, which fetches all of them in one query up front).
+   */
+  private async persistOneItem(
     source: ScrapeSource,
-    items: RawScrapedItem[],
-    schemas: Record<string, unknown>,
-    failedUrls: ScrapeFailure[] = [],
-  ): Promise<string[]> {
-    /* eslint-disable-next-line no-param-reassign */
-    // Defence in depth: the scraper already rejects non-notice rows, but a
-    // regression there must never refill the catalogue with "(untitled)"
-    // placeholders. Filtering here also keeps rejected rows out of the
-    // existence lookup below, so they cost no database work at all.
-    const rejected = items.filter((item) => !this.isStorableItem(item));
-    if (rejected.length > 0) {
-      this.logger.warn(
-        `Discarded ${rejected.length} unusable scraped row(s) (no usable title): ` +
-          rejected.slice(0, 3).map((i) => i.source_url).join(', '),
-      );
-      items = items.filter((item) => this.isStorableItem(item));
+    item: RawScrapedItem,
+    existing?: ScrapedItem | null,
+  ): Promise<{
+    outcome: 'new' | 'updated' | 'unchanged';
+    freshSummaryId: string | null;
+    hadSummaryAttempt: boolean;
+    wasSummarized: boolean;
+  }> {
+    if (existing === undefined) {
+      existing = await this.prisma.scrapedItem.findUnique({ where: { sourceUrl: item.source_url } });
     }
 
-    // One batch lookup instead of one findUnique per item — the dedup
-    // check itself shouldn't be N database round-trips.
-    const existingItems = await this.prisma.scrapedItem.findMany({
-      where: { sourceUrl: { in: items.map((i) => i.source_url) } },
-    });
-    const existingByUrl = new Map(existingItems.map((i) => [i.sourceUrl, i]));
+    const contentHash = crypto
+      .createHash('sha256')
+      .update(`${item.title}|${item.content_text ?? ''}`)
+      .digest('hex');
+
+    const resolvedCategory = ScrapingService.VALID_CATEGORIES.has(item.category)
+      ? (item.category as ScrapedItemCategory)
+      : ScrapedItemCategory.OTHER;
+
+    // Track AI summarization status from the Python service.
+    const hadSummaryAttempt = Boolean(item.ai_summary || item.content_text);
+    const wasSummarized = Boolean(item.ai_summary);
+
+    // A content hash is only meaningful when the item's detail page was
+    // actually re-fetched this run. Known URLs are skipped by the scraper
+    // (`fetch_detail` only runs for unknown URLs), so `content_text` is null
+    // for them — hashing `title|` against the stored `title|content` would
+    // always differ and rewrite every row + its attachments on every poll.
+    // Only run the content-changed path on fresh content.
+    const hasFreshContent = item.content_text != null || item.content_html != null;
+
+    if (!existing) {
+      const created = await this.prisma.scrapedItem.create({
+        data: {
+          sourceId: source.id,
+          sourceLabel: source.name,
+          category: resolvedCategory,
+          sourceSlug: item.source_slug,
+          title: item.title,
+          sourceUrl: item.source_url,
+          summary: item.summary,
+          contentText: item.content_text,
+          contentHtml: item.content_html,
+          attachmentUrl: item.attachment_url,
+          publishedAt: item.published_at ? new Date(item.published_at) : null,
+          contentHash,
+          aiSummary: item.ai_summary,
+          aiSummaryNe: item.ai_summary_ne,
+          aiUrgency: item.ai_urgency,
+          aiCategoryConfidence: item.ai_category_confidence,
+          metadata: item.metadata ? (item.metadata as Prisma.InputJsonValue) : undefined,
+          aiAnalyzedAt: item.ai_summary ? new Date() : null,
+        },
+      });
+      let freshSummaryId = item.ai_summary ? created.id : null;
+
+      // Queue for alert matching — synchronous, cannot throw, never blocks or
+      // slows the scrape loop. Processed one at a time in the background so
+      // a burst of new items can't flood the DB/WhatsApp API with concurrent
+      // requests (see AlertMatchingService.enqueue).
+      this.alertMatching.enqueue(created);
+
+      if (item.attachments?.length) {
+        await this.prisma.attachment.createMany({
+          data: item.attachments.map((att) => ({
+            itemId: created.id,
+            url: att.url,
+            label: att.label,
+            mimeType: att.mime_type,
+            sizeBytes: att.size_bytes,
+          })),
+        });
+      }
+
+      // PDF-only notices: extract content via OCR at scrape time.
+      if (!item.content_text && !item.ai_summary) {
+        const pdfUrl = this.findPdfUrl(item.attachment_url, item.attachments);
+        if (pdfUrl) {
+          const summarized = await this.extractPdfForNotice(created.id, item.title, pdfUrl);
+          if (summarized) freshSummaryId = created.id;
+        }
+      }
+
+      // Fallback: if the AI service didn't summarize but has text, analyze now.
+      if (!item.ai_summary && item.content_text) {
+        const summarized = await this.analyzeNotice(created.id, item.title, item.content_text);
+        if (summarized) freshSummaryId = created.id;
+      }
+
+      return { outcome: 'new', freshSummaryId, hadSummaryAttempt, wasSummarized };
+    }
+
+    if (hasFreshContent && existing.contentHash !== contentHash) {
+      await this.prisma.scrapedItem.update({
+        where: { id: existing.id },
+        data: {
+          title: item.title,
+          category: resolvedCategory,
+          sourceSlug: item.source_slug,
+          summary: item.summary,
+          contentText: item.content_text ?? existing.contentText,
+          contentHtml: item.content_html ?? existing.contentHtml,
+          attachmentUrl: item.attachment_url,
+          publishedAt: item.published_at ? new Date(item.published_at) : existing.publishedAt,
+          contentHash,
+          aiSummary: item.ai_summary ?? existing.aiSummary,
+          aiSummaryNe: item.ai_summary_ne ?? existing.aiSummaryNe,
+          aiUrgency: item.ai_urgency ?? existing.aiUrgency,
+          aiCategoryConfidence: item.ai_category_confidence,
+          metadata: item.metadata ? (item.metadata as Prisma.InputJsonValue) : undefined,
+          aiAnalyzedAt: item.ai_summary ? new Date() : existing.aiAnalyzedAt,
+        },
+      });
+      if (item.attachments?.length) {
+        await this.prisma.attachment.deleteMany({ where: { itemId: existing.id } });
+        await this.prisma.attachment.createMany({
+          data: item.attachments.map((att) => ({
+            itemId: existing.id,
+            url: att.url,
+            label: att.label,
+            mimeType: att.mime_type,
+            sizeBytes: att.size_bytes,
+          })),
+        });
+      }
+      return {
+        outcome: 'updated',
+        freshSummaryId: item.ai_summary ? existing.id : null,
+        hadSummaryAttempt,
+        wasSummarized,
+      };
+    }
+
+    if (item.attachment_url && existing.attachmentUrl !== item.attachment_url) {
+      await this.prisma.scrapedItem.update({
+        where: { id: existing.id },
+        data: { attachmentUrl: item.attachment_url },
+      });
+      return { outcome: 'updated', freshSummaryId: null, hadSummaryAttempt, wasSummarized };
+    }
+
+    return { outcome: 'unchanged', freshSummaryId: null, hadSummaryAttempt, wasSummarized };
+  }
+
+  /**
+   * Streaming counterpart to persistItems: called once per item (or a small
+   * batch) as the AI service finishes it, DURING the crawl — not after the
+   * whole run returns. This is what makes a deep, hundreds-of-items run
+   * durable against a 504: by the time any outer timeout fires, everything
+   * finished so far is already in Postgres and embedded, not sitting in the
+   * AI service's memory waiting on a response that never arrives.
+   *
+   * Counters are incremented in place on the ScrapeRun row rather than
+   * computed from a full item list, since no caller here ever holds the
+   * whole list at once.
+   */
+  async ingestStreamedItems(
+    runId: string,
+    source: ScrapeSource,
+    rawItems: RawScrapedItem[],
+  ): Promise<{ accepted: number; rejected: number }> {
+    const items = rawItems.filter((item) => this.isStorableItem(item));
+    const rejected = rawItems.length - items.length;
+    if (rejected > 0) {
+      this.logger.warn(
+        `Discarded ${rejected} unusable streamed row(s) (no usable title) for run ${runId}: ` +
+          rawItems.filter((i) => !this.isStorableItem(i)).slice(0, 3).map((i) => i.source_url).join(', '),
+      );
+    }
 
     let itemsNew = 0;
     let itemsUpdated = 0;
@@ -991,174 +1178,94 @@ export class ScrapingService {
     let itemsSummaryFailed = 0;
     const freshlySummarizedIds: string[] = [];
 
-    const validCategories = new Set([
-      'NOTICE', 'NEWS', 'PRESS_RELEASE', 'CIRCULAR', 'TENDER', 'VACANCY', 'JOB', 'INTERNSHIP', 'OTHER',
-    ]);
-
     for (const item of items) {
-      const contentHash = crypto
-        .createHash('sha256')
-        .update(`${item.title}|${item.content_text ?? ''}`)
-        .digest('hex');
-
-      const resolvedCategory = validCategories.has(item.category)
-        ? (item.category as ScrapedItemCategory)
-        : ScrapedItemCategory.OTHER;
-
-      // Track AI summarization status from the Python service
-      if (item.ai_summary) {
-        itemsSummarized++;
-      } else if (item.content_text) {
-        itemsSummaryFailed++;
+      const result = await this.persistOneItem(source, item);
+      if (result.hadSummaryAttempt) {
+        if (result.wasSummarized) itemsSummarized++;
+        else itemsSummaryFailed++;
       }
-
-      const existing = existingByUrl.get(item.source_url);
-
-      // A content hash is only meaningful when the item's detail page was
-      // actually re-fetched this run. Known URLs are skipped by the scraper
-      // (`fetch_detail` only runs for unknown URLs), so `content_text` is
-      // null for them — hashing `title|` against the stored `title|content`
-      // would always differ and rewrite every row + its attachments on every
-      // poll. Only run the content-changed path on fresh content.
-      const hasFreshContent = item.content_text != null || item.content_html != null;
-
-      if (!existing) {
-        const created = await this.prisma.scrapedItem.create({
-          data: {
-            sourceId: source.id,
-            sourceLabel: source.name,
-            category: resolvedCategory,
-            sourceSlug: item.source_slug,
-            title: item.title,
-            sourceUrl: item.source_url,
-            summary: item.summary,
-            contentText: item.content_text,
-            contentHtml: item.content_html,
-            attachmentUrl: item.attachment_url,
-            publishedAt: item.published_at ? new Date(item.published_at) : null,
-            contentHash,
-            aiSummary: item.ai_summary,
-            aiSummaryNe: item.ai_summary_ne,
-            aiUrgency: item.ai_urgency,
-            aiCategoryConfidence: item.ai_category_confidence,
-            metadata: item.metadata ? (item.metadata as Prisma.InputJsonValue) : undefined,
-            aiAnalyzedAt: item.ai_summary ? new Date() : null,
-          },
-        });
-        itemsNew++;
-        if (item.ai_summary) freshlySummarizedIds.push(created.id);
-
-        // Queue for alert matching — synchronous, cannot throw, never blocks
-        // or slows the scrape loop. Processed one at a time in the
-        // background so a burst of new items can't flood the DB/WhatsApp
-        // API with concurrent requests (see AlertMatchingService.enqueue).
-        this.alertMatching.enqueue(created);
-
-        // Create attachment records
-        if (item.attachments?.length) {
-          await this.prisma.attachment.createMany({
-            data: item.attachments.map((att) => ({
-              itemId: created.id,
-              url: att.url,
-              label: att.label,
-              mimeType: att.mime_type,
-              sizeBytes: att.size_bytes,
-            })),
-          });
-        }
-
-        // PDF-only notices: extract content via OCR at scrape time
-        if (!item.content_text && !item.ai_summary) {
-          const pdfUrl = this.findPdfUrl(item.attachment_url, item.attachments);
-          if (pdfUrl) {
-            const summarized = await this.extractPdfForNotice(created.id, item.title, pdfUrl);
-            if (summarized) freshlySummarizedIds.push(created.id);
-          }
-        }
-
-        // Fallback: if AI service didn't summarize but has text, analyze now
-        if (!item.ai_summary && item.content_text) {
-          const summarized = await this.analyzeNotice(created.id, item.title, item.content_text);
-          if (summarized) freshlySummarizedIds.push(created.id);
-        }
-      } else if (hasFreshContent && existing.contentHash !== contentHash) {
-        await this.prisma.scrapedItem.update({
-          where: { id: existing.id },
-          data: {
-            title: item.title,
-            category: resolvedCategory,
-            sourceSlug: item.source_slug,
-            summary: item.summary,
-            contentText: item.content_text ?? existing.contentText,
-            contentHtml: item.content_html ?? existing.contentHtml,
-            attachmentUrl: item.attachment_url,
-            publishedAt: item.published_at ? new Date(item.published_at) : existing.publishedAt,
-            contentHash,
-            aiSummary: item.ai_summary ?? existing.aiSummary,
-            aiSummaryNe: item.ai_summary_ne ?? existing.aiSummaryNe,
-            aiUrgency: item.ai_urgency ?? existing.aiUrgency,
-            aiCategoryConfidence: item.ai_category_confidence,
-            metadata: item.metadata ? (item.metadata as Prisma.InputJsonValue) : undefined,
-            aiAnalyzedAt: item.ai_summary ? new Date() : existing.aiAnalyzedAt,
-          },
-        });
-        itemsUpdated++;
-        if (item.ai_summary) freshlySummarizedIds.push(existing.id);
-        if (item.attachments?.length) {
-          await this.prisma.attachment.deleteMany({ where: { itemId: existing.id } });
-          await this.prisma.attachment.createMany({
-            data: item.attachments.map((att) => ({
-              itemId: existing.id,
-              url: att.url,
-              label: att.label,
-              mimeType: att.mime_type,
-              sizeBytes: att.size_bytes,
-            })),
-          });
-        }
-      } else if (item.attachment_url && existing.attachmentUrl !== item.attachment_url) {
-        await this.prisma.scrapedItem.update({
-          where: { id: existing.id },
-          data: { attachmentUrl: item.attachment_url },
-        });
-        itemsUpdated++;
-      } else {
-        itemsSkipped++;
-      }
+      if (result.outcome === 'new') itemsNew++;
+      else if (result.outcome === 'updated') itemsUpdated++;
+      else itemsSkipped++;
+      if (result.freshSummaryId) freshlySummarizedIds.push(result.freshSummaryId);
     }
 
-    // A run that fetched nothing at all — every listing/detail page it tried
-    // errored — is a failure, not "nothing new today". Without this check
-    // it silently reports SUCCESS with itemsFound: 0, which is exactly what
-    // made MOFA/NRB-style outages invisible: the source card just showed
-    // "0 items scraped" forever with no failed/error signal anywhere.
-    // Only real failures count toward this. `failedUrls` also carries
-    // deliberate skips (already-scraped, non-article URLs, untitled rows) so
-    // an admin can audit them — but a run that found nothing because
-    // everything was already scraped is a healthy no-op, not an outage.
-    const hardFailures = failedUrls.filter((f) => (f.outcome ?? 'failed') === 'failed');
-    const allAttemptsFailed = items.length === 0 && hardFailures.length > 0;
-    const status = allAttemptsFailed ? ScrapeRunStatus.FAILED : ScrapeRunStatus.SUCCESS;
-    const aggregateError = allAttemptsFailed
-      ? `All ${hardFailures.length} page(s)/URL(s) failed to load — ${hardFailures[0].stage}: ${hardFailures[0].error}` +
-        (hardFailures.length > 1 ? ` (+${hardFailures.length - 1} more)` : '')
-      : null;
+    if (itemsNew || itemsUpdated || itemsSkipped) {
+      await this.prisma.scrapeRun.update({
+        where: { id: runId },
+        data: {
+          itemsFound: { increment: items.length },
+          itemsNew: { increment: itemsNew },
+          itemsUpdated: { increment: itemsUpdated },
+          itemsSkipped: { increment: itemsSkipped },
+          itemsSummarized: { increment: itemsSummarized },
+          itemsSummaryFailed: { increment: itemsSummaryFailed },
+        },
+      });
+    }
 
-    await this.prisma.scrapeRun.update({
-      where: { id: runId },
+    // Embedded immediately, per batch, rather than held until the run's end —
+    // the whole point of streaming is that nothing waits on the run finishing.
+    if (freshlySummarizedIds.length) {
+      this.embedNewNotices(source.id, freshlySummarizedIds).catch((err: any) => {
+        this.logger.warn(`Streamed-batch embedding failed: ${err.message}`);
+      });
+    }
+
+    return { accepted: items.length, rejected };
+  }
+
+  /**
+   * The run's tail: called once by the AI service when its crawl loop ends
+   * (success, partial failure, or a caught exception). Finalizes status from
+   * the ScrapeRun row's own counters — already accumulated by
+   * ingestStreamedItems as the crawl progressed — never from a full item
+   * list, since a streamed run never hands one back in one piece.
+   *
+   * Idempotency guard: a run finalized once (finishedAt set) is never
+   * re-finalized. This matters because a slow outer HTTP round-trip can 504
+   * on the NestJS side *after* the AI service already called this — without
+   * the guard, executeRun's catch block would stomp a true SUCCESS back to
+   * FAILED for a run that, from Postgres's point of view, completed fine.
+   */
+  async finishStreamedRun(
+    runId: string,
+    source: ScrapeSource,
+    schemas: Record<string, unknown>,
+    failedUrls: ScrapeFailure[],
+    stats: Record<string, unknown>,
+    errorMessage?: string,
+  ) {
+    const run = await this.prisma.scrapeRun.findUnique({ where: { id: runId } });
+    if (!run || run.finishedAt) {
+      return { alreadyFinished: true as const };
+    }
+
+    const hardFailures = failedUrls.filter((f) => (f.outcome ?? 'failed') === 'failed');
+    const allAttemptsFailed = Boolean(errorMessage) || (run.itemsFound === 0 && hardFailures.length > 0);
+    const status = allAttemptsFailed ? ScrapeRunStatus.FAILED : ScrapeRunStatus.SUCCESS;
+    const aggregateError =
+      errorMessage ??
+      (allAttemptsFailed
+        ? `All ${hardFailures.length} page(s)/URL(s) failed to load — ${hardFailures[0].stage}: ${hardFailures[0].error}` +
+          (hardFailures.length > 1 ? ` (+${hardFailures.length - 1} more)` : '')
+        : null);
+
+    // Races the idempotency check above against a concurrent finalize (the
+    // outer executeRun catch block, or a duplicate /finish call) — only the
+    // first writer wins.
+    const updated = await this.prisma.scrapeRun.updateMany({
+      where: { id: runId, finishedAt: null },
       data: {
         status,
-        itemsFound: items.length,
-        itemsNew,
-        itemsUpdated,
-        itemsSkipped,
-        itemsSummarized,
-        itemsSummaryFailed,
         error: aggregateError,
         failedUrls: failedUrls.length ? (failedUrls as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
         finishedAt: new Date(),
       },
     });
+    if (updated.count === 0) {
+      return { alreadyFinished: true as const };
+    }
 
     await this.prisma.scrapeSource.update({
       where: { id: source.id },
@@ -1173,7 +1280,180 @@ export class ScrapingService {
       },
     });
 
-    return freshlySummarizedIds;
+    if (status === ScrapeRunStatus.FAILED || run.itemsFound === 0) {
+      void this.diagnoseRun(runId, source, failedUrls, {
+        itemsFound: run.itemsFound,
+        itemsNew: run.itemsNew,
+        stats,
+      });
+    } else {
+      await this.prisma.scrapeSource.update({
+        where: { id: source.id },
+        data: { lastDiagnosis: Prisma.JsonNull, lastDiagnosedAt: null },
+      });
+    }
+
+    return { alreadyFinished: false as const, status, itemsFound: run.itemsFound };
+  }
+
+  /**
+   * The single point where a run's response (from either AI service call —
+   * listing or sitemap) becomes durable and the run's book gets closed.
+   *
+   * Most items arriving here are already in Postgres: streamed during the
+   * run itself via ingestStreamedItems, and reduced in this response to a
+   * `{source_url, streamed: true}` stub (see scrape_stream.RunStreamer on
+   * the AI side) so the response body stays small. Only items that never
+   * made it through streaming — a push failure, or streaming unavailable
+   * entirely (older AI service, misconfigured INTERNAL_SERVICE_SECRET) —
+   * carry a full body and still need persisting, through the exact same
+   * ingestStreamedItems path so a fallback item behaves identically to a
+   * streamed one.
+   */
+  private async finalizeRun(
+    runId: string,
+    source: ScrapeSource,
+    items: RawScrapedItem[],
+    schemas: Record<string, unknown>,
+    failedUrls: ScrapeFailure[],
+    stats: Record<string, unknown> = {},
+  ): Promise<void> {
+    const unstreamed = items.filter((item) => !item.streamed);
+    if (unstreamed.length) {
+      await this.ingestStreamedItems(runId, source, unstreamed);
+    }
+    await this.finishStreamedRun(runId, source, schemas, failedUrls, stats);
+  }
+
+  /**
+   * Ask the AI service to explain a failed/empty run and say what to change,
+   * then store the result on both the run and the source.
+   *
+   * `discover` lets the analysis re-crawl the site's navigation to find the
+   * listing routes, which is what turns "your URL returns 404" into "…and
+   * the notices moved here". Only worth its cost when the run produced
+   * nothing at all; a partial run's problem is not a missing route.
+   */
+  private async diagnoseRun(
+    runId: string | null,
+    source: ScrapeSource,
+    failedUrls: ScrapeFailure[],
+    context: {
+      itemsFound?: number;
+      itemsNew?: number;
+      stats?: Record<string, unknown>;
+    } = {},
+  ) {
+    try {
+      const categoryUrls: Record<string, string> = {};
+      if (source.noticeListUrl) categoryUrls.NOTICE = source.noticeListUrl;
+      if (source.newsListUrl) categoryUrls.NEWS = source.newsListUrl;
+      if (source.pressReleaseListUrl) categoryUrls.PRESS_RELEASE = source.pressReleaseListUrl;
+
+      const itemsFound = context.itemsFound ?? 0;
+      const response = await firstValueFrom(
+        this.httpService.post(
+          `${this.aiServiceUrl}/scrape/diagnose`,
+          {
+            base_url: source.baseUrl,
+            category_urls: categoryUrls,
+            failed_urls: failedUrls,
+            items_found: itemsFound,
+            items_new: context.itemsNew ?? 0,
+            has_sitemap: Boolean(source.sitemapUrl),
+            pagination: {
+              type: source.paginationType,
+              param: source.paginationParam,
+              start_page: source.startPage,
+            },
+            stats: context.stats ?? {},
+            discover: itemsFound === 0 && Object.keys(categoryUrls).length > 0,
+          },
+          { timeout: 600000 },
+        ),
+      );
+
+      const diagnoses = response.data?.diagnoses ?? [];
+      if (!diagnoses.length) return;
+
+      const payload = diagnoses as unknown as Prisma.InputJsonValue;
+      // An on-demand diagnosis for a source that has never run has no run row
+      // to attach to — the source-level copy is what the UI reads anyway.
+      if (runId) {
+        await this.prisma.scrapeRun.update({
+          where: { id: runId },
+          data: { diagnosis: payload },
+        });
+      }
+      await this.prisma.scrapeSource.update({
+        where: { id: source.id },
+        data: { lastDiagnosis: payload, lastDiagnosedAt: new Date() },
+      });
+      this.logger.log(
+        `Diagnosed run ${runId} for ${source.name}: ` +
+          diagnoses.map((d: any) => d.code).join(', '),
+      );
+    } catch (err: any) {
+      // A missing diagnosis must never turn a recorded failure into a crash.
+      this.logger.warn(`Run diagnosis failed for source ${source.id}: ${err.message}`);
+    }
+  }
+
+  /**
+   * Find a site's real notice/news/press-release listing routes, on demand.
+   * Used by the admin "auto-detect URLs" flow when adding or fixing a source.
+   */
+  async discoverRoutes(baseUrl: string) {
+    let parsed: URL;
+    try {
+      parsed = new URL(baseUrl);
+    } catch {
+      throw new BadRequestException('Not a valid URL');
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new BadRequestException('URL must be http or https');
+    }
+    const response = await firstValueFrom(
+      this.httpService.post(
+        `${this.aiServiceUrl}/scrape/discover`,
+        { base_url: parsed.origin + (parsed.pathname === '/' ? '' : parsed.pathname) },
+        { timeout: 540000 },
+      ),
+    );
+    return response.data as {
+      base_url: string;
+      routes: {
+        url: string;
+        category: string;
+        label: string | null;
+        score: number;
+        verified: boolean;
+        row_count: number;
+        sample_titles: string[];
+        evidence: string[];
+      }[];
+      best: Record<string, string>;
+      checked: number;
+      notes: string[];
+    };
+  }
+
+  /**
+   * Re-diagnose a source on demand from its most recent run — the admin
+   * "why isn't this working?" button, without waiting for the next failure.
+   */
+  async diagnoseSource(id: string) {
+    const source = await this.getSource(id);
+    const lastRun = await this.prisma.scrapeRun.findFirst({
+      where: { sourceId: id },
+      orderBy: { startedAt: 'desc' },
+    });
+    const failedUrls = (lastRun?.failedUrls as unknown as ScrapeFailure[]) ?? [];
+    await this.diagnoseRun(lastRun?.id ?? null, source, failedUrls, {
+      itemsFound: lastRun?.itemsFound ?? 0,
+      itemsNew: lastRun?.itemsNew ?? 0,
+    });
+    return this.getSource(id);
   }
 
   /**
@@ -1315,6 +1595,8 @@ export class ScrapingService {
           where: { id },
           data: {
             aiSummary: response.data.summary,
+            aiSummaryNe: response.data.summary_ne ?? undefined,
+            aiUrgency: response.data.urgency ?? undefined,
             keyFacts: response.data.key_facts ?? [],
             tags: response.data.tags ?? [],
             aiAnalyzedAt: new Date(),

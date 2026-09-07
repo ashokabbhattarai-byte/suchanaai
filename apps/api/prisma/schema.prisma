@@ -262,6 +262,14 @@ model ScrapeSource {
   // Cleared (set null) whenever a run finishes with no failures.
   lastError         String?   @map("last_error")
   lastFailedUrls    Json?     @map("last_failed_urls")
+  // Actionable explanation of the most recent failed/empty run, produced by
+  // the AI service's diagnosis rules:
+  // [{ code, severity, title, detail, fix, patch, actions, urls }]. `patch`
+  // is a partial update to this row the admin can apply in one click, so a
+  // moved listing URL or a wrong pagination param is a button, not a
+  // debugging session. Cleared when a run succeeds with items.
+  lastDiagnosis     Json?     @map("last_diagnosis")
+  lastDiagnosedAt   DateTime? @map("last_diagnosed_at")
 
   items ScrapedItem[]
   runs  ScrapeRun[]
@@ -348,6 +356,9 @@ model ScrapeRun {
   // admin can see exactly which page failed and why, not just an aggregate
   // one-line message.
   failedUrls       Json?           @map("failed_urls")
+  // Same shape as ScrapeSource.lastDiagnosis, kept per-run so the Logs view
+  // can explain a historical failure and not just the latest one.
+  diagnosis        Json?
   startedAt        DateTime        @default(now()) @map("started_at")
   finishedAt       DateTime?       @map("finished_at")
 

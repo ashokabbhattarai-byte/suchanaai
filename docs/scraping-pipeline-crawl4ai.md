@@ -521,6 +521,167 @@ immediately. The web dashboard then polls `GET
 message feed live under the source's card, stopping once `stage` is `"done"`
 or `"failed"`.
 
+### 6.4b Route discovery & failure diagnosis
+
+Two problems the pipeline used to push onto the admin: *finding* the right
+listing URL, and *interpreting* a failure once it had one.
+
+**Route discovery** (`apps/ai/app/route_discovery.py`, `POST /scrape/discover`)
+finds a site's notice/news/press-release routes from the site itself, so an
+admin can paste a home page instead of browsing for the list. These portals
+agree on nothing — `/notices`, `/notice-board`, `/category/suchana`,
+`/page/act-regulation`, a "सूचना तथा जानकारी" menu over an opaque URL — so
+the route is found rather than guessed:
+
+1. Harvest every same-origin link on the home page with its anchor text and
+   whether it sits in the navigation.
+2. Score against a bilingual keyword table (English, romanised Nepali,
+   Devanagari) applied to the URL path **and** the link text — the text is
+   the only signal when the URL is opaque.
+3. Down-rank links that address one article rather than a section (a numeric
+   id segment, a trailing post id, a headline-length slug). Without this,
+   homepage teasers for individual notices tie with the real routes and eat
+   the verification budget.
+4. Probe a short list of conventional paths the site never linked.
+5. **Verify by crawling.** A route counts only when the extractor finds rows
+   that link to individual articles — keywords say a page *should* be a
+   listing, this says it *is* one.
+6. Expand one level into the best unverified candidate, for portals whose
+   menu points at a landing page with the real list one click below.
+
+Measured on live home pages: moha.gov.np resolves to `/page/notice`,
+`/page/news` and `/page/press-release`; mohp.gov.np to
+`/category/pressrelease` and `/category/latest-news` — in every case the
+correct routes rank above every article link on the page.
+
+**Failure diagnosis** (`apps/ai/app/scrape_diagnosis.py`, `POST
+/scrape/diagnose`) reads a run's structured failures together with the
+source's configuration and returns ranked, actionable findings — each with a
+`patch` the admin can apply in one click:
+
+| Code | Recognised from | Suggested fix |
+|---|---|---|
+| `listing_url_dead` | HTTP 404/410/400/401 on a listing URL | The replacement URL found by discovery, as a `noticeListUrl`/… patch |
+| `blocked` | 403 / Cloudflare / captcha / 429 | Raise `pollIntervalSeconds` |
+| `dns_failure`, `tls_failure` | `ERR_NAME_NOT_RESOLVED`, cert errors | Check/replace the base URL; try `http://` |
+| `site_unreachable` | timeouts, 502/503/504 after retries | Re-run; raise the interval if persistent |
+| `no_listing_pattern` | `schema_detection` stage failure | Switch to a route discovery found, or fall back to the sitemap |
+| `rows_rejected` | rows found, all skipped as `not_article_url` | Base URL and listing URL are on different hosts |
+| `rows_untitled` | rows found, all skipped as `no_title` | Re-run to re-detect the pattern |
+| `detail_pages_failing` | ≥half the items' detail pages failed | Rate limiting — re-run, or raise the interval |
+| `pagination_mismatch` | observed scheme ≠ configured scheme | Save the detected `paginationType`/`paginationParam`/`startPage` |
+| `up_to_date`, `empty_no_errors` | no failures, no new items | Says explicitly that nothing is wrong |
+
+`ScrapingService` runs this automatically whenever a run ends FAILED or with
+zero items — with route discovery enabled in that case, so "your URL returns
+404" can become "…and the notices moved here". Results are stored on
+`ScrapeRun.diagnosis` and `ScrapeSource.lastDiagnosis` (cleared on the next
+healthy run), and the admin can re-run it on demand via `POST
+/admin/scraping/sources/:id/diagnose`.
+
+### 6.4c Streaming persistence — surviving a 504 mid-run
+
+**The problem this fixes.** Every scrape used to be request/response,
+end-to-end: the AI service crawled every page, fetched every detail page,
+summarized every item — all of it held in memory — and only handed anything
+back to apps/api in the single JSON response at the very end. A large
+source (MOFA: 400+ items, 20 configured pages) can take many minutes; if
+nginx, an ALB, or axios's own timeout cut that connection at minute 9 of a
+10-minute crawl, the *entire run's work was discarded*. The source card
+showed `Request failed with status code 504` and item count 0 for a run
+that had, in truth, successfully scraped and summarized hundreds of items —
+none of which ever reached Postgres.
+
+**The fix: push each item the moment it's ready, not at the end.**
+`apps/ai/app/scrape_stream.py`'s `RunStreamer` POSTs every item to
+apps/api's `POST /internal/scraping/runs/:runId/items` as soon as its own
+detail-fetch and summarization finish — not batched, not held for the page
+or the run to complete. `ScrapingService.ingestStreamedItems` persists it
+through the exact same dedup/attachment/PDF-extraction/alert-matching logic
+as before (`persistOneItem`, shared with the batch path), increments the
+run's counters (`itemsFound`, `itemsNew`, …) with atomic `{ increment }`
+updates, and embeds it into the vector store immediately. By the time any
+outer timeout fires, everything finished so far is already durable — a run
+that gets cut off after 300 of 400 items keeps those 300.
+
+**Auth & endpoints** — `InternalServiceGuard` (`src/guards/
+internal-service.guard.ts`, shared with `InternalAiConfigController`) gates
+`InternalScrapingController`:
+- `POST /internal/scraping/runs/:runId/items` — body `{ items: [...] }`.
+- `POST /internal/scraping/runs/:runId/finish` — closes the run's book:
+  status, `finishedAt`, schema caching, diagnosis. Idempotent — a second
+  call on an already-`finishedAt` run is a no-op (`{ alreadyFinished: true
+  }`), which is what lets both an AI-service-initiated finish and apps/api's
+  own catch-block finalize race safely without one stomping the other.
+
+**Who calls `/finish`, and when — the `auto_finish` flag.**
+`executeRun`'s listing crawl might still fall back to a sitemap crawl for
+the *same* `run_id` if the listing yields 0 items (mohp.gov.np-style 404
+category pages with a healthy sitemap). If the AI service closed the run's
+book itself after the listing call, the sitemap fallback's items would
+stream into an already-finished run with a stale status. So apps/api sends
+`auto_finish: false` on every `/scrape/source` and `/scrape/sitemap-crawl`
+call it makes, and calls `ScrapingService.finalizeRun` itself exactly once
+— after it knows the full picture (whether a fallback ran or not).
+`finalizeRun` persists any items the response carries with a full body
+(items that failed to stream, or streaming being unavailable entirely —
+older AI service, misconfigured `INTERNAL_SERVICE_SECRET`) through
+`ingestStreamedItems`, then calls `finishStreamedRun`.
+
+**The response shrinks too.** An item successfully streamed is reduced in
+the final HTTP response to `{"source_url": "...", "streamed": true}` (see
+`RunStreamer.response_items`) instead of repeating its full body — the
+response itself must never be the thing a proxy times out on for a run that
+found hundreds of items. `apps/api`'s `RawScrapedItem.streamed` flag is how
+`finalizeRun` tells "already in Postgres" apart from "still needs
+persisting."
+
+**Backward compatible by construction.** A caller with no `run_id`, or an
+AI service instance with `INTERNAL_SERVICE_SECRET` unset, streams nothing
+(`RunStreamer.enabled` is `False`) — `on_item` is never wired into
+`scraper.scrape_source`/`scrape_sitemap_urls`, so behavior is byte-for-byte
+what it was before streaming existed: the full item list travels in the one
+response, and `finalizeRun` persists all of it the old way.
+
+### 6.4d LLM provider fallback — OpenRouter's multiple free models
+
+Every LLM call in this service (RAG answers, chat, notice summarization,
+schema detection) already fell back across *providers* in admin-configured
+order (OpenRouter → Groq → Gemini → OpenCode → Bedrock, `llm.py`'s
+`_llm_chat`). What was missing: OpenRouter itself was a single hardcoded
+free model (`OPENROUTER_MODEL`, default `minimax/minimax-m3:free`) — once
+*that one model's* daily quota was spent, OpenRouter contributed nothing
+until reset, and every subsequent call fell all the way through to Groq
+(itself a shared 200k-tokens/day pool that a single scrape run reliably
+exhausts).
+
+Verified against the live OpenRouter API (`/api/v1/models`, 2026-09-07):
+each `:free` model meters against its **own independent daily quota** — a
+429 on one says nothing about the others. `llm._openrouter_chat_with_fallback`
+exploits exactly that: it tries the admin-configured `OPENROUTER_MODEL`
+first, then walks `config.OPENROUTER_FREE_MODELS` (env-overridable,
+comma-separated) — six more verified-live free models — before the outer
+`_llm_chat` loop moves on to Groq. `_is_openrouter(provider)` matches on the
+endpoint host, not the slug, so this applies to any provider row pointed at
+`openrouter.ai`, admin-renamed or not.
+
+**Scrape-time summarization now goes through this chain too.**
+`scraper.py`'s `_summarize_item` used to be a separate, hand-rolled
+Groq-only implementation with its own API-key rotation and 429-backoff loop
+— a completely different code path from `llm.py`'s provider fallback, and
+the reason a scrape's summarization step could stall for tens of seconds
+per item on Groq's free tier even when OpenRouter, Gemini, or Bedrock sat
+idle and fully configured. It now delegates to `llm.analyze_notice(title,
+content, category_hint)` — the same function behind the on-demand
+`/notices/analyze` route — which shares one prompt (`_ANALYZE_PROMPT`,
+extended with the `urgency` field the scrape path needs) and gets the full
+multi-provider, multi-model fallback for free. `_detect_schema_llm`
+(LLM-assisted listing-schema detection) was migrated the same way, through
+the new `llm.raw_chat(system_prompt, user_content, max_tokens,
+temperature)` — a thin public wrapper around `_llm_chat` for callers
+outside `llm.py` that don't fit `generate_answer`/`generate_chat`/
+`analyze_notice`'s specific shapes.
+
 ### 6.5 Dependencies
 
 Added to `apps/ai/requirements.txt`:
