@@ -409,7 +409,13 @@ export function ProviderDialog({
           </Field>
 
           <Field
-            label={kind === "BEDROCK" ? "Bedrock API key" : "API key"}
+            label={
+              kind === "BEDROCK"
+                ? "Bedrock API key"
+                : kind === "OPENAI_COMPATIBLE"
+                  ? "API key (optional)"
+                  : "API key"
+            }
             hint={
               isEdit
                 ? provider!.configured
@@ -417,7 +423,9 @@ export function ProviderDialog({
                   : "Leave blank to keep using the server's environment variable."
                 : kind === "BEDROCK"
                   ? "A Bedrock bearer token (AWS console → Bedrock → API keys), not an Anthropic key. Encrypted at rest."
-                  : "Encrypted at rest and never shown again once saved."
+                  : kind === "OPENAI_COMPATIBLE"
+                    ? "Only needed for hosted vendors (Groq, OpenRouter, ...). Self-hosted endpoints (Ollama, vLLM, LM Studio) take no key — leave this blank."
+                    : "Encrypted at rest and never shown again once saved."
             }
           >
             <div className="relative">
@@ -425,9 +433,12 @@ export function ProviderDialog({
                 type={showKey ? "text" : "password"}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                autoComplete="off"
+                // Chrome ignores autoComplete="off" on password-type inputs by
+                // design and offers saved-password autofill anyway;
+                // "new-password" is the one value it actually honors.
+                autoComplete="new-password"
                 spellCheck={false}
-                placeholder={isEdit && provider!.configured ? provider!.preview : "sk-…"}
+                placeholder={isEdit && provider!.configured ? provider!.preview : "sk-… (leave blank if none needed)"}
                 className={inputCls + " pr-11"}
               />
               <button

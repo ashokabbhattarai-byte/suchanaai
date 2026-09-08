@@ -821,8 +821,17 @@ async def _openai_compatible_chat(
     # user waiting before falling back to Groq (0.3s). For "very very fast"
     # OpenRouter gets 7s budget (liquid 2.6B answers <600ms, gemma <1.5s) so
     # a slow model fails fast to Groq (0.3s) instead of blocking UX.
+    # Self-hosted (key-optional) providers are a different animal — a 7B
+    # model on a CPU-only box genuinely takes ~25s to answer even a tiny
+    # prompt (measured on the qwen2.5:7b EC2 box), so they get a much longer
+    # budget rather than being timed out for being what they are.
     is_or = _is_openrouter(provider)
-    timeout = 7.0 if is_or else 15.0
+    if is_or:
+        timeout = 7.0
+    elif _key_optional(provider):
+        timeout = 60.0
+    else:
+        timeout = 15.0
 
     for attempt in range(2):
         try:
@@ -962,7 +971,11 @@ async def _probe_one_model(provider: dict) -> tuple[bool, str | None]:
         probe_headers = {"Content-Type": "application/json"}
         if provider.get("api_key"):
             probe_headers["Authorization"] = f"Bearer {provider['api_key']}"
-        async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT_SECONDS) as client:
+        # A self-hosted CPU model can take 20s+ to answer even 8 tokens —
+        # _HEALTH_TIMEOUT_SECONDS (12s) exists to fail hosted-vendor probes
+        # fast, which doesn't apply here.
+        probe_timeout = 60.0 if _key_optional(provider) else _HEALTH_TIMEOUT_SECONDS
+        async with httpx.AsyncClient(timeout=probe_timeout) as client:
             response = await client.post(url, headers=probe_headers, json=payload)
 
     if response.status_code != 200:
@@ -1043,9 +1056,13 @@ async def _health_for(provider: dict) -> dict:
     try:
         ok, error, resolved_model = await _probe_provider(provider)
     except httpx.HTTPError as e:
+        # httpx timeout/connect exceptions frequently stringify to "" (no
+        # message attached), which rendered as the useless "Could not reach
+        # the provider: " an admin can't act on — name the exception type so
+        # a timeout reads as "ReadTimeout", not blank.
         return {**base, "ok": False,
                 "latencyMs": round((time.perf_counter() - started) * 1000),
-                "error": f"Could not reach the provider: {e}"}
+                "error": f"Could not reach the provider: {e or type(e).__name__}"}
     except Exception as e:  # one bad provider must not break the panel
         logger.exception("Health probe crashed for %s", provider.get("slug"))
         return {**base, "ok": False,

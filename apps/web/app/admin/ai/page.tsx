@@ -304,6 +304,7 @@ export default function AdminAiPage() {
 
         {dialogOpen && (
           <ProviderDialog
+            key={dialogFor?.id ?? "new"}
             provider={dialogFor}
             onClose={() => setDialogOpen(false)}
             onSubmit={submitDialog}
