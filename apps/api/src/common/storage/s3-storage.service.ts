@@ -2,11 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   S3Client,
-  PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
 } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { Readable } from 'stream';
 
@@ -52,20 +52,56 @@ export class S3StorageService {
     });
   }
 
-  /** Upload a fully-buffered file (used for the RAG document upload path). */
+  /**
+   * Upload a fully-buffered file (used for the RAG document upload path).
+   * Uses @aws-sdk/lib-storage Upload which automatically switches to
+   * multipart for payloads >5 MB. This chunks a 100 MB buffer into
+   * ~5-10 MB parts so the 350 MB EB container never holds the whole
+   * payload in a single PutObject plus lib-storage never duplicates it.
+   * Small files still go as a single PutObject under the hood.
+   */
   async uploadBuffer(
     key: string,
     body: Buffer,
     contentType: string,
   ): Promise<void> {
-    await this.client.send(
-      new PutObjectCommand({
+    const upload = new Upload({
+      client: this.client,
+      params: {
         Bucket: this.bucket,
         Key: key,
         Body: body,
         ContentType: contentType,
-      }),
-    );
+      },
+    });
+    await upload.done();
+  }
+
+  /**
+   * Streaming upload for Readable sources (e.g. diskStorage temp file
+   * or proxied fetch). Also multipart-aware via lib-storage — parts are
+   * uploaded as the stream is consumed, so peak RSS stays near one
+   * partSize instead of the whole file. Pass contentLength when known
+   * (lets lib-storage pre-calculate part count); otherwise it falls
+   * back to chunked streaming.
+   */
+  async uploadStream(
+    key: string,
+    stream: Readable,
+    contentType: string,
+    contentLength?: number,
+  ): Promise<void> {
+    const upload = new Upload({
+      client: this.client,
+      params: {
+        Bucket: this.bucket,
+        Key: key,
+        Body: stream,
+        ContentType: contentType,
+        ...(contentLength ? { ContentLength: contentLength } : {}),
+      },
+    });
+    await upload.done();
   }
 
   /** Fetch an object back as a readable stream (used to forward a document to the AI service). */

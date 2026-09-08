@@ -241,7 +241,12 @@ jobs:
           image-uri: ${{ steps.image.outputs.image-uri }}
           container-port: 8000
           version-label: ai-${{ github.run_number }}-${{ github.sha }}
-          # Scraping a source (crawl + OCR + summarise) and embedding a batch
-          # both routinely pass 60s, and Beanstalk's default nginx timeout was
-          # failing roughly half of all scrape runs with "status code 504".
-          nginx-proxy-timeout: "300"
+          # Scraping a source (crawl + OCR + summarise) and embedding a
+          # document (OCR + embedding for a 5.4 MB poster PDF is ~10-30s,
+          # larger docs can be minutes) both routinely pass 60s, and Beanstalk's
+          # default nginx timeout was failing roughly half of all scrape runs
+          # with "status code 504". 600s keeps the proxy just above the API's
+          # AI_INDEX_TIMEOUT_MS (600s) and the AI's /documents app timeout (570s)
+          # so the AI, not nginx, is the one that times out and returns a
+          # JSON 504 with request_id.
+          nginx-proxy-timeout: "600"

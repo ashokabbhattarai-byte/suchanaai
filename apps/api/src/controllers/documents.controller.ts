@@ -23,6 +23,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MulterError, memoryStorage } from 'multer';
 import { Response } from 'express';
+import { SkipThrottle } from '@nestjs/throttler';
 import { User } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
@@ -50,10 +51,11 @@ const ALLOWED_MIME_TYPES = [
  * Set to the maximum of all plan maxUploadMb values so a paid user is never
  * blocked by this ceiling before the plan-aware check.
  *
- * Default 20 MB covers all current tiers; raise via MAX_UPLOAD_MB env if a
- * plan is configured larger.
+ * Default 100 MB covers all current tiers (FREE 5 / PRO 25 / MAX 100); raise
+ * via MAX_UPLOAD_MB env if a larger plan is configured — env may only raise,
+ * never lower, the ceiling so a misconfigured env never blocks paid users.
  */
-export const MAX_FILE_SIZE_MB = Number(process.env.MAX_UPLOAD_MB) || 20;
+export const MAX_FILE_SIZE_MB = Math.max(Number(process.env.MAX_UPLOAD_MB) || 100, 100);
 const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 /**
@@ -114,6 +116,7 @@ export class DocumentsController {
   ) {}
 
   @Post()
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard)
   @UseFilters(MulterExceptionFilter)
   @UseInterceptors(
@@ -224,6 +227,7 @@ export class DocumentsController {
     return this.documentsService.findAll(dto, user?.id);
   }
 
+  @SkipThrottle()
   @Get('progress/batch')
   @UseGuards(OptionalJwtAuthGuard)
   async progressBatch(
@@ -268,12 +272,14 @@ export class DocumentsController {
     return this.documentsService.unembed(id);
   }
 
+  @SkipThrottle()
   @Get(':id/progress')
   @UseGuards(OptionalJwtAuthGuard)
   async progress(@Param('id', ParseUUIDPipe) id: string) {
     return this.documentsService.getProgress(id);
   }
 
+  @SkipThrottle()
   @Get(':id/progress/stream')
   @UseGuards(OptionalJwtAuthGuard)
   async progressStream(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {

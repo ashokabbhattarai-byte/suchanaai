@@ -48,7 +48,13 @@ REQUEST_TIMEOUT_SECONDS = 100
 # sources that happened to find nothing ever "succeeded". These budgets stay
 # just under the caller's so the timeout still surfaces here, with this
 # service's own error message, rather than as an opaque socket hang-up.
+# `/documents` is the same: a scanned 5.4 MB poster PDF is OCR'd at 250-300 DPI
+# (single page ~3-8s) then chunked/embedded; larger docs are tens of seconds to
+# minutes. The NestJS caller budgets AI_INDEX_TIMEOUT_MS=600s (documents.service.ts)
+# and the EB nginx proxy is set to 600s (ci-cd.yml / .platform), so this stays at
+# 570s — just under both — and the AI, not the proxy, owns the timeout.
 ROUTE_TIMEOUT_SECONDS = {
+    "/documents": 570,
     "/scrape/source": 570,
     "/scrape/sitemap/detect": 120,
     "/scrape/check": 120,
@@ -1722,18 +1728,33 @@ async def _notices_delete(receive) -> tuple[int, dict]:
 
 
 async def _read_body(receive) -> bytes:
-    body = b""
+    # Collect chunks in a list then join once to avoid O(n²) copies from
+    # repeated `body += chunk` when the body is 100 MB ( ~1.5k × 64 KB
+    # frames from S3/uvicorn). Keeps peak RSS lower for large PDFs and
+    # avoids a long CPU-bound copy burst that could delay the 570 s /documents
+    # ingest budget.
+    chunks: list[bytes] = []
+    size = 0
+    # 110 MB > MAX_FILE_SIZE (100 MB) to allow multipart overhead (boundary +
+    # form fields) on top of the file. A 5.4 MB poster PDF is ~5.4 MB + ~1 KB
+    # overhead, well within this. Uvicorn itself has no body limit, so this and
+    # the per-route MAX_FILE_SIZE check are the only Python-level gates; the
+    # real 1 MB gate was EB's nginx client_max_body_size, fixed via
+    # .platform/nginx/conf.d/client_max_body_size.conf (50M) and the deploy
+    # action's 100M override — both EB envs (API and AI) now carry it, so an
+    # internal FormData POST from API -> AI no longer 413s at the proxy.
     MAX_BODY = 110 * 1024 * 1024
     while True:
         message = await receive()
         chunk = message.get("body", b"")
         if chunk:
-            body += chunk
-            if len(body) > MAX_BODY:
-                raise ValueError(f"Request body too large: {len(body)} > {MAX_BODY}")
+            size += len(chunk)
+            if size > MAX_BODY:
+                raise ValueError(f"Request body too large: {size} > {MAX_BODY}")
+            chunks.append(chunk)
         if not message.get("more_body", False):
             break
-    return body
+    return b"".join(chunks)
 
 
 def _get_header(scope: dict, name: bytes) -> Optional[bytes]:

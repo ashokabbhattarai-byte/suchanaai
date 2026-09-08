@@ -29,6 +29,21 @@ inputs:
       a proxy, not the app, gave up. Leave unset to keep the default.
     required: false
     default: ""
+  nginx-client-max-body-size:
+    description: >
+      Value for Beanstalk nginx client_max_body_size. EB default is 1M — any
+      upload larger than that (e.g. 5.4 MB PDF to POST /documents) gets a 413
+      Content Too Large from nginx before reaching Node/Python, regardless of
+      the app's own MAX_FILE_SIZE/Multer limit (20 MB). Set to 100M to cover
+      the app's maximum plan limit and AI's 100 MB ceiling. Overridden per-deploy
+      if needed; the repo's static .platform file is a fallback for local/zip.
+    required: false
+    default: "100M"
+  nginx-client-body-buffer-size:
+    description: >
+      Value for client_body_buffer_size paired with client_max_body_size.
+    required: false
+    default: "16k"
 
 runs:
   using: composite
@@ -48,21 +63,58 @@ runs:
         EOF
 
         # .platform/nginx/conf.d/*.conf is merged into Beanstalk's own nginx
-        # config at deploy time, which is the only supported way to raise the
-        # proxy timeout on the Docker platform.
+        # config at deploy time — the only supported way to override nginx
+        # settings on the Docker platform.
+        #
+        # Two overrides are managed here:
+        # 1) client_max_body_size — EB nginx defaults to 1M, so any upload
+        #    larger than that (e.g. 5.4 MB PDF to POST /documents) gets a 413
+        #    from nginx before reaching Node/Python, regardless of the app's
+        #    own MAX_FILE_SIZE_MB (20 MB default, up to 100 MB for MAX plan).
+        #    This is written unconditionally so every deploy fixes 413 without
+        #    requiring a caller to remember an extra input.
+        # 2) proxy timeouts — only when nginx-proxy-timeout is set, for
+        #    long-running routes (scrape, embed) that exceed the 60s default.
+        mkdir -p .platform/nginx/conf.d
+
+        # Always include upload-size override (action default 100M covers API 20M
+        # + AI 100M ceilings; repo fallback is .platform/.../client_max_body_size.conf).
+        cat > .platform/nginx/conf.d/client_max_body_size.conf <<EOF
+        client_max_body_size ${{ inputs.nginx-client-max-body-size }};
+        client_body_buffer_size ${{ inputs.nginx-client-body-buffer-size }};
+        EOF
+        echo "nginx client_max_body_size set to ${{ inputs.nginx-client-max-body-size }} (buffer ${{ inputs.nginx-client-body-buffer-size }})"
+
         TIMEOUT="${{ inputs.nginx-proxy-timeout }}"
         if [ -n "$TIMEOUT" ]; then
-          mkdir -p .platform/nginx/conf.d
           cat > .platform/nginx/conf.d/proxy_timeout.conf <<EOF
         proxy_connect_timeout ${TIMEOUT}s;
         proxy_send_timeout    ${TIMEOUT}s;
         proxy_read_timeout    ${TIMEOUT}s;
         EOF
           echo "nginx proxy timeout set to ${TIMEOUT}s"
-          zip -r deploy.zip Dockerrun.aws.json .platform
         else
-          zip deploy.zip Dockerrun.aws.json
+          # If the caller didn't request a timeout override but the repo ships
+          # a default (proxy_timeout_default.conf), keep it in the zip — don't
+          # delete it. Remove only a stale proxy_timeout.conf from a previous
+          # manual run in this workspace.
+          if [ -f .platform/nginx/conf.d/proxy_timeout.conf ]; then
+            rm -f .platform/nginx/conf.d/proxy_timeout.conf
+            # Re-check for repo default after removal
+            if [ ! -f .platform/nginx/conf.d/proxy_timeout_default.conf ]; then
+              echo "no nginx proxy timeout override (60s default)"
+            fi
+          fi
+          if [ -f .platform/nginx/conf.d/proxy_timeout_default.conf ]; then
+            echo "using repo proxy timeout default (proxy_timeout_default.conf)"
+          fi
         fi
+
+        # Always zip Dockerrun + .platform — .platform now at minimum contains
+        # client_max_body_size.conf, so every deploy carries the 413 fix.
+        zip -r deploy.zip Dockerrun.aws.json .platform
+        echo "deploy.zip contents:"
+        unzip -l deploy.zip | head -n 40
 
     # Beanstalk rejects a deploy outright — 400 InvalidParameterValue,
     # "Environment ... is in an invalid state for this operation. Must be

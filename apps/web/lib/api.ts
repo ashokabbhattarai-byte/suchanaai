@@ -382,8 +382,14 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
  * dump of the whole envelope. 402 means "your plan doesn't cover this" —
  * throws a typed QuotaError so callers can render a targeted upgrade prompt
  * instead of a generic toast.
+ *
+ * 413 and 429 need special handling because nginx (client_max_body_size) and
+ * the global ThrottlerGuard can both answer *before* Nest, and nginx's 413
+ * is text/html without CORS headers — otherwise the UI would leak raw html or
+ * show a generic "Failed to fetch".
  */
 async function throwApiError(res: Response): Promise<never> {
+  const contentType = res.headers.get("content-type") ?? ""
   const body = await res.text()
   let message = body
   let parsed: { message?: unknown; error?: unknown; quota?: unknown } | null = null
@@ -393,6 +399,49 @@ async function throwApiError(res: Response): Promise<never> {
     if (raw) message = Array.isArray(raw) ? raw.join(", ") : String(raw)
   } catch {
     // not JSON — use the raw body
+  }
+
+  const isHtml =
+    contentType.includes("text/html") ||
+    body.trim().startsWith("<") ||
+    body.includes("<html") ||
+    body.includes("<!DOCTYPE html")
+
+  // ── 413: infra file-size hard cap (nginx / Multer) ──────────────────────
+  if (res.status === 413) {
+    if (isHtml || message.trim().startsWith("<") || !parsed) {
+      // nginx 413 text/html carries no limit value — use the known infra ceiling
+      // (matches MAX_FILE_SIZE_MB in documents.controller.ts, currently 100).
+      const infraLimitMb = 100
+      message = `File too large — the server's upload limit is ${infraLimitMb} MB. Try a smaller file or upgrade your plan.`
+    }
+    if (message.trim().startsWith("<")) {
+      message = `File too large — the server's upload limit is 100 MB. Try a smaller file or upgrade your plan.`
+    }
+  } else if (res.status === 429) {
+    // ── 429: rate limited (ThrottlerGuard) ────────────────────────────────
+    const lower = String(message).toLowerCase()
+    if (
+      isHtml ||
+      message.trim().startsWith("<") ||
+      lower.includes("too many") ||
+      lower.includes("throttler") ||
+      !message ||
+      message === body
+    ) {
+      message = "Too many requests — please wait a moment and retry."
+    }
+  } else if (isHtml) {
+    // Any other html-wrapped error (e.g. nginx 502/504) — don't leak raw html
+    if (res.status >= 500) {
+      message = `Server error (${res.status}) — please try again in a moment.`
+    } else if (res.status === 404) {
+      message = "Not found."
+    } else if (message.trim().startsWith("<")) {
+      message = `Request failed: ${res.status}`
+    }
+  } else if (message.trim().startsWith("<") || message.length > 2000) {
+    message = `Request failed: ${res.status}`
   }
 
   if (res.status === 402 && parsed?.quota) {
@@ -502,14 +551,199 @@ export async function apiLogout(): Promise<void> {
 
 // ─── Documents API ───────────────────────────────────────────────────────────
 
-export async function uploadDocument(file: File, title: string): Promise<RagDocument> {
+/**
+ * Upload timeout for large files. 10 minutes covers a 100 MB file on a slow
+ * 3G link (~350 kbps) plus server processing headroom. Must stay aligned with
+ * backend `AI_INDEX_TIMEOUT_MS` (600_000) and nginx `proxy_read_timeout` so a
+ * legitimate 5.4 MB poster PDF does not abort prematurely.
+ */
+const UPLOAD_TIMEOUT_MS = 600_000
+
+/**
+ * Shared XHR error decoder — mirrors `throwApiError` but works with XHR's
+ * status + responseText + headers instead of a `Response` object. Keeps the
+ * 413/402/429/504 mapping identical whether the upload went via fetch or XHR.
+ */
+function throwXhrError(status: number, body: string, contentType: string): never {
+  let message = body
+  let parsed: { message?: unknown; error?: unknown; quota?: unknown } | null = null
+  try {
+    parsed = JSON.parse(body)
+    const raw = parsed?.message ?? parsed?.error
+    if (raw) message = Array.isArray(raw) ? raw.join(", ") : String(raw)
+  } catch {
+    // not JSON
+  }
+  const isHtml =
+    contentType.includes("text/html") ||
+    body.trim().startsWith("<") ||
+    body.includes("<html") ||
+    body.includes("<!DOCTYPE html")
+
+  if (status === 413) {
+    if (isHtml || message.trim().startsWith("<") || !parsed) {
+      const infraLimitMb = 100
+      message = `File too large — the server's upload limit is ${infraLimitMb} MB. Try a smaller file or upgrade your plan.`
+    }
+    if (message.trim().startsWith("<")) {
+      message = `File too large — the server's upload limit is 100 MB. Try a smaller file or upgrade your plan.`
+    }
+  } else if (status === 429) {
+    const lower = String(message).toLowerCase()
+    if (
+      isHtml ||
+      message.trim().startsWith("<") ||
+      lower.includes("too many") ||
+      lower.includes("throttler") ||
+      !message ||
+      message === body
+    ) {
+      message = "Too many requests — please wait a moment and retry."
+    }
+  } else if (isHtml) {
+    if (status >= 500) {
+      message = `Server error (${status}) — please try again in a moment.`
+    } else if (status === 404) {
+      message = "Not found."
+    } else if (message.trim().startsWith("<")) {
+      message = `Request failed: ${status}`
+    }
+  } else if (message.trim().startsWith("<") || message.length > 2000) {
+    message = `Request failed: ${status}`
+  }
+
+  if (status === 402 && parsed?.quota) {
+    throw new QuotaError(message, parsed.quota as QuotaDenial)
+  }
+  throw new ApiError(message || `Request failed: ${status}`, status)
+}
+
+/**
+ * True multipart/form-data streaming upload.
+ *
+ * Uses `FormData` (`file` + `title`) so the browser streams the body with a
+ * `multipart/form-data; boundary=…` header — never `application/json` and
+ * never a base64 blob. The `file` field must be the raw `File`/`Blob`, not a
+ * string, so nginx/Multer can enforce `client_max_body_size` (100 MB) before
+ * the Node process buffers the whole body.
+ *
+ * `fetch()` has no upload-progress events, so when `onProgress` is supplied we
+ * use `XMLHttpRequest` (whose `xhr.upload.onprogress` fires reliably for
+ * multipart) and still honour the 10-minute timeout. Callers that don't need
+ * progress get the simpler `fetch` path; both decode 413/402/429/504/ngin‑HTML
+ * identically.
+ *
+ * For files >25MB a presigned S3 direct-upload would avoid proxying the bytes
+ * through the API (double memory). Sketch:
+ *   1. POST /documents/presigned-url {filename, mimeType, fileSize, title} -> {key, url, docId}
+ *   2. PUT <url> with file body (S3 multipart)
+ *   3. POST /documents/confirm {docId, key}
+ * Current path keeps the simple direct POST for up to 100 MB — S3 buffering is
+ * memoryStorage per-file (≤100 MB) and docs are processed async, so peak RAM is
+ * bounded to one file × concurrent uploads.
+ */
+export async function uploadDocument(
+  file: File,
+  title: string,
+  onProgress?: (percent: number, loaded: number, total: number) => void,
+): Promise<RagDocument> {
   const token = tokenStore.get()
   const form = new FormData()
   form.append("file", file)
   form.append("title", title)
 
+  // XHR path — only when caller wants progress and we are in a browser.
+  const wantXhr =
+    typeof onProgress === "function" &&
+    typeof window !== "undefined" &&
+    typeof XMLHttpRequest !== "undefined"
+
+  if (wantXhr) {
+    return new Promise<RagDocument>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open("POST", `${API_URL}/documents`)
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`)
+      // Let the browser set Content-Type with the multipart boundary.
+      xhr.timeout = UPLOAD_TIMEOUT_MS
+      xhr.responseType = "text"
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100)
+          try {
+            onProgress!(pct, e.loaded, e.total)
+          } catch {
+            // ignore progress callback errors
+          }
+        }
+      }
+
+      xhr.onload = () => {
+        const ct = xhr.getResponseHeader("content-type") ?? ""
+        const body = xhr.responseText ?? ""
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = body ? (JSON.parse(body) as RagDocument) : ({} as RagDocument)
+            // Ensure progress hits 100% on success for UI polish.
+            try {
+              onProgress!(100, file.size, file.size)
+            } catch {
+              // ignore
+            }
+            resolve(data)
+          } catch {
+            reject(new ApiError("Upload succeeded but response was not valid JSON", xhr.status))
+          }
+          return
+        }
+        if (xhr.status === 401 && token && typeof window !== "undefined") {
+          tokenStore.clear()
+          window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT))
+        }
+        try {
+          throwXhrError(xhr.status, body, ct)
+        } catch (e) {
+          reject(e)
+        }
+      }
+
+      xhr.onerror = () => {
+        // CORS-blocked nginx 413 HTML surfaces as a network error (no CORS
+        // headers), same as offline/DNS. Treat large-file network errors as
+        // 413 so the UI shows an upgrade CTA instead of "Failed to fetch".
+        if (file.size > 1 * 1024 * 1024) {
+          reject(
+            new ApiError(
+              `File too large — the upload failed. Your file is ${(file.size / 1024 / 1024).toFixed(1)} MB but the server's upload limit is 100 MB. Try a smaller file or upgrade your plan.`,
+              413,
+            ),
+          )
+          return
+        }
+        reject(new NetworkError())
+      }
+
+      xhr.ontimeout = () => {
+        reject(
+          new NetworkError(
+            "Upload timed out — the file is large and the connection is slow. Please try again on a faster connection or with a smaller file.",
+          ),
+        )
+      }
+
+      xhr.onabort = () => {
+        reject(
+          new NetworkError("Upload was interrupted. Please try again."),
+        )
+      }
+
+      xhr.send(form)
+    })
+  }
+
+  // Fetch fallback — no progress, longer timeout for large files.
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 120_000)
+  const timeout = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS)
   try {
     const res = await fetch(`${API_URL}/documents`, {
       method: "POST",
@@ -524,14 +758,44 @@ export async function uploadDocument(file: File, title: string): Promise<RagDocu
       }
       await throwApiError(res)
     }
-    return res.json()
+    return (await res.json()) as RagDocument
   } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") throw new NetworkError("Upload timed out — the server took too long to respond. Please try again.")
+    if (err instanceof QuotaError) throw err
+    if (err instanceof ApiError) throw err
+    if (err instanceof NetworkError) throw err
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new NetworkError("Upload timed out — the server took too long to respond. Please try again.")
+    }
+    // fetch() TypeError("Failed to fetch") — offline, DNS, or nginx 413
+    // CORS-blocked (nginx's bare 413 html lacks CORS headers, so the browser
+    // surfaces it as a network failure instead of a readable 413 response).
+    if (err instanceof TypeError && err.message.toLowerCase().includes("failed to fetch")) {
+      if (file.size > 1 * 1024 * 1024) {
+        throw new ApiError(
+          `File too large — the upload failed. Your file is ${(file.size / 1024 / 1024).toFixed(1)} MB but the server's upload limit is 100 MB. Try a smaller file or upgrade your plan.`,
+          413,
+        )
+      }
+      throw new NetworkError()
+    }
+    if (err instanceof TypeError) throw new NetworkError()
     throw err
   } finally {
     clearTimeout(timeout)
   }
 }
+
+// ── Presigned S3 direct upload (future optimization, not yet wired) ──────────
+// For files >25 MB proxying through the API doubles memory (API buffers +
+// S3 upload). A direct-to-S3 flow would be:
+//   export async function createPresignedUpload(input: {filename: string; mimeType: string; fileSize: number; title: string})
+//     : Promise<{docId: string; key: string; url: string}> {
+//     return apiFetch("/documents/presigned-url", {method: "POST", body: JSON.stringify(input)})
+//   }
+//   // Caller then: await fetch(url, {method: "PUT", body: file, headers: {"Content-Type": mimeType}})
+//   // Then: await apiFetch("/documents/confirm", {method: "POST", body: JSON.stringify({docId, key})})
+// Keeping the direct FormData POST for now ensures auth/quota/Multer checks stay
+// in one place and avoids CORS / S3 bucket policy churn for the current 100 MB cap.
 
 export async function fetchDocuments(
   page = 1,

@@ -525,11 +525,14 @@ def _pdftotext(path: Path) -> str:
     if not shutil.which("pdftotext"):
         return ""
     try:
+        # 90 s to cover a 100 MB / ~500-page poster bundle at -layout; the
+        # previous 60 s was tight and could abort a valid large-file extraction
+        # back to the lower-quality pypdf text for no reason.
         result = subprocess.run(
             ["pdftotext", "-layout", "-enc", "UTF-8", str(path), "-"],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=90,
         )
         return result.stdout if result.returncode == 0 else ""
     except Exception as e:
@@ -675,6 +678,20 @@ def _ocr_pdf(path: Path, page_count: int) -> dict:
     import pytesseract
 
     batch_size = 5
+    # If pypdf failed to read the page count (page_count==0 → caller fell back to 1),
+    # a 100 MB / 500-page doc would only OCR its first page. Re-probe directly so
+    # the batch loop below covers the whole file without OOM-ing on a single giant
+    # convert_from_path(..., first_page=1, last_page=500) call.
+    if page_count <= 1:
+        try:
+            from pypdf import PdfReader as _FallbackReader
+
+            detected = len(_FallbackReader(str(path)).pages)
+            if detected > page_count:
+                logger.info("Corrected OCR page_count %d -> %d via fallback PdfReader", page_count, detected)
+                page_count = detected
+        except Exception as e:
+            logger.debug("Fallback page count detection failed: %s", e)
     dpi = 250 if page_count > 50 else 300
     texts: list[str] = []
 

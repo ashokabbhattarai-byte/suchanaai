@@ -35,7 +35,7 @@ import { AdminSystemController } from './controllers/admin-system.controller';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 20 }]),
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
     // AdminAiHealthController proxies to the AI service for live LLM probes.
     HttpModule.register({ timeout: 45000 }),
     LoggerModule,

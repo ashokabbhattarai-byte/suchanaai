@@ -6,17 +6,19 @@ import {
   MessageSquare, ChevronRight,
   LayoutPanelLeft, BookOpen, Copy, Trash2,
   ThumbsUp, ThumbsDown, RefreshCw, CheckCircle,
-  AlertCircle, Loader2, X, File, Download,
+  AlertCircle, Loader2, X, File, Download, ArrowRight,
 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { Header } from "@/components/layout/header"
 import { ChatMessage, RagDocument, RagSource, DocumentProgress } from "@/lib/types"
 import { useAuth } from "@/lib/auth-context"
+import Link from "next/link"
 import {
   fetchDocuments, uploadDocument, deleteDocument, ragQuery,
   embedDocument, unembedDocument, fetchDocumentsProgress,
-  isQuotaError, type QuotaDenial,
+  fetchBillingSummary,
+  isQuotaError, isApiError, isNetworkError, type QuotaDenial,
 } from "@/lib/api"
 import { UpgradePrompt } from "@/components/billing/upgrade-prompt"
 import { useConfirm } from "@/components/ui/confirm-dialog"
@@ -304,35 +306,91 @@ function DocCard({ doc, progress, toggleBusy, canManage, onToggleEmbed, onDelete
 
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
 
-// Infrastructure hard cap — per-plan limits (FREE 5 MB, paid up to 20+ MB)
-// are enforced server-side via quota (402). Client pre-check uses the hard
-// ceiling to fail fast; the server returns a quota-specific 402 with upgrade CTA.
-const MAX_UPLOAD_MB = 20
-const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+// Hard infra ceiling (matches MAX_FILE_SIZE_MB in documents.controller.ts, currently 100).
+// Per-plan limits (e.g. FREE 5 MB) are lower and fetched via billing summary
+// so the UI can warn plan-aware before the upload, and the server enforces
+// with 402 quota errors that carry an upgrade CTA.
+const HARD_CAP_MB = 100
+const HARD_CAP_BYTES = HARD_CAP_MB * 1024 * 1024
 
 function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded: () => void }) {
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState("")
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const [error, setError] = useState("")
   const [quota, setQuota] = useState<QuotaDenial | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [planLimitMb, setPlanLimitMb] = useState<number | null>(null)
+  const [planLimitLoading, setPlanLimitLoading] = useState(true)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Fetch plan-aware limit so the drop-zone hint and pre-check use the user's
+  // actual maxUploadMb (FREE 5, PRO 25, MAX 100) instead of just the infra cap.
+  useEffect(() => {
+    let cancelled = false
+    fetchBillingSummary()
+      .then(s => { if (!cancelled) setPlanLimitMb(s.limits.maxUploadMb) })
+      .catch(() => { if (!cancelled) setPlanLimitMb(null) })
+      .finally(() => { if (!cancelled) setPlanLimitLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const effectiveLimitMb = planLimitMb ?? HARD_CAP_MB
+  const effectiveLimitBytes = effectiveLimitMb * 1024 * 1024
+  // The real ceiling is the lower of plan and infra — a paid plan never
+  // exceeds the infra 100 MB cap (matches MAX_FILE_SIZE_MB in documents.controller.ts).
+  const displayLimitMb = Math.min(effectiveLimitMb, HARD_CAP_MB)
+  const clientLimitBytes = Math.min(effectiveLimitBytes, HARD_CAP_BYTES)
 
   const handleUpload = async () => {
     if (!file || !title.trim()) return
+    // Re-validate immediately before upload — avoids wasting bandwidth if the
+    // plan changed since the file was picked, and turns a 413 after 2 min into
+    // an instant client error.
+    if (file.size > clientLimitBytes) {
+      const sizeMb = (file.size / 1024 / 1024).toFixed(1)
+      if (planLimitMb !== null && planLimitMb < HARD_CAP_MB) {
+        setError(
+          `"${file.name}" is ${sizeMb} MB — your plan allows up to ${displayLimitMb} MB. Upgrade for larger uploads.`,
+        )
+      } else {
+        setError(`"${file.name}" is ${sizeMb} MB — the limit is ${displayLimitMb} MB.`)
+      }
+      return
+    }
     setUploading(true)
+    setUploadProgress(0)
     setError("")
     setQuota(null)
     try {
-      await uploadDocument(file, title.trim())
+      // True multipart/form-data streaming with progress. The onProgress
+      // callback drives the XHR upload path in lib/api.ts (fetch has no
+      // upload progress); callers without a callback fall back to fetch.
+      // 10-minute timeout covers 100 MB on slow 3G.
+      await uploadDocument(file, title.trim(), (pct) => setUploadProgress(pct))
       onUploaded()
       onClose()
     } catch (e) {
+      setUploadProgress(null)
       // A plan limit is not a failure to retry — show what ran out and how to
       // fix it, instead of a red error the user can only stare at.
       if (isQuotaError(e)) setQuota(e.quota)
-      else setError(e instanceof Error ? e.message : "Upload failed")
+      else if (isNetworkError(e)) setError(e.message)
+      else if (isApiError(e)) {
+        // Preserve server's plan-aware message; enrich only if generic.
+        if (e.status === 413) {
+          setError(e.message || `File too large — limit is ${displayLimitMb} MB. Try a smaller file or upgrade your plan.`)
+        } else if (e.status === 429) {
+          setError(e.message || "Too many requests — please wait a moment and retry.")
+        } else if (e.status === 502 || e.status === 504 || e.status >= 500) {
+          setError(e.message || `Server error (${e.status}) — please try again in a moment.`)
+        } else if (e.status === 402) {
+          setError(e.message)
+        } else {
+          setError(e.message)
+        }
+      } else setError(e instanceof Error ? e.message : "Upload failed")
     } finally {
       setUploading(false)
     }
@@ -342,16 +400,27 @@ function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded:
   const acceptFile = (candidate: File | null) => {
     if (!candidate) {
       setFile(null)
+      setUploadProgress(null)
       return
     }
-    if (candidate.size > MAX_UPLOAD_BYTES) {
+    if (candidate.size > clientLimitBytes) {
       setFile(null)
-      setError(
-        `"${candidate.name}" is ${(candidate.size / 1024 / 1024).toFixed(1)} MB — the limit is ${MAX_UPLOAD_MB} MB.`,
-      )
+      setUploadProgress(null)
+      const sizeMb = (candidate.size / 1024 / 1024).toFixed(1)
+      if (planLimitMb !== null && planLimitMb < HARD_CAP_MB) {
+        setError(
+          `"${candidate.name}" is ${sizeMb} MB — your plan allows up to ${displayLimitMb} MB. Upgrade for larger uploads.`,
+        )
+      } else {
+        setError(
+          `"${candidate.name}" is ${sizeMb} MB — the limit is ${displayLimitMb} MB.`,
+        )
+      }
       return
     }
     setError("")
+    setQuota(null)
+    setUploadProgress(null)
     setFile(candidate)
     if (!title) setTitle(candidate.name.replace(/\.[^.]+$/, ""))
   }
@@ -359,22 +428,35 @@ function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded:
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
+    // Large drags (5-100MB) are handled here without reading the file into
+    // memory — acceptFile only inspects `File.size`/name, streaming happens
+    // later via FormData in uploadDocument.
     acceptFile(e.dataTransfer.files[0] ?? null)
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     acceptFile(e.target.files?.[0] ?? null)
+    // Reset the input so the same file can be re-picked after an error.
+    if (e.target) e.target.value = ""
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      onClick={uploading ? undefined : onClose}
+    >
       <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl sm:p-8" onClick={e => e.stopPropagation()}>
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-semibold text-vez-ink">Upload Document</h2>
             <p className="mt-1 text-sm text-vez-mute">Ready to search a moment after upload</p>
           </div>
-          <button onClick={onClose} className="rounded-full p-2 text-vez-mute transition-colors hover:bg-vez-surface hover:text-vez-ink">
+          <button
+            onClick={onClose}
+            disabled={uploading}
+            aria-label="Close upload dialog"
+            className="rounded-full p-2 text-vez-mute transition-colors hover:bg-vez-surface hover:text-vez-ink disabled:opacity-40 disabled:cursor-not-allowed"
+          >
             <X className="size-5" />
           </button>
         </div>
@@ -396,7 +478,8 @@ function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded:
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
-              className={`flex w-full flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-8 transition-all sm:py-10 ${
+              disabled={uploading}
+              className={`flex w-full flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-8 transition-all sm:py-10 disabled:opacity-60 disabled:cursor-not-allowed ${
                 dragOver
                   ? "border-vez-navy bg-vez-sky/10"
                   : file
@@ -421,7 +504,9 @@ function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded:
                   </div>
                   <div className="text-center">
                     <p className="text-base font-medium text-vez-ink">Drop file here or click to browse</p>
-                    <p className="mt-1 text-sm text-vez-mute">PDF, DOCX, TXT, PNG, JPEG - up to {MAX_UPLOAD_MB} MB</p>
+                    <p className="mt-1 text-sm text-vez-mute">
+                      PDF, DOCX, TXT, PNG, JPEG - up to {planLimitLoading ? "…" : displayLimitMb} MB{planLimitMb !== null && !planLimitLoading && planLimitMb < HARD_CAP_MB ? " on your plan" : ""}
+                    </p>
                   </div>
                 </>
               )}
@@ -435,28 +520,77 @@ function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded:
               value={title}
               onChange={e => setTitle(e.target.value)}
               placeholder="e.g. Nepal Constitution 2072"
-              className="h-12 w-full rounded-xl border border-vez-line px-4 text-base text-vez-ink outline-none transition-colors placeholder:text-vez-mute/60 focus:border-vez-navy focus:ring-2 focus:ring-vez-sky/30"
+              disabled={uploading}
+              className="h-12 w-full rounded-xl border border-vez-line px-4 text-base text-vez-ink outline-none transition-colors placeholder:text-vez-mute/60 focus:border-vez-navy focus:ring-2 focus:ring-vez-sky/30 disabled:opacity-60 disabled:cursor-not-allowed"
               maxLength={200}
             />
           </div>
+
+          {/* Multipart upload progress — visible for large files (5-100MB) */}
+          {uploading && uploadProgress !== null && file && (
+            <div className="space-y-2 rounded-xl bg-vez-surface/70 px-4 py-3">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="flex items-center gap-1.5 font-medium text-vez-navy">
+                  <Loader2 className="size-3.5 animate-spin" />
+                  Uploading… {uploadProgress}%
+                </span>
+                <span className="tabular-nums text-vez-mute">
+                  {formatFileSize(Math.round((file.size * uploadProgress) / 100))} / {formatFileSize(file.size)}
+                </span>
+              </div>
+              <div
+                className="h-2 overflow-hidden rounded-full bg-vez-line/40"
+                role="progressbar"
+                aria-valuenow={uploadProgress}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label="Upload progress"
+              >
+                <div
+                  className="h-full rounded-full bg-vez-navy transition-all duration-300 ease-out"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+              <p className="text-xs leading-relaxed text-vez-mute">
+                Streaming as <span className="font-mono">multipart/form-data</span> — keep this tab open. Large files (up to 100&nbsp;MB) use a 10-minute timeout.
+              </p>
+            </div>
+          )}
 
           {quota && <UpgradePrompt quota={quota} onDismiss={() => setQuota(null)} />}
 
           {error && (
             <div className="flex items-start gap-2 rounded-xl bg-red-50 px-4 py-3">
               <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-500" />
-              <p className="text-sm text-red-600">{error}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-red-600 break-words">{error}</p>
+                {/* 402 quota, 413 limit, or nginx HTML mapped to 413 — all deserve an upgrade CTA */}
+                {(error.toLowerCase().includes("upgrade") || error.toLowerCase().includes("limit") || error.toLowerCase().includes("too large") || error.toLowerCase().includes("allows up to")) && (
+                  <Link href="/pricing" className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-red-700 underline underline-offset-2 hover:text-red-800">
+                    View plans <ArrowRight className="size-3" />
+                  </Link>
+                )}
+                {error.toLowerCase().includes("too many requests") && (
+                  <p className="mt-1 text-xs text-red-600/80">Please wait a minute before retrying.</p>
+                )}
+                {(error.toLowerCase().includes("server error") || error.toLowerCase().includes("timed out")) && (
+                  <p className="mt-1 text-xs text-red-600/80">Large files need a stable connection — try again or use a smaller file.</p>
+                )}
+              </div>
             </div>
           )}
 
           <button
             onClick={handleUpload}
             disabled={!file || !title.trim() || uploading}
-            className="flex h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-vez-navy text-base font-medium text-white transition-all hover:bg-vez-navy/90 disabled:opacity-40"
+            className="flex h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-vez-navy text-base font-medium text-white transition-all hover:bg-vez-navy/90 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {uploading ? <Loader2 className="size-5 animate-spin" /> : <Upload className="size-5" />}
-            {uploading ? "Uploading..." : "Upload document"}
+            {uploading ? (uploadProgress !== null ? `Uploading… ${uploadProgress}%` : "Uploading...") : "Upload document"}
           </button>
+          {uploading && (
+            <p className="text-center text-xs text-vez-mute">Don&apos;t close this window until the upload completes.</p>
+          )}
         </div>
       </div>
     </div>
@@ -527,17 +661,23 @@ export default function RagPage() {
     const ids = processingKey.split(",")
     let cancelled = false
     let ticks = 0
+    let backoffMs = 3000
 
     let timer: ReturnType<typeof setTimeout>
 
     const tick = async () => {
       try {
         await pollOnce()
+        backoffMs = 3000
+      } catch {
+        // pollOnce already swallows, this is just safety
       } finally {
         // Schedule the next poll only once this one settled: with setInterval a
         // slow API queued a request per tick, and the pile-up starved every
         // other call the page makes (chat queries included).
-        if (!cancelled) timer = setTimeout(tick, 2500)
+        // 3000ms keeps us at 20 req/min — the global ThrottlerGuard limit —
+        // and backoff handles the 429 case without user-visible errors.
+        if (!cancelled) timer = setTimeout(tick, backoffMs)
       }
     }
 
@@ -546,7 +686,10 @@ export default function RagPage() {
       let result: Record<string, DocumentProgress | null> = {}
       try {
         result = await fetchDocumentsProgress(ids)
-      } catch {
+      } catch (e) {
+        if (isApiError(e) && e.status === 429) {
+          backoffMs = Math.min(backoffMs * 1.5, 10000)
+        }
         return
       }
       if (cancelled) return

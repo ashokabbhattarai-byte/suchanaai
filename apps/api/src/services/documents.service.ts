@@ -421,6 +421,30 @@ export class DocumentsService {
       const upstream = err.response?.data?.error;
       const status = err.response?.status;
       const isTimeout = err.code === 'ECONNABORTED' || /timeout/i.test(err.message ?? '');
+      const isRateLimited = status === 429;
+
+      // 429 is a transient quota/throttler signal, not a document failure.
+      // The ingestion pipeline itself (local E5 embeddings) does not spend LLM
+      // quota, so a 429 here is the AI service's own Throttler or an LLM
+      // provider exhausted for a *different* endpoint, or a burst of parallel
+      // uploads hitting the API's 20/min gate. Marking the document FAILED
+      // is wrong — it blocks the UI's re-embed and, for a poster PDF
+      // (scanned image -> OCR), the file is perfectly indexable once quota
+      // recovers. Keep it PROCESSING and retry shortly.
+      if (isRateLimited) {
+        this.logger.warn(
+          `AI service rate limited (429) for document ${document.id}: ${upstream ?? err.message} — will retry in 60s; leaving as PROCESSING`,
+        );
+        // Retry the same pipeline after a cooldown; the document stays
+        // PROCESSING so the frontend keeps polling progress instead of
+        // showing a terminal error.
+        const t = setTimeout(() => void this.processDocument(document).catch((e) => {
+          this.logger.error(`Retry after 429 failed for ${document.id}: ${e.message}`);
+        }), 60_000);
+        if (t.unref) t.unref();
+        return;
+      }
+
       this.logger.error(
         `Document processing failed for ${document.id}` +
           `${status ? ` (AI service ${status})` : ''}: ${upstream ?? err.message}`,
@@ -437,6 +461,10 @@ export class DocumentsService {
       // actually finishes indexing 30s after our timeout would be stuck
       // showing FAILED forever, while its vectors are really sitting in
       // Qdrant. Reconcile against ground truth once it's likely done.
+      // Note: aiIndexTimeoutMs=600s and AI's /documents timeout=570s + nginx
+      // proxy_read_timeout=600s are aligned so a legit 5.4 MB poster PDF
+      // (OCR + embedding) succeeds well before either fires; this is only for
+      // slow-path large docs that actually do exceed the budget.
       if (isTimeout) {
         this.scheduleReconciliation(document.id);
       }
