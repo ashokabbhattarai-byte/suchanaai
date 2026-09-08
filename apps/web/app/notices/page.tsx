@@ -7,6 +7,7 @@ import {
   Loader2, Paperclip, Sparkles, RotateCcw, Tag as TagIcon,
 } from "lucide-react"
 import { Header } from "@/components/layout/header"
+import { Footer } from "@/components/layout/footer"
 import { ErrorState } from "@/components/ui/error-state"
 import { useAuth } from "@/lib/auth-context"
 import { fetchNotices, fetchNoticeCategoryCounts, fetchNoticeSources } from "@/lib/api"
@@ -328,11 +329,11 @@ function NoticesPageContent() {
     searchQuery !== "" || selectedCategory !== "all" || selectedSourceId !== "" || selectedTag !== ""
 
   return (
-    <div className="flex min-h-0 flex-col bg-white font-poppins overflow-x-hidden">
+    <div className="flex min-h-screen flex-col bg-white font-poppins overflow-x-hidden">
       <Header />
 
-      {/* Workspace — content-driven height (no viewport-forced flex-1), centered max-width per ui-ux-pro-max container-width */}
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-6 px-4 py-6 sm:px-6 lg:px-8">
+      {/* Workspace — flex-1 pushes Footer to viewport bottom when content is short; centered max-width per ui-ux-pro-max container-width */}
+      <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 sm:gap-6 px-4 py-6 sm:px-6 lg:px-8">
 
         {/* Top bar - stacks vertically on mobile, horizontal on sm+ */}
         <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
@@ -480,10 +481,10 @@ function NoticesPageContent() {
           )}
         </div>
 
-        {/* Panels - content-priority: feed height = content, single column on all breakpoints (no nested scroll) */}
+        {/* Panels - content-priority: feed height = content (h-auto), single column on all breakpoints (no nested scroll) */}
         <div className="flex flex-col gap-4 pb-8 sm:gap-6">
           {/* ── Notice feed — h-auto, no flex-1 stretch; bg-vez-surface only wraps content (visual-hierarchy) */}
-          <div className="flex w-full min-w-0 flex-col overflow-visible rounded-[20px] bg-vez-surface border border-vez-line/50">
+          <div className="flex h-auto w-full min-w-0 flex-col overflow-visible rounded-[20px] bg-vez-surface border border-vez-line/50">
             <div className="flex shrink-0 flex-col items-center justify-between gap-2 border-b border-vez-line p-4 sm:flex-row sm:px-6 sm:py-4">
               <p suppressHydrationWarning className="text-sm text-vez-ink">
                 {total.toLocaleString()} notice{total !== 1 ? "s" : ""}
@@ -510,15 +511,15 @@ function NoticesPageContent() {
 
             <div ref={feedRef} className="space-y-3 p-4 sm:p-6">
               {loading ? (
-                <div className="flex min-h-[280px] items-center justify-center py-12 text-vez-mute sm:min-h-[320px]">
+                <div className="flex min-h-[280px] items-center justify-center py-10 text-vez-mute">
                   <Loader2 className="size-5 animate-spin" />
                 </div>
               ) : error ? (
-                <div className="min-h-[280px] py-6 sm:min-h-[320px]">
-                  <ErrorState error={error} onRetry={load} className="min-h-[260px]" />
+                <div className="flex min-h-[280px] items-center justify-center py-6">
+                  <ErrorState error={error} onRetry={load} className="min-h-[260px] w-full" />
                 </div>
               ) : notices.length === 0 ? (
-                <div className="flex min-h-[280px] flex-col items-center justify-center gap-1 px-6 py-12 text-center text-vez-mute sm:min-h-[320px]">
+                <div className="flex min-h-[280px] flex-col items-center justify-center gap-1 px-6 py-10 text-center text-vez-mute">
                   <Filter className="mb-3 size-10 opacity-30" />
                   <h3 className="text-base text-vez-ink">No notices found</h3>
                   <p className="mb-4 text-sm">Try adjusting your search or filter criteria</p>
@@ -567,6 +568,8 @@ function NoticesPageContent() {
 
         {/* Notice detail - now uses slug-based route /notices/[slug] */}
       </div>
+
+      <Footer />
     </div>
   )
 }
