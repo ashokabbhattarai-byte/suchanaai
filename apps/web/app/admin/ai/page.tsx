@@ -243,7 +243,7 @@ export default function AdminAiPage() {
             <Loader2 className="size-4 animate-spin text-vez-navy" /> Loading providers…
           </div>
         ) : (
-          <div className="w-full max-w-4xl overflow-hidden">
+          <div className="w-full overflow-hidden">
             <AiTemperatureCard />
 
             {/* Fallback chain summary */}
