@@ -77,6 +77,7 @@ INTERNAL_SERVICE_SECRET: str = _env("INTERNAL_SERVICE_SECRET")
 # tokens per day, so a long RAG context costs the same as a one-line question;
 # Groq's 200k tokens/day cap is what this workload kept exhausting.
 OPENROUTER_API_KEY: str = _env("OPENROUTER_API_KEY")
+OPENROUTER_API_KEYS: list[str] = [k.strip() for k in _env("OPENROUTER_API_KEYS", "").split(",") if k.strip()] or ([OPENROUTER_API_KEY] if OPENROUTER_API_KEY else [])
 OPENROUTER_BASE_URL: str = _env("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
 # PRIMARY: ultra-fast for "very very fast" requirement. liquid/lfm-2.5-2.6b:free
 # is 2.6B — smallest free model, <600ms TTFB vs gemma 26B ~800-1500ms vs

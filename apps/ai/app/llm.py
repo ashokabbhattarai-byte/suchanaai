@@ -345,11 +345,17 @@ RUNTIME_PROVIDERS: list[dict] = []
 def _env_fallback_providers() -> list[dict]:
     """Built-ins from environment variables, used until the registry syncs."""
     out = []
-    if config.OPENROUTER_API_KEY:
+    for idx, _key in enumerate(getattr(config, "OPENROUTER_API_KEYS", []) or []):
+        # Expand OPENROUTER_API_KEYS into multiple slugs so the hedged race gets
+        # one agent per key — mirrors GROQ_API_KEYS expansion (see _llm_chat
+        # hedged concurrency cap). First key keeps the canonical "openrouter"
+        # slug for backward compat; additional keys get "openrouter-2", ...
         out.append({
-            "slug": "openrouter", "label": "OpenRouter", "kind": "OPENAI_COMPATIBLE",
+            "slug": "openrouter" if idx == 0 else f"openrouter-{idx+1}",
+            "label": "OpenRouter" if idx == 0 else f"OpenRouter {idx+1}",
+            "kind": "OPENAI_COMPATIBLE",
             "base_url": config.OPENROUTER_BASE_URL, "model": config.OPENROUTER_MODEL,
-            "api_key": config.OPENROUTER_API_KEY, "enabled": True,
+            "api_key": _key, "enabled": True,
         })
     if config.GEMINI_API_KEY:
         out.append({
@@ -357,11 +363,18 @@ def _env_fallback_providers() -> list[dict]:
             "base_url": None, "model": config.GEMINI_MODEL,
             "api_key": config.GEMINI_API_KEY, "enabled": True,
         })
-    if config.GROQ_API_KEY:
+    for idx, _key in enumerate(getattr(config, "GROQ_API_KEYS", []) or []):
+        # Expand GROQ_API_KEYS into multiple slugs so the hedged race gets
+        # one agent per key — doubles free-tier quota without extra latency
+        # (see _llm_chat hedged concurrency cap). First key keeps the
+        # canonical "groq" slug for backward compat; additional keys get
+        # "groq-2", "groq-3", ...
         out.append({
-            "slug": "groq", "label": "Groq", "kind": "OPENAI_COMPATIBLE",
+            "slug": "groq" if idx == 0 else f"groq-{idx+1}",
+            "label": "Groq" if idx == 0 else f"Groq {idx+1}",
+            "kind": "OPENAI_COMPATIBLE",
             "base_url": GROQ_API_URL, "model": config.GROQ_MODEL,
-            "api_key": config.GROQ_API_KEY, "enabled": True,
+            "api_key": _key, "enabled": True,
         })
     if config.OPENCODE_ZEN_API_KEY:
         out.append({
@@ -947,8 +960,8 @@ async def _openai_compatible_chat(
                     _cur_idx = _groq_keys.index(provider.get("api_key")) if provider.get("api_key") in _groq_keys else -1
                 except ValueError:
                     _cur_idx = -1
-                for _next_key in _groq_keys[_cur_idx + 1:]:
-                    logger.info("Groq %s rate limited (429), rotating to next key %d/%d", provider.get("slug"), _cur_idx + 2, len(_groq_keys))
+                for _offset, _next_key in enumerate(_groq_keys[_cur_idx + 1:], start=_cur_idx + 2):
+                    logger.info("Groq %s rate limited (429), rotating to next key %d/%d", provider.get("slug"), _offset, len(_groq_keys))
                     _next_headers = {"Content-Type": "application/json", "Authorization": f"Bearer {_next_key}"}
                     try:
                         async with httpx.AsyncClient(timeout=timeout) as _client:
@@ -1118,10 +1131,28 @@ async def _probe_provider(provider: dict) -> tuple[bool, str | None, str | None]
     that by falling through to the next free model. That mismatch is what
     made the panel flap red while the chatbot kept answering fine.
 
+    For Groq it walks GROQ_API_KEYS the same way chat rotates on 429,
+    so the health panel finds a working key even when the primary is
+    rate-limited.
+
     Returns (ok, error, resolved_model) — `resolved_model` is the model
     that actually answered, which the caller uses both to report "answered
     via <model>" and to self-heal the stored primary (see
     ai_config_sync.self_heal_openrouter)."""
+    if _is_groq(provider):
+        groq_keys = getattr(config, "GROQ_API_KEYS", []) or []
+        if len(groq_keys) <= 1:
+            ok, error = await _probe_one_model(provider)
+            return ok, error, provider.get("model") if ok else None
+        last_error: str | None = None
+        # Walk GROQ keys in order — first working key wins, mirroring
+        # _openai_compatible_chat's 429 rotation for real traffic.
+        for _key in groq_keys:
+            ok, error = await _probe_one_model({**provider, "api_key": _key})
+            if ok:
+                return True, None, provider.get("model")
+            last_error = error
+        return False, last_error, None
     if provider.get("kind") != "OPENAI_COMPATIBLE" or not _is_openrouter(provider):
         ok, error = await _probe_one_model(provider)
         return ok, error, provider.get("model") if ok else None
