@@ -167,10 +167,8 @@ export class AdminAiHealthController {
       this.config.get<string>('AI_SERVICE_URL') || 'http://localhost:8000';
     try {
       const response = await firstValueFrom(
-        // Generous timeout: this fans out to three external providers, and a
-        // rate-limited or slow one is exactly the case an admin is here to
-        // diagnose — a premature timeout would hide it behind a generic error.
-        this.http.get(`${baseUrl}/llm/health`, { timeout: 45000 }),
+        // Health fans out to live LLM providers — a rate-limited or slow provider (e.g. Ollama 1.5b on CPU) is exactly the case an admin is here to diagnose. 45s hid it behind a generic error and, combined with the frontend's 20s timer, showed "(canceled)". 120s stays below AI 180s / nginx 300s and matches the frontend LONG_TIMEOUT.
+        this.http.get(`${baseUrl}/llm/health`, { timeout: 120000 }),
       );
       return response.data;
     } catch (err: any) {

@@ -524,7 +524,8 @@ export class NoticesService {
           this.httpService.post(
             `${this.aiServiceUrl}/notices/analyze`,
             { title, content },
-            { timeout: 30000 },
+            // Background enrichment (not user-facing) but Ollama can still take 10-20s; keep under AI budget
+            { timeout: 60000 },
           ),
         );
       } catch (err: any) {
@@ -596,10 +597,12 @@ export class NoticesService {
             attachments: this.attachmentContext(notice),
           },
           // Walking the provider fallback chain costs a retry+backoff per
-          // failed provider, so a degraded chain answers in ~35s. At 30s the
-          // request was cut off and the user got an error instead of the
-          // answer the AI service was about to return.
-          { timeout: 90000 },
+          // failed provider, so a degraded chain answers in ~35s and Ollama
+          // 1.5b on CPU can add another 5-15s. At 30s the request was cut off
+          // and the user got an error instead of the answer the AI service
+          // was about to return. 120s stays comfortably under AI's 180s and
+          // nginx 300s, but above the old 20s frontend that showed "(canceled)".
+          { timeout: 120000 },
         ),
       );
       const answer = { answer: String(response.data?.answer ?? '') };
@@ -678,7 +681,8 @@ export class NoticesService {
             // question, so re-asking the same thing can't loop on it.
             skip_clarification: skipClarification,
           },
-{ timeout: 45000 },
+          // RAG via Ollama 1.5b on CPU: 5-15s generation plus fallback retries and Qdrant search; 45s cut slow but valid answers (flood toll queries) mid-generation and surfaced as "(canceled)" after the frontend's 20s abort. 120s matches the frontend LONG_TIMEOUT and stays below AI 180s / nginx 300s.
+          { timeout: 120000 },
         ),
       );
       this.qaCache.set(cacheKey, response.data);

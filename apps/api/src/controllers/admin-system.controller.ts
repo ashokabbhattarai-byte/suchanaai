@@ -133,7 +133,8 @@ export class AdminSystemController {
     const started = Date.now();
     try {
       const response = await firstValueFrom(
-        this.http.get(`${baseUrl}/health`, { timeout: 10000 }),
+        // AI /health is usually fast, but on a cold Ollama host it can take 10-20s (model load, Qdrant probe). 10s aborted it before ready and contributed to "(canceled)" health in the Network tab.
+        this.http.get(`${baseUrl}/health`, { timeout: 30000 }),
       );
       const latencyMs = Date.now() - started;
       const body = response.data ?? {};

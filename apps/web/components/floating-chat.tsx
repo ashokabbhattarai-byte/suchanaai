@@ -246,6 +246,20 @@ export function FloatingChat() {
         setQuota(e.quota)
         return
       }
+      // AbortError surfaces in DevTools as "(canceled)" — e.g. when the browser cancels a fetch on navigation or our old 20s timeout fired before the LLM replied. With the 120s per-route budget the fetch is intentionally NOT tied to component unmount (no AbortController from useEffect) so a RAG query that takes 10-15s on CPU can finish even if the user navigates. If it does abort, don't flash a generic "Sorry..." — it's a transient cancel, not a failed answer.
+      const isAbort =
+        (e instanceof DOMException && e.name === "AbortError") ||
+        (e instanceof Error && e.name === "AbortError") ||
+        (typeof e === "object" && e !== null && "name" in e && (e as { name: string }).name === "AbortError")
+      if (isAbort) {
+        const msg: Message = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: "That took longer than expected — the assistant is still working. Please try again in a moment.",
+        }
+        addMessage(msg)
+        return
+      }
       const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -255,6 +269,7 @@ export function FloatingChat() {
     } finally {
       setLoading(false)
     }
+    // Intentionally NOT aborting the fetch on unmount or on the next query — see api.ts timeoutForPath (120s for /notices/search and /notices/:id/ask). Cancelling saves no server work and turns a slow answer into "(canceled)" in the Network tab.
   }, [input, loading, contextNotice, addMessage])
 
   if (pathname?.startsWith("/documents")) return null

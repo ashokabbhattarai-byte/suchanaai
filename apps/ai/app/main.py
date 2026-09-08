@@ -33,12 +33,14 @@ from app.logger import get_logger, get_request_id, set_request_id, setup_logging
 logger = get_logger(__name__)
 
 # Hard ceiling on how long any single request may run. The NestJS caller
-# already times out its AI-proxy calls at 30-90s per endpoint (see
-# rag.service.ts / notices.service.ts) — this stays comfortably above the
-# longest of those so a slow-but-alive request still finishes there first,
-# while still guaranteeing this process always replies instead of hanging a
-# connection (and the worker) forever on a stuck downstream call.
-REQUEST_TIMEOUT_SECONDS = 100
+# previously timed out AI-proxy calls at 30-90s per endpoint (see
+# rag.service.ts / notices.service.ts) and the frontend at 20s — this now
+# stays comfortably above the longest of those (frontend LONG 120s, API
+# 120s) so a slow-but-alive Ollama 1.5b-on-CPU request (5-15s, up to 30s on
+# fallback) still finishes there first instead of surfacing as "(canceled)"
+# in the Network tab. Still guarantees this process always replies instead
+# of hanging a connection (and the worker) forever on a stuck downstream call.
+REQUEST_TIMEOUT_SECONDS = 180
 
 # ...but the scrape endpoints are not request/response calls in that sense:
 # one `/scrape/source` crawls up to `max_pages` listing pages, then fetches
@@ -64,6 +66,15 @@ ROUTE_TIMEOUT_SECONDS = {
     # scales with how many candidates it is allowed to check.
     "/scrape/discover": 480,
     "/scrape/diagnose": 540,
+    # RAG / LLM answers: Ollama 1.5b on CPU is 5-15s generation plus hedged
+    # provider retries; keep just below the API's 120s so the AI, not the
+    # proxy, owns the timeout and the frontend (120s) never aborts first.
+    "/notices/search": 150,
+    "/notices/ask": 150,
+    "/notices/analyze": 120,
+    "/notices/extract-pdf": 120,
+    "/query": 150,
+    "/llm/health": 150,
 }
 
 # A deep ("every page") crawl walks a whole archive rather than the newest 3

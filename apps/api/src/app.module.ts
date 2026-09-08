@@ -36,8 +36,8 @@ import { AdminSystemController } from './controllers/admin-system.controller';
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
-    // AdminAiHealthController proxies to the AI service for live LLM probes.
-    HttpModule.register({ timeout: 45000 }),
+    // Global axios default. Per-route overrides (notices search/ask 120s) handle slow LLM legs; keep global above those but below nginx 300s so the AI, not the proxy, owns the timeout message. Was 45s — too short for Ollama 1.5b cold fallbacks and caused "(canceled)" in tandem with the frontend's 20s timer.
+    HttpModule.register({ timeout: 120000 }),
     LoggerModule,
     // SettingsController is registered here and is guarded by JwtAuthGuard.
     TokenRevocationModule,

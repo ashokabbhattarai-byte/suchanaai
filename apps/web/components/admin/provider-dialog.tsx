@@ -33,34 +33,40 @@ const PRESETS: Array<{
   region?: string
 }> = [
   {
-    label: "⚡ vLLM (Qwen2.5-1.5B) — EC2 services [TOP PRIORITY]",
+    label: "⚡ Ollama (Qwen2.5-1.5B) — EC2 services [TOP PRIORITY — CPU proven 2-4s]",
     kind: "OPENAI_COMPATIBLE",
     // Public IP (3.80.188.210) NATs to private 172.31.95.204.
-    // vLLM runs on t3.large CPU-only (--device cpu) at 8001;
-    // http://172.31.95.204:8001 is same host but not routable from Beanstalk/VPC outside.
-    // Must set AI_PROVIDER_ALLOWED_HOSTS=3.80.188.210 on api service for http allowlist.
-    // NO API KEY — self-hosted CPU. Very very fast (~3-7s on 1.5B) + continuous batching (max-num-seqs 4).
+    // Ollama runs on t3.large CPU-only (llama.cpp) at 11434 — PROVEN on CPU.
+    // FIX 2026-09-08: vLLM at 8001 is "Could not reach provider" — Failed to
+    // infer device type + vllm._C_AVX512 missing (GPU wheel on CPU-only host).
+    // Ollama qwen2.5:1.5b ~986MB ~2-4s (health 2127ms) is TOP now; vLLM is
+    // secondary (-9) until rebuilt from source with VLLM_TARGET_DEVICE=cpu.
+    // Must set AI_PROVIDER_ALLOWED_HOSTS=3.80.188.210 on api service for http.
+    // NO API KEY — self-hosted CPU, _key_optional allows null.
+    baseUrl: "http://3.80.188.210:11434/v1/chat/completions",
+    model: "qwen2.5:1.5b",
+  },
+  {
+    label: "vLLM (Qwen2.5-1.5B) — EC2 services [SECONDARY — CPU needs rebuild, ~3-7s]",
+    kind: "OPENAI_COMPATIBLE",
+    // Same EC2 t3.large but vLLM CPU --device cpu at 8001; requires
+    // VLLM_TARGET_DEVICE=cpu at BUILD + Python 3.11 + torch CPU wheel + AVX512.
+    // Currently failing: "Failed to infer device type" / "vllm._C_AVX512".
+    // See scripts/ec2-install-vllm.sh + docs/EC2_VLLM_MIGRATION.md troubleshooting.
+    // Keep as 2nd agent; hedged race will use Ollama TOP until vLLM answers.
+    // For very very fast 0.5B use preset below (0.8GB ~1-2s) on same host.
     baseUrl: "http://3.80.188.210:8001/v1/chat/completions",
     model: "Qwen/Qwen2.5-1.5B-Instruct",
   },
   {
-    label: "⚡ vLLM Ultra-Fast (Qwen2.5-0.5B) — 2nd agent",
+    label: "⚡ vLLM Ultra-Fast (Qwen2.5-0.5B) — 2nd agent [0.8GB ~1-2s]",
     kind: "OPENAI_COMPATIBLE",
-    // Same vLLM host, 0.5B model is ~0.8GB / ~1-2s — hedged race with 1.5B: fastest wins.
-    // Requires second vLLM on :8002 or Ollama fallback below; if same :8001 serves 1.5B,
-    // this row will 404 model — that's OK, _openai_compatible_chat fails fast and chain continues.
-    // For single-model hosts, keep this disabled or use Ollama preset below instead.
+    // Same vLLM host, 0.5B model is ~0.8GB / ~1-2s — even faster on weak CPU,
+    // hedged race with Ollama TOP: fastest wins. Requires vLLM rebuilt for CPU
+    // (see above) or second instance on :8002; if same :8001 serves 1.5B,
+    // this row will 404 model — that's OK, chain continues to next provider.
     baseUrl: "http://3.80.188.210:8001/v1/chat/completions",
     model: "Qwen/Qwen2.5-0.5B-Instruct",
-  },
-  {
-    label: "Ollama (Qwen2.5-1.5B) — EC2 self-hosted fallback",
-    kind: "OPENAI_COMPATIBLE",
-    // If vLLM CPU fails to boot (Python 3.9 vs 3.11 / device infer), Ollama is the proven CPU fallback.
-    // Ollama qwen2.5:1.5b is ~986MB / ~2-4s on same t3.large; pull via `ollama pull qwen2.5:1.5b`.
-    // No API key — self-hosted. Keep disabled until needed, then enable + top priority.
-    baseUrl: "http://3.80.188.210:11434/v1/chat/completions",
-    model: "qwen2.5:1.5b",
   },
   {
     label: "AWS Bedrock (Claude Sonnet 5)",

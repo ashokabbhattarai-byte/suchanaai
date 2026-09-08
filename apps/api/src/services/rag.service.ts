@@ -64,7 +64,8 @@ export class RagService {
 
       const response = await firstValueFrom(
         this.httpService.post(`${this.aiServiceUrl}/query`, payload, {
-          timeout: 60000,
+          // Ollama 1.5b on CPU: 5-15s generation plus fallback retries; 60s cut slow answers mid-stream and showed "(canceled)" after the frontend's 20s abort. 120s matches frontend LONG_TIMEOUT and stays below AI 180s / nginx 300s.
+          timeout: 120000,
         }),
       );
 

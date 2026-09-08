@@ -691,6 +691,16 @@ export default function NoticeDetailClient() {
         setAskQuota(e.quota)
         return
       }
+      const isAbort =
+        (e instanceof DOMException && e.name === "AbortError") ||
+        (e instanceof Error && e.name === "AbortError")
+      if (isAbort) {
+        setQaHistory((prev) => [
+          ...prev,
+          { q: finalQuestion, a: "That took longer than expected — the assistant is still working. Please try again in a moment." },
+        ])
+        return
+      }
       setQaHistory((prev) => [
         ...prev,
         { q: finalQuestion, a: "Sorry, I couldn't process that question right now. Please try again." },
@@ -698,6 +708,7 @@ export default function NoticeDetailClient() {
     } finally {
       setAnswering(false)
     }
+    // Intentionally NOT aborting on unmount — see floating-chat + api.ts LONG_TIMEOUT (120s for /notices/:id/ask). Let slow Ollama answers finish rather than surfacing as "(canceled)".
   }
 
   if (loading) {

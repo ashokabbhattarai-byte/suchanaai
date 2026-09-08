@@ -71,26 +71,46 @@ export class AiProvidersService implements OnModuleInit {
     Pick<AiProvider, 'slug' | 'label' | 'kind' | 'baseUrl' | 'model' | 'sortOrder'> &
       Partial<Pick<AiProvider, 'region'>>
   > = [
-    // VERY VERY FAST — TOP PRIORITY: self-hosted vLLM on EC2 services t3.large
-    // 3.80.188.210:8001 CPU --device cpu, Qwen2.5-1.5B (~3GB, fits 7.6GB, ~3-7s).
-    // NO API KEY — self-hosted, _key_optional() allows null apiKeyEnc. Must be
-    // sortOrder -10 to stay ahead of OpenRouter (-1) on every install, including
-    // ones that already have a custom vllm-services row at -1 (migrated below).
-    // Continuous batching (--max-num-seqs 4, --dtype float32, --enforce-eager,
-    // --swap-space 2) is the "multiple agents" on one host — 4 concurrent RAG
-    // summarizations without OOM. For a 2nd agent/model, add a row with the same
-    // baseUrl but model Qwen/Qwen2.5-0.5B-Instruct (0.8GB, ~1-2s) or keep Ollama
-    // qwen2.5:1.5b on :11434 as fallback (see provider-dialog presets; Ollama
-    // was the proven CPU path before vLLM, ~5GB for 7b). Hedged race in
-    // apps/ai/app/llm.py calls the top 3 in parallel, so fastest wins (<600ms
-    // liquid vs 3s vLLM) instead of sequentially waiting 60s for CPU.
+    // VERY VERY FAST — TOP PRIORITY: Ollama on EC2 services t3.large (2 vCPU, 7.6 GiB, no GPU)
+    // 3.80.188.210:11434 — qwen2.5:1.5b (~986 MB, fits easily, ~2-4s on CPU via llama.cpp).
+    // FIX 2026-09-08: vLLM at 3.80.188.210:8001 was TOP (-10) but health shows
+    // "Could not reach the provider. All connection attempts failed" — EC2
+    // i-071d7b2debed5e3ed vLLM at /opt/vllm (Python 3.11) fails with
+    // "Failed to infer device type" + "vllm._C_AVX512 missing" on CPU-only
+    // t3.large. Root cause: VLLM_TARGET_DEVICE=cpu must be set at BUILD time,
+    // and vLLM CPU has NO prebuilt wheels — must build from source (30+ min,
+    // gcc12, AVX512). Even when built, vLLM CPU is GPU-optimized and SLOWER
+    // on CPU than Ollama (llama.cpp) — 1.5B vLLM ~3-7s vs Ollama ~2-4s,
+    // 0.5B vLLM ~1-2s but still needs AVX512. Ollama is the proven CPU path
+    // (was qwen2.5:7b 25s but OOM; 1.5b fits and is Responding 2127ms health).
+    // So Ollama is TOP (-10), vLLM is SECONDARY (-9) with smaller 0.5B option
+    // if admin gets it built, or disabled until fixed. Both are self-hosted
+    // OPENAI_COMPATIBLE with no API key (_key_optional). Hedged race
+    // (llm.py) fires top 4 concurrently, so fastest wins without 60s wait.
+    {
+      slug: 'ollama-services',
+      label: 'Ollama (Qwen2.5-1.5B) — EC2 services',
+      kind: AiProviderKind.OPENAI_COMPATIBLE,
+      baseUrl: 'http://3.80.188.210:11434/v1/chat/completions',
+      model: 'qwen2.5:1.5b',
+      sortOrder: -10,
+    },
+    // SECONDARY: self-hosted vLLM on same EC2 — keep as 2nd agent (0.5B or 1.5B).
+    // t3.large has no GPU; vLLM --device cpu needs VLLM_TARGET_DEVICE=cpu at
+    // pip build + systemd Environment, Python 3.11 venv, torch CPU wheel first,
+    // and AVX512 (t3 Xeon Platinum 8000 does have it, but wheel must be built
+    // with it). See scripts/ec2-install-vllm.sh + docs/EC2_VLLM_MIGRATION.md
+    // "Troubleshooting: Failed to infer device type". Until `curl
+    // http://3.80.188.210:8001/v1/models` succeeds, keep Ollama TOP. For very
+    // very fast 0.5B use Qwen/Qwen2.5-0.5B-Instruct (0.8 GB, ~1-2s) via same
+    // :8001 or :8002 — preset "vLLM Ultra-Fast (0.5B)" in provider-dialog.
     {
       slug: 'vllm-services',
       label: 'vLLM (Qwen2.5-1.5B) — EC2 services',
       kind: AiProviderKind.OPENAI_COMPATIBLE,
       baseUrl: 'http://3.80.188.210:8001/v1/chat/completions',
       model: 'Qwen/Qwen2.5-1.5B-Instruct',
-      sortOrder: -10,
+      sortOrder: -9,
     },
     // First in the hosted chain. OpenRouter meters requests per day (50/day, 1000/day
     // after $10, 20 RPM shared across all :free models) rather than tokens
@@ -164,7 +184,7 @@ export class AiProvidersService implements OnModuleInit {
    */
   async onModuleInit() {
     const existing = await this.prisma.aiProvider.findMany({
-      select: { slug: true, model: true, sortOrder: true, baseUrl: true, apiKeyEnc: true, enabled: true, isBuiltIn: true },
+      select: { slug: true, model: true, sortOrder: true, baseUrl: true, apiKeyEnc: true, enabled: true, isBuiltIn: true, label: true },
     });
     const known = new Set(existing.map((p) => p.slug));
     const missing = AiProvidersService.BUILT_INS.filter((p) => !known.has(p.slug));
@@ -180,51 +200,94 @@ export class AiProvidersService implements OnModuleInit {
       );
     }
 
-    // ── vLLM promotion: ensure self-hosted vLLM is TOP PRIORITY (sortOrder -10)
-    // DB had vllm-services at -1 (top at time) and built-in now expects -10.
-    // A custom row with same baseUrl but different slug also needs promotion,
-    // and a stale API key on a self-hosted endpoint must be cleared — the UI
-    // now hides the key field for self-hosted URLs, so a stored key is just
-    // noise and a security risk. This runs idempotently every boot.
+    // ── FIX 2026-09-08: Ollama TOP (-10), vLLM SECOND (-9) — swap from previous vLLM TOP
+    // Health snapshot 2026-09-08: vLLM http://3.80.188.210:8001 "Could not reach
+    // the provider. All connection attempts failed" — EC2 i-071d7b2debed5e3ed
+    // t3.large (2 vCPU, 7.6 GiB, no GPU) /opt/vllm Python 3.11 logs:
+    // "Failed to infer device type" + "vllm._C_AVX512 missing". Root cause:
+    // VLLM_TARGET_DEVICE=cpu must be set at BUILD time (pip install env) and
+    // vLLM CPU has NO prebuilt wheels (must build from source with gcc12,
+    // AVX512). GPU wheel on CPU-only host fails. Even when built, vLLM CPU
+    // (GPU-optimized, continuous batching) is SLOWER than Ollama llama.cpp on
+    // CPU: 1.5B vLLM ~3-7s vs Ollama qwen2.5:1.5b ~2-4s (986 MB, Responding
+    // 2127ms health). So swap: Ollama TOP (proven CPU), vLLM SECOND (optional,
+    // try 0.5B Qwen/Qwen2.5-0.5B-Instruct 0.8GB ~1-2s if you rebuild). Both are
+    // self-hosted OPENAI_COMPATIBLE with no API key (_key_optional). Stale
+    // keys are cleared idempotently — admin can re-add via "My endpoint needs
+    // a key" toggle if auth is ever enabled.
+    const ollamaBuiltIn = AiProvidersService.BUILT_INS.find((p) => p.slug === 'ollama-services')!;
     const vllmBuiltIn = AiProvidersService.BUILT_INS.find((p) => p.slug === 'vllm-services')!;
     for (const row of existing) {
+      const isOllamaRow =
+        row.slug === 'ollama-services' ||
+        (row.baseUrl?.includes(':11434') ?? false) ||
+        (row.baseUrl?.toLowerCase().includes('ollama') ?? false);
       const isVllmRow =
         row.slug === 'vllm-services' ||
         (row.baseUrl?.includes('3.80.188.210:8001') ?? false) ||
-        (row.baseUrl?.includes('172.31.95.204:8001') ?? false);
-      if (!isVllmRow) continue;
+        (row.baseUrl?.includes('172.31.95.204:8001') ?? false) ||
+        (row.baseUrl?.includes(':8001') && (row.slug.includes('vllm') || row.label.toLowerCase().includes('vllm')));
+
+      if (!isOllamaRow && !isVllmRow) continue;
+
+      const target = isOllamaRow ? ollamaBuiltIn : vllmBuiltIn;
       const patch: Record<string, any> = {};
-      if (row.sortOrder !== vllmBuiltIn.sortOrder) patch.sortOrder = vllmBuiltIn.sortOrder;
-      if (row.baseUrl !== vllmBuiltIn.baseUrl) patch.baseUrl = vllmBuiltIn.baseUrl;
-      // If row is the built-in slug but was previously a custom row, mark it builtIn so it can't be deleted.
-      if (row.slug === 'vllm-services' && !row.isBuiltIn) patch.isBuiltIn = true;
-      // Self-hosted must have no key — clear only if one is stored. An explicit
-      // admin auth setup would re-add it via the "My endpoint needs a key" toggle.
-      // We clear stale keys idempotently; if admin really needs auth they can re-enter.
-      if (row.apiKeyEnc) {
-        // Keep the key only if baseUrl is not self-hosted (hosted vendor).
-        // vLLM rows are self-hosted, so clear.
-        patch.apiKeyEnc = null;
+
+      // Fix slug mismatch: custom row with same baseUrl gets canonical slug
+      // (but we patch by id via slug, so we only fix builtIn flag + baseUrl).
+      if (row.sortOrder !== target.sortOrder) patch.sortOrder = target.sortOrder;
+
+      // Only fix baseUrl if it drifted to private IP or missing /v1/chat/completions
+      // Keep private 172.31.95.204 as public 3.80.188.210 (not routable from Beanstalk)
+      if (isOllamaRow && row.baseUrl !== ollamaBuiltIn.baseUrl) {
+        // Normalize private IP to public, and ensure /v1/chat/completions suffix
+        if (row.baseUrl?.includes('172.31.95.204:11434') || row.baseUrl === 'http://3.80.188.210:11434') {
+          patch.baseUrl = ollamaBuiltIn.baseUrl;
+        } else if (row.baseUrl !== ollamaBuiltIn.baseUrl && row.slug === 'ollama-services') {
+          patch.baseUrl = ollamaBuiltIn.baseUrl;
+        }
       }
-      if (!row.enabled) patch.enabled = true;
+      if (isVllmRow && row.baseUrl !== vllmBuiltIn.baseUrl) {
+        if (row.baseUrl?.includes('172.31.95.204:8001') || row.baseUrl === 'http://3.80.188.210:8001') {
+          patch.baseUrl = vllmBuiltIn.baseUrl;
+        } else if (row.baseUrl !== vllmBuiltIn.baseUrl && row.slug === 'vllm-services') {
+          patch.baseUrl = vllmBuiltIn.baseUrl;
+        }
+      }
+
+      if (row.slug === 'ollama-services' && !row.isBuiltIn) patch.isBuiltIn = true;
+      if (row.slug === 'vllm-services' && !row.isBuiltIn) patch.isBuiltIn = true;
+
+      // Self-hosted must have no key — clear stale stored keys
+      if (row.apiKeyEnc) patch.apiKeyEnc = null;
+
+      // Ollama TOP must stay enabled — it's the healthy primary. vLLM secondary
+      // stays enabled too (health will show red until fixed, but hedged race
+      // will still try it; disable it here would hide that it needs fixing).
+      // If admin disabled Ollama manually, re-enable it — it is the only
+      // self-hosted that currently answers (2127ms). Admin can disable again
+      // after, but boot should heal to a working primary.
+      if (isOllamaRow && !row.enabled) patch.enabled = true;
+
       if (Object.keys(patch).length) {
         await this.prisma.aiProvider.update({ where: { slug: row.slug }, data: patch });
+        const targetLabel = isOllamaRow ? 'Ollama TOP (-10)' : 'vLLM SECOND (-9)';
         this.logger.warn(
-          `Promoted vLLM provider "${row.slug}" to TOP priority (sortOrder ${vllmBuiltIn.sortOrder}) — very very fast CPU, no API key`,
+          `Fixed provider "${row.slug}" → ${targetLabel} (sortOrder ${target.sortOrder}), no API key — swap for CPU fix (vLLM "Failed to infer device type")`,
         );
       }
-      // Only promote the first matching row to -10; a second vLLM/Ollama
-      // row (e.g. 0.5B or :11434) should sit at -9 or be managed manually,
-      // not collide at -10.
-      if (row.slug === 'vllm-services') break;
     }
-    // If a legacy Ollama row at same host but :11434 exists, push it to -9
-    // as second agent rather than deleting — it is the proven CPU fallback
-    // when vLLM fails to boot (Python 3.9 vs 3.11, "Failed to infer device").
-    const ollamaRow = existing.find((r) => r.baseUrl?.includes(':11434'));
-    if (ollamaRow && ollamaRow.sortOrder !== -9) {
-      await this.prisma.aiProvider.update({ where: { slug: ollamaRow.slug }, data: { sortOrder: -9 } });
-      this.logger.log(`Promoted Ollama fallback "${ollamaRow.slug}" to sortOrder -9 (2nd agent)`);
+    // Also handle any extra Ollama-like rows that match host:11434 but have
+    // non-canonical slug (e.g. ollama-qwen2-5-7b-ec2-services) — push to -9
+    // so they don't collide at -10, but keep the canonical at -10.
+    const extraOllamaRows = existing.filter(
+      (r) => r.baseUrl?.includes(':11434') && r.slug !== 'ollama-services',
+    );
+    for (const row of extraOllamaRows) {
+      if (row.sortOrder === -10) {
+        await this.prisma.aiProvider.update({ where: { slug: row.slug }, data: { sortOrder: -9 } });
+        this.logger.log(`Demoted extra Ollama row "${row.slug}" to -9 to keep canonical Ollama at -10`);
+      }
     }
 
     // Self-heal retired free models: minimax/* was removed from OpenRouter

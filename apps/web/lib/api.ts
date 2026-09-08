@@ -451,8 +451,34 @@ async function throwApiError(res: Response): Promise<never> {
   throw new ApiError(message || `Request failed: ${res.status}`, res.status)
 }
 
-/** No caller sets a longer-running request without passing its own signal, so one shared ceiling is enough. */
-const DEFAULT_TIMEOUT_MS = 20_000
+/** Fast reads (lists, meta) get a short ceiling; RAG / LLM answers run Ollama 1.5b on CPU (5-15s, longer under load or when walking the provider fallback chain) so they need 120s. Health probes fan out to live providers too. Keep in sync with backend budgets (API 90-120s, AI 100-180s, nginx 300s) so the frontend never aborts first and shows "(canceled)". */
+const DEFAULT_TIMEOUT_MS = 30_000
+const LONG_TIMEOUT_MS = 120_000
+
+/** Paths that legitimately hold the connection for LLM / fallback-chain work. */
+const LONG_TIMEOUT_PATTERNS = [
+  "/notices/search",
+  "/notices/ask",
+  "/rag/query",
+  "/query",
+  "/llm/health",
+  "/admin/ai/health",
+  "/admin/ai/providers",
+  "/admin/system/status",
+  "/documents",
+  "/admin/alert-channels/email/test",
+]
+
+function isLongTimeoutPath(path: string): boolean {
+  // Per-notice Q&A is POST /notices/<uuid>/ask — match suffix to avoid flagging list GETs
+  if (path.includes("/notices/") && path.endsWith("/ask")) return true
+  // covers /notices/search too
+  return LONG_TIMEOUT_PATTERNS.some((p) => path.includes(p))
+}
+
+function timeoutForPath(path: string): number {
+  return isLongTimeoutPath(path) ? LONG_TIMEOUT_MS : DEFAULT_TIMEOUT_MS
+}
 
 /** A GET is safe to retry (no side effects); a few retries paper over a dropped connection, DNS hiccup, or cold-start blip. */
 const RETRYABLE_METHODS = new Set(["GET", "HEAD"])
@@ -474,11 +500,15 @@ function backoffDelay(attempt: number): number {
   return jitter(BASE_DELAY_MS * Math.pow(2, attempt))
 }
 
-/** Combines the caller's own abort signal (if any) with an internal timeout, so either can cancel the fetch. */
-function timeoutSignal(callerSignal: AbortSignal | null | undefined, ms: number): AbortSignal {
+/**
+ * Combines the caller's own abort signal (if any) with an internal timeout, so either can cancel the fetch.
+ * If the caller already supplied a signal (e.g. `AbortSignal.timeout(45_000)` for an explicit probe, or a component-owned controller), honour it as-is — don't shorten it with a competing 20s timer. That competing-timer bug is why `/notices/search` and `/llm/health` showed "(canceled)" at 20s even though the server budgets 45-90s.
+ */
+function timeoutSignal(callerSignal: AbortSignal | null | undefined, ms: number): AbortSignal | undefined {
+  if (callerSignal) return callerSignal
+  if (!ms) return undefined
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), ms)
-  callerSignal?.addEventListener("abort", () => controller.abort(), { once: true })
+  const timer = setTimeout(() => controller.abort(new DOMException(`Timeout after ${ms}ms`, "TimeoutError")), ms)
   controller.signal.addEventListener("abort", () => clearTimeout(timer), { once: true })
   return controller.signal
 }
@@ -487,13 +517,15 @@ async function requestJson<T>(path: string, init: RequestInit): Promise<T> {
   const token = tokenStore.get()
   const method = (init.method ?? "GET").toUpperCase()
   const retryable = RETRYABLE_METHODS.has(method)
+  const timeoutMs = timeoutForPath(path)
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     let res: Response
     try {
+      const effectiveSignal = timeoutSignal(init.signal as AbortSignal | undefined, timeoutMs)
       res = await fetch(`${API_URL}${path}`, {
         ...init,
-        signal: timeoutSignal(init.signal, DEFAULT_TIMEOUT_MS),
+        ...(effectiveSignal ? { signal: effectiveSignal } : {}),
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
