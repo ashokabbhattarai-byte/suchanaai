@@ -61,6 +61,12 @@ const PRESETS: Array<{
     model: "liquid/lfm-2.5-2.6b:free",
   },
   {
+    label: "Ollama (qwen2.5:7b) — EC2 services",
+    kind: "OPENAI_COMPATIBLE",
+    baseUrl: "http://172.31.95.204:11434/v1/chat/completions",
+    model: "qwen2.5:7b",
+  },
+  {
     label: "Together AI",
     kind: "OPENAI_COMPATIBLE",
     baseUrl: "https://api.together.xyz/v1/chat/completions",
