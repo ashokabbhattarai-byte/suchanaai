@@ -71,18 +71,19 @@ export class AiProvidersService implements OnModuleInit {
     Pick<AiProvider, 'slug' | 'label' | 'kind' | 'baseUrl' | 'model' | 'sortOrder'> &
       Partial<Pick<AiProvider, 'region'>>
   > = [
-    // First in the chain. OpenRouter meters requests per day, not tokens per
-    // day, so a long RAG context costs no more than a one-line question —
-    // Groq's 200k tokens/day cap is what this workload kept exhausting.
-    // sortOrder is -1 rather than 0 so it also lands ahead of the providers
-    // already seeded at 0..3 on installs that predate it; seeding only inserts
-    // missing slugs and never renumbers existing rows.
+    // First in the chain. OpenRouter meters requests per day (50/day, 1000/day
+    // after $10, 20 RPM shared across all :free models) rather than tokens
+    // per day, so a long RAG context costs no more than a one-line question.
+    // Primary is liquid/lfm-2.5-2.6b:free — 2.6B ultra-fast <600ms vs
+    // nemotron-lightning's ~12.9s; gemma-4-26b is next in chain for powerful
+    // Devanagari fallback. sortOrder is -1 rather than 0 so it also lands ahead
+    // of the providers already seeded at 0..3 on installs that predate it.
     {
       slug: 'openrouter',
       label: 'OpenRouter',
       kind: AiProviderKind.OPENAI_COMPATIBLE,
       baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
-      model: 'minimax/minimax-m3:free',
+      model: 'liquid/lfm-2.5-2.6b:free',
       sortOrder: -1,
     },
     {
@@ -141,20 +142,42 @@ export class AiProvidersService implements OnModuleInit {
    * if you want it gone for good.
    */
   async onModuleInit() {
-    const existing = await this.prisma.aiProvider.findMany({ select: { slug: true } });
+    const existing = await this.prisma.aiProvider.findMany({ select: { slug: true, model: true } });
     const known = new Set(existing.map((p) => p.slug));
     const missing = AiProvidersService.BUILT_INS.filter((p) => !known.has(p.slug));
-    if (!missing.length) return;
+    if (missing.length) {
+      // A first-run install seeds everything; an existing one only gains
+      // built-ins introduced since it was seeded.
+      await this.prisma.aiProvider.createMany({
+        data: missing.map((p) => ({ ...p, isBuiltIn: true })),
+        skipDuplicates: true,
+      });
+      this.logger.log(
+        `Seeded ${missing.length} built-in AI provider(s): ${missing.map((p) => p.slug).join(', ')}`,
+      );
+    }
 
-    // A first-run install seeds everything; an existing one only gains
-    // built-ins introduced since it was seeded.
-    await this.prisma.aiProvider.createMany({
-      data: missing.map((p) => ({ ...p, isBuiltIn: true })),
-      skipDuplicates: true,
-    });
-    this.logger.log(
-      `Seeded ${missing.length} built-in AI provider(s): ${missing.map((p) => p.slug).join(', ')}`,
-    );
+    // Self-heal retired free models: minimax/* was removed from OpenRouter
+    // (404) and nemotron-lightning as primary was 12.9s in prod. Promote any
+    // row still pointing at a dead/slow model to the new live fast primary.
+    const RETIRED_MODELS = new Set([
+      'minimax/minimax-m3:free',
+      'minimax/minimax-m2.7:free',
+      'nvidia/nemotron-3.5-lightning:free',
+    ]);
+    const livePrimary = AiProvidersService.BUILT_INS.find((p) => p.slug === 'openrouter')!.model;
+    for (const row of existing) {
+      if (row.slug === 'openrouter' && RETIRED_MODELS.has(row.model)) {
+        await this.prisma.aiProvider.update({
+          where: { slug: 'openrouter' },
+          data: { model: livePrimary },
+        });
+        this.logger.warn(
+          `Migrated OpenRouter primary from retired/slow "${row.model}" to "${livePrimary}"`,
+        );
+        break;
+      }
+    }
   }
 
   // ── URL safety ─────────────────────────────────────────────────────────

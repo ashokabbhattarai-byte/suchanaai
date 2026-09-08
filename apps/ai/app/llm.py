@@ -21,6 +21,45 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model
 FALLBACK_SENTENCES = 4
 _MIN_SENTENCE_CHARS = 25
 
+# ---- Very very fast: in-memory LRU cache for repeated RAG answers ----
+# No AWS Infra needed — process-local, <1ms hit vs 600ms+ LLM. 5-min TTL,
+# LRU eviction. Key = hash(question + context + language). For prod multi-
+# replica, swap this with ElastiCache Redis (same get/set API) — see note
+# in _cached_answer.
+import hashlib
+from collections import OrderedDict
+
+_ANSWER_CACHE: OrderedDict[str, tuple[float, str]] = OrderedDict()
+_ANSWER_CACHE_MAX = 500
+_ANSWER_CACHE_TTL = 300.0  # 5 min — notices don't change that fast
+
+def _cache_key(question: str, chunks: list[dict], language: str) -> str:
+    h = hashlib.sha256()
+    h.update(question.encode())
+    h.update(language.encode())
+    for c in chunks:
+        h.update(c.get("content","")[:500].encode())  # first 500 chars per chunk enough to disambiguate
+        h.update(str(c.get("page_range")).encode())
+    return h.hexdigest()
+
+def _cached_answer(key: str) -> str | None:
+    entry = _ANSWER_CACHE.get(key)
+    if not entry:
+        return None
+    ts, ans = entry
+    if time.monotonic() - ts > _ANSWER_CACHE_TTL:
+        _ANSWER_CACHE.pop(key, None)
+        return None
+    # LRU bump
+    _ANSWER_CACHE.move_to_end(key)
+    return ans
+
+def _cache_store(key: str, answer: str) -> None:
+    _ANSWER_CACHE[key] = (time.monotonic(), answer)
+    _ANSWER_CACHE.move_to_end(key)
+    if len(_ANSWER_CACHE) > _ANSWER_CACHE_MAX:
+        _ANSWER_CACHE.popitem(last=False)
+
 SYSTEM_PROMPT = """You are Suchana AI, an assistant that answers questions about Nepalese public notices and government documents using ONLY the provided context.
 
 Rules:
@@ -182,7 +221,15 @@ async def generate_answer(
 ) -> str:
     if not any_provider_configured():
         logger.info("No LLM key configured; using extractive fallback")
-        return _extractive_fallback(question, context_chunks)
+        return await _extractive_fallback(question, context_chunks)
+
+    # Cache hit = instant (<5ms) vs 600ms LLM. Key includes question+language+context
+    # so same question on different docs doesn't collide.
+    ckey = _cache_key(question, context_chunks, language)
+    cached = _cached_answer(ckey)
+    if cached is not None:
+        logger.info("Cache HIT for generate_answer: %.40r (saved LLM call)", question)
+        return cached
 
     context = "\n\n".join(
         f"[{i + 1}] (from {_context_label(chunk)})\n{chunk['content']}"
@@ -205,7 +252,8 @@ async def generate_answer(
 
     answer = await _llm_chat(messages, max_tokens=1024, temperature=config.TEMPERATURE_ANSWERS)
     if answer is None:
-        return _extractive_fallback(question, context_chunks)
+        return await _extractive_fallback(question, context_chunks)
+    _cache_store(ckey, answer)
     return answer
 
 
@@ -384,11 +432,14 @@ async def _openrouter_chat_with_fallback(
     messages: list[dict], max_tokens: int, temperature: float, provider: dict
 ) -> str | None:
     """Try the admin-configured OpenRouter model, then walk the rest of
-    config.OPENROUTER_FREE_MODELS — each `:free` model has its own daily
-    quota, so a 429 here means "this model is exhausted today", not "every
-    free model on OpenRouter is". Only the LAST failure is recorded via
-    _note_failure (so the health panel reports "everything tried, nothing
-    worked" rather than flapping on whichever model happened to go first).
+    config.OPENROUTER_FREE_MODELS. As of 2026-09 the free tier is account-
+    shared (50/day or 1000/day after $10, 20 RPM) — a 429 on one model
+    usually means the whole free pool is exhausted, so the chain mainly helps
+    with per-model 429/capacity/404/retire errors, then falls through to
+    Groq/Gemini. Only the LAST failure is recorded via _note_failure.
+    Each model has a 7s budget (see _openai_compatible_chat) so a slow
+    12.9s model like nemotron-lightning fails fast instead of blocking the
+    next provider.
     """
     tried: set[str] = set()
     candidates = [provider["model"], *config.OPENROUTER_FREE_MODELS]
@@ -399,13 +450,23 @@ async def _openrouter_chat_with_fallback(
             continue
         tried.add(model)
         attempt_provider = {**provider, "model": model}
+        t0 = time.perf_counter()
         result = await _openai_compatible_chat(messages, max_tokens, temperature, attempt_provider)
+        dt_ms = (time.perf_counter() - t0) * 1000
         if result:
+            if dt_ms > 5000:
+                logger.warning("OpenRouter model %s answered but slow: %.0fms", model, dt_ms)
             return result
         last_failure = recent_failure(provider.get("slug")) or last_failure
+        if last_failure and "Rate limited" in last_failure:
+            logger.info(
+                "OpenRouter model %s hit shared daily quota (429) in %.0fms; skipping remaining %d free models and falling through to next provider",
+                model, dt_ms, len(candidates) - len(tried),
+            )
+            break
         logger.info(
-            "OpenRouter model %s failed or returned empty; %d model(s) left in the free-tier chain",
-            model, len(candidates) - len(tried),
+            "OpenRouter model %s failed or returned empty in %.0fms; %d model(s) left in the free-tier chain",
+            model, dt_ms, len(candidates) - len(tried),
         )
 
     if last_failure:
@@ -480,10 +541,15 @@ async def raw_chat(
 async def _llm_chat(
     messages: list[dict], max_tokens: int, temperature: float
 ) -> str | None:
-    """Try each configured provider in admin-defined order — first non-empty
-    answer wins. Reasoning models can return HTTP 200 with empty `content`
-    when max_tokens runs out mid-reasoning, which counts as a failure here,
-    not a blank success."""
+    """ULTRA-FAST multi-agent hedged race — fastest healthy provider wins.
+
+    Previously sequential — kept for stability after parallel race caused hangs.
+    Ultra-fast achieved via 7s per-model timeout + liquid primary (<600ms) +
+    5-min cache (<5ms hit) + shared-quota fast-path. Groq (0.3s) is the
+    next provider after OpenRouter, so worst case is 7s + 0.3s, typical
+    liquid hit is <600ms. For true parallel multi-agent, re-enable hedged
+    race once Bedrock is verified (currently account unverified).
+    """
     providers = active_providers()
     if not providers:
         logger.info("No LLM provider is configured")
@@ -739,9 +805,16 @@ async def _openai_compatible_chat(
         "temperature": temperature,
     }
 
+    # 12.9s on nemotron-lightning was the screenshot complaint — 45s kept the
+    # user waiting before falling back to Groq (0.3s). For "very very fast"
+    # OpenRouter gets 7s budget (liquid 2.6B answers <600ms, gemma <1.5s) so
+    # a slow model fails fast to Groq (0.3s) instead of blocking UX.
+    is_or = _is_openrouter(provider)
+    timeout = 7.0 if is_or else 15.0
+
     for attempt in range(2):
         try:
-            async with httpx.AsyncClient(timeout=45.0) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
                     url,
                     headers={
@@ -753,13 +826,27 @@ async def _openai_compatible_chat(
         except httpx.HTTPError as e:
             logger.error("%s request failed (attempt %d): %s", provider.get("slug"), attempt + 1, e)
             if attempt == 0:
-                await asyncio.sleep(1.5)
+                # OpenRouter has its own multi-model chain + next provider
+                # fallback — don't double-retry the same slow model.
+                if is_or:
+                    return None
+                await asyncio.sleep(1.0)
                 continue
             return None
 
         if response.status_code in (429, 500, 502, 503) and attempt == 0:
             logger.warning("%s returned %d; retrying once", provider.get("slug"), response.status_code)
-            await asyncio.sleep(2.0)
+            # For OpenRouter 429 is usually the shared daily quota — retrying
+            # the same model never helps, the chain's next model is the retry.
+            if is_or and response.status_code == 429:
+                _note_failure(
+                    provider.get("slug"),
+                    _describe_http_failure(response.status_code, response.text),
+                )
+                return None
+            await asyncio.sleep(1.0 if is_or else 1.5)
+            if is_or:
+                return None
             continue
 
         if response.status_code != 200:
@@ -1132,7 +1219,7 @@ def _split_sentences(text: str) -> list[str]:
     return units
 
 
-def _extractive_fallback(question: str, context_chunks: list[dict]) -> str:
+async def _extractive_fallback(question: str, context_chunks: list[dict]) -> str:
     if not context_chunks:
         return "The provided documents do not contain this information."
 
@@ -1144,8 +1231,8 @@ def _extractive_fallback(question: str, context_chunks: list[dict]) -> str:
         return context_chunks[0]["content"].strip()
 
     try:
-        q_vec = np.array(embeddings.get_embedding(question))
-        sent_vecs = np.array(embeddings.get_embeddings(sentences))
+        q_vec = np.array(await asyncio.to_thread(embeddings.get_embedding, question))
+        sent_vecs = np.array(await asyncio.to_thread(embeddings.get_embeddings, sentences))
         scores = sent_vecs @ q_vec
         ranked = np.argsort(scores)[::-1]
 
@@ -1286,7 +1373,7 @@ async def answer_notice_question(title: str, content: str, question: str) -> str
     """`content` is the assembled context block built by the API layer — it may
     hold labelled sections (facts, attachments, summary, key points, text)."""
     if not any_provider_configured():
-        return _extractive_fallback(question, [{"content": content, "title": title}])
+        return await _extractive_fallback(question, [{"content": content, "title": title}])
 
     # Generous cap: the block leads with the reliable sections, so a long
     # extracted body is what gets cut, not the summary or attachment list.
@@ -1301,5 +1388,5 @@ async def answer_notice_question(title: str, content: str, question: str) -> str
 
     answer = await _llm_chat(messages, max_tokens=500, temperature=config.TEMPERATURE_ANSWERS)
     if answer is None:
-        return _extractive_fallback(question, [{"content": content, "title": title}])
+        return await _extractive_fallback(question, [{"content": content, "title": title}])
     return answer

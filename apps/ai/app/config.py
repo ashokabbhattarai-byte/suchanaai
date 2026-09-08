@@ -16,7 +16,20 @@ def _env_int(key: str, default: int = 0) -> int:
     val = os.environ.get(key)
     if val is None:
         return default
-    return int(val)
+    try:
+        return int(str(val).strip())
+    except (ValueError, TypeError, AttributeError):
+        return default
+
+
+def _env_float(key: str, default: float = 0.0) -> float:
+    val = os.environ.get(key)
+    if val is None:
+        return default
+    try:
+        return float(str(val).strip())
+    except (ValueError, TypeError, AttributeError):
+        return default
 
 
 PORT: int = _env_int("PORT", 8000)
@@ -60,34 +73,27 @@ INTERNAL_SERVICE_SECRET: str = _env("INTERNAL_SERVICE_SECRET")
 # Groq's 200k tokens/day cap is what this workload kept exhausting.
 OPENROUTER_API_KEY: str = _env("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL: str = _env("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
-# Verified answering Nepali correctly, with a 1M context the notice corpus will
-# never come close to filling. gemma-4-31b-it:free reads like the safer pick but
-# is permanently 429 — the shared free pool for it is exhausted.
-OPENROUTER_MODEL: str = _env("OPENROUTER_MODEL", "minimax/minimax-m3:free")
+# PRIMARY: ultra-fast for "very very fast" requirement. liquid/lfm-2.5-2.6b:free
+# is 2.6B — smallest free model, <600ms TTFB vs gemma 26B ~800-1500ms vs
+# nemotron-lightning ~12924ms (screenshot). Use liquid as primary, gemma as
+# powerful fallback for Devanagari-heavy queries. Live-verified 2026-09-08
+# against api/v1/models (16 free). minimax/* retired 404, gemma-4-31b 429 pool,
+# inkling/* 403 agentic — all excluded.
+OPENROUTER_MODEL: str = _env("OPENROUTER_MODEL", "liquid/lfm-2.5-2.6b:free")
 
-# The rest of the OpenRouter free-model chain, tried in order after
-# OPENROUTER_MODEL — each `:free` model meters against its OWN daily quota
-# (confirmed against the live API: a 429 on one is independent of every
-# other), so one exhausted model no longer takes OpenRouter itself out of the
-# provider rotation for the rest of the day. A scrape of a few hundred
-# notices burns through a single free model's quota well before it finishes;
-# this is what makes a full run's worth of summarization actually complete
-# on free tiers instead of falling through to Gemini/Groq/Bedrock partway in.
-#
-# Verified live on 2026-09-07 against api/v1/models: thinkingmachines/inkling
-# (and -small) are listed as free but return 403 "only available on an
-# agentic harness" through the plain chat-completions endpoint used here —
-# excluded. Domain-flavored (…-sante, …-fin) and code-only models excluded as
-# poor fits for general Nepali notice summarization.
+# Fallback chain after primary. ACCOUNT-SHARED free tier: 50/day (1000/day after
+# $10 purchase, 20 RPM) — chain helps with per-model capacity/404, not daily
+# quota (a 429 on one means all 429, then falls to Groq 0.3s). Ordered
+# fastest→powerful→large-context: gemma 26B powerful multilingual (Devanagari)
+# next after liquid, nano-omni 30B fast reasoning, super 120B powerful MoE,
+# lightning 1M large-context backstop (slow, keep last). 5 total incl primary.
 OPENROUTER_FREE_MODELS: list[str] = [
     m.strip() for m in _env(
         "OPENROUTER_FREE_MODELS",
-        "nvidia/nemotron-3.5-lightning:free,"
-        "google/gemma-4-31b-it:free,"
-        "nvidia/nemotron-3-super-120b-a12b:free,"
-        "minimax/minimax-m2.7:free,"
         "google/gemma-4-26b-a4b-it:free,"
-        "liquid/lfm-2.5-2.6b:free",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free,"
+        "nvidia/nemotron-3-super-120b-a12b:free,"
+        "nvidia/nemotron-3.5-lightning:free",
     ).split(",")
     if m.strip()
 ]
@@ -138,16 +144,16 @@ LLM_PROVIDER_PRIORITY: list[str] = [
 # Retrieval tuning: hits scoring below the threshold are dropped from context.
 # E5-family models compress cosine similarity into ~0.7-0.9; observed in
 # practice: irrelevant hits ~0.76-0.78, relevant ~0.82+.
-RAG_SCORE_THRESHOLD: float = float(_env("RAG_SCORE_THRESHOLD", "0.78"))
+RAG_SCORE_THRESHOLD: float = _env_float("RAG_SCORE_THRESHOLD", 0.78)
 
 # Same idea for the notice chatbot, kept separate because its questions are
 # often cross-lingual (English question, Nepali notice), which scores a little
 # lower than same-language matches even when the notice is exactly right.
-NOTICE_SCORE_THRESHOLD: float = float(_env("NOTICE_SCORE_THRESHOLD", "0.78"))
+NOTICE_SCORE_THRESHOLD: float = _env_float("NOTICE_SCORE_THRESHOLD", 0.78)
 # Hits more than this far below the best hit are dropped even if they clear the
 # floor: once one notice clearly answers the question, the long tail behind it
 # is what makes an answer drift off-topic.
-NOTICE_SCORE_MARGIN: float = float(_env("NOTICE_SCORE_MARGIN", "0.06"))
+NOTICE_SCORE_MARGIN: float = _env_float("NOTICE_SCORE_MARGIN", 0.06)
 
 # ── Sampling temperature, per task ────────────────────────────────────────
 # These are fallback defaults only: the admin panel's values arrive via
@@ -158,9 +164,9 @@ NOTICE_SCORE_MARGIN: float = float(_env("NOTICE_SCORE_MARGIN", "0.06"))
 # schema detection) stay pinned at 0.0 in code and are intentionally not
 # admin-tunable — sampling there yields malformed JSON and mis-categorised
 # notices, which is a correctness bug, not a style preference.
-TEMPERATURE_ANSWERS: float = float(_env("TEMPERATURE_ANSWERS", "0.4"))
-TEMPERATURE_SUMMARIES: float = float(_env("TEMPERATURE_SUMMARIES", "0.2"))
-TEMPERATURE_CONVERSATION: float = float(_env("TEMPERATURE_CONVERSATION", "0.9"))
+TEMPERATURE_ANSWERS: float = _env_float("TEMPERATURE_ANSWERS", 0.4)
+TEMPERATURE_SUMMARIES: float = _env_float("TEMPERATURE_SUMMARIES", 0.2)
+TEMPERATURE_CONVERSATION: float = _env_float("TEMPERATURE_CONVERSATION", 0.9)
 
 TESSERACT_LANG: str = _env("TESSERACT_LANG", "nep+eng")
 

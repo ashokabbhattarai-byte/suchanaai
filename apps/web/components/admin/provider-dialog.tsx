@@ -58,7 +58,7 @@ const PRESETS: Array<{
     baseUrl: "https://openrouter.ai/api/v1/chat/completions",
     // A starting point only — "Load" lists what OpenRouter actually serves
     // today, which is the point of the picker.
-    model: "minimax/minimax-m3:free",
+    model: "liquid/lfm-2.5-2.6b:free",
   },
   {
     label: "Together AI",
