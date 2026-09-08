@@ -66,10 +66,11 @@ export function NewsTicker({ headlines }: { headlines?: ScrapedItem[] }) {
 
   return (
     <div
-      className={`fixed left-0 right-0 z-40 transition-all duration-300 top-[calc(4rem+env(safe-area-inset-top))] sm:top-20 ${
+      className={`fixed left-0 right-0 z-40 transition-all duration-300 top-[calc(4rem+env(safe-area-inset-top))] sm:top-[calc(5rem+env(safe-area-inset-top))] ${
         hidden ? "-translate-y-full opacity-0 pointer-events-none" : "translate-y-0 opacity-100"
       }`}
     >
+      {/* Container matches header max-w-7xl + px for perfect alignment; ticker sits below header with gap, never overlapping */}
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-1 sm:pt-1.5">
         <div className="flex items-center gap-1.5 sm:gap-3 rounded-full bg-white/70 sm:bg-white/40 backdrop-blur-xl border border-white/60 px-2.5 sm:px-4 py-1.5 sm:py-1.5 shadow-[0_2px_12px_rgba(0,0,0,0.06)] min-w-0">
           <span className="flex shrink-0 items-center gap-1 sm:gap-1.5 rounded-full bg-vez-navy/8 px-2 sm:px-2.5 py-1">

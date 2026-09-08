@@ -131,7 +131,7 @@ export function VezignoHero({
 
   return (
     <section ref={sectionRef} className="bg-vez-sky vz-noise overflow-hidden">
-      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-[112px] sm:pt-36 md:pt-40 lg:pt-[240px]">
+      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-[calc(112px+env(safe-area-inset-top))] sm:pt-[calc(9rem+env(safe-area-inset-top))] md:pt-[calc(10rem+env(safe-area-inset-top))] lg:pt-[calc(240px+env(safe-area-inset-top))]">
         {/* Floating depth orbs - CSS float + scroll parallax at differing rates */}
         <div className="vz-orb-a pointer-events-none absolute right-[5%] sm:right-[10%] top-[18%] size-32 sm:size-48 lg:size-72 rounded-full bg-white/15 blur-3xl vz-float-slow" />
         <div className="vz-orb-b pointer-events-none absolute left-[2%] sm:left-[5%] top-[40%] size-24 sm:size-36 lg:size-48 rounded-full bg-vez-navy/5 blur-2xl vz-float" />

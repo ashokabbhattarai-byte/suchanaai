@@ -108,7 +108,7 @@ export function Header() {
             : "bg-transparent"
         )}
       >
-        <div className="mx-auto flex h-16 sm:h-20 max-w-7xl flex-wrap items-center justify-between gap-2 sm:gap-4 lg:gap-6 px-4 sm:px-6 md:px-8 lg:px-8">
+        <div className="mx-auto flex h-16 sm:h-20 max-w-7xl items-center justify-between gap-2 sm:gap-3 xl:gap-4 px-4 sm:px-6 lg:px-8">
           {/* Brand - responsive sizing to prevent overflow on 375px */}
           <Link href="/" className="shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vez-navy focus-visible:ring-offset-2 rounded-lg min-h-[44px] flex items-center">
             <Image
@@ -122,10 +122,10 @@ export function Header() {
             <span className="sr-only text-lg sm:text-xl font-poppins tracking-tight">Suchana AI</span>
           </Link>
 
-          {/* Frosted pill nav - hidden on mobile, wraps on tablet */}
+          {/* Frosted pill nav - desktop only, single row to prevent wrap/overlap with ticker */}
           <nav
             className={cn(
-              "hidden lg:flex flex-wrap items-center gap-2 sm:gap-4 rounded-full p-1.5 sm:p-2 backdrop-blur-md border transition-all duration-300 font-poppins tracking-tight",
+              "hidden xl:flex items-center gap-1 xl:gap-2 rounded-full p-1 xl:p-1.5 backdrop-blur-md border transition-all duration-300 font-poppins tracking-tight shrink-0",
               solid ? "bg-white/40 border-white/50" : "bg-white/10 border-white/20"
             )}
           >
@@ -177,8 +177,8 @@ export function Header() {
             })}
           </nav>
 
-          {/* Right actions */}
-          <div className="hidden lg:flex items-center gap-2 sm:gap-4">
+          {/* Right actions - desktop only, single row */}
+          <div className="hidden xl:flex items-center gap-2 xl:gap-3 shrink-0">
             <Link
               href="/contact"
               className={cn(
@@ -261,7 +261,7 @@ export function Header() {
           </div>
 
           {/* Mobile toggle - 44px touch targets, 8px gap */}
-          <div className="flex items-center gap-2 lg:hidden">
+          <div className="flex items-center gap-2 xl:hidden shrink-0">
             {user && (
               <button className="relative flex size-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white/40 text-vez-ink backdrop-blur-[6px] transition-colors hover:bg-white/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vez-navy focus-visible:ring-offset-2" aria-label="Notifications">
                 <Bell className="size-4" />
@@ -284,7 +284,7 @@ export function Header() {
         {/* Mobile menu - responsive drawer with safe area and 44px touch targets */}
         <div
           className={cn(
-            "lg:hidden overflow-hidden transition-all duration-300",
+            "xl:hidden overflow-hidden transition-all duration-300",
             mobileOpen ? "max-h-[85dvh]" : "max-h-0"
           )}
         >
@@ -414,8 +414,8 @@ export function Header() {
         </div>
       </header>
 
-      {/* Spacer - only off the home page; hero supplies its own padding. Use dvh-safe calc for notched devices */}
-      {!isHome && <div className="h-[calc(5rem+env(safe-area-inset-top))]" aria-hidden="true" />}
+      {/* Spacer - only off home; matches header h-16 / sm:h-20 + safe inset. Hero handles its own padding. */}
+      {!isHome && <div className="h-[calc(4rem+env(safe-area-inset-top))] sm:h-[calc(5rem+env(safe-area-inset-top))]" aria-hidden="true" />}
     </>
   )
 }
