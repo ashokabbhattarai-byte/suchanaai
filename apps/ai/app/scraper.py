@@ -29,7 +29,7 @@ import re
 import zlib
 from dataclasses import dataclass
 from datetime import datetime
-from urllib.parse import parse_qs, unquote, urljoin, urlparse
+from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
 from xml.etree import ElementTree as ET
 
 import httpx
@@ -197,6 +197,34 @@ def _absolute_url(base_url: str, href: str | None) -> str | None:
     if href.startswith("javascript:") or href.startswith("mailto:") or href == "#":
         return None
     return urljoin(base_url, href)
+
+
+def _normalize_url(url: str) -> str:
+    """Canonical URL for dedup: lowercase host, strip trailing slash (except root), sorted query, no fragment.
+
+    Ensures `https://Example.COM/path/?b=2&a=1` and `https://example.com/path?a=1&b=2`
+    and `https://example.com/path/` all map to the same key so a re-scrape of an
+    already-known link is skipped without launching a browser.
+    """
+    try:
+        url = url.strip()
+        parsed = urlparse(url)
+        scheme = (parsed.scheme or "https").lower()
+        netloc = parsed.netloc.lower()
+        path = parsed.path or ""
+        if len(path) > 1 and path.endswith("/"):
+            path = path.rstrip("/")
+            if not path:
+                path = "/"
+        query = parsed.query
+        if query:
+            qsl = parse_qsl(query, keep_blank_values=True)
+            qsl.sort(key=lambda kv: (kv[0], kv[1]))
+            query = urlencode(qsl, doseq=True)
+        # drop fragment and params
+        return urlunparse((scheme, netloc, path, "", query, ""))
+    except Exception:
+        return url
 
 
 # --- heuristic schema detection ---
@@ -626,7 +654,7 @@ def _is_transient_crawl_error(message: str | None) -> bool:
 
 
 async def _arun_with_retry(
-    crawler: AsyncWebCrawler, url: str, config: CrawlerRunConfig, what: str
+    crawler: AsyncWebCrawler, url: str, crawl_config: CrawlerRunConfig, what: str
 ):
     """`crawler.arun` with bounded retries for transient network failures.
 
@@ -637,18 +665,30 @@ async def _arun_with_retry(
 
     crawl4ai signals failure two ways — a falsy `result.success` and a raised
     exception — so both are funnelled through the same decision here.
+
+    A per-call ``asyncio.wait_for`` timeout (``SCRAPE_CRAWL_TIMEOUT_SECONDS``)
+    wraps each ``arun`` so a hung Chromium frame (e.g. mofa.gov.np slow paint)
+    fails fast instead of holding a pooled browser tab indefinitely and
+    queueing interactive quick-scrape behind it.
     """
     last_error: str | None = None
     result = None
+    crawl_timeout = float(getattr(config, "SCRAPE_CRAWL_TIMEOUT_SECONDS", 45))
 
     for attempt in range(1, _CRAWL_MAX_ATTEMPTS + 1):
         try:
-            result = await crawler.arun(url=url, config=config)
+            result = await asyncio.wait_for(
+                crawler.arun(url=url, config=crawl_config),
+                timeout=crawl_timeout,
+            )
             if result.success:
                 if attempt > 1:
                     logger.info("%s succeeded for %s on attempt %d", what, url, attempt)
                 return result
             last_error = result.error_message
+        except asyncio.TimeoutError as e:  # noqa: BLE001 — asyncio timeout is transient
+            last_error = f"timeout after {crawl_timeout:.0f}s: {e}"
+            result = None
         except Exception as e:  # noqa: BLE001 — classified immediately below
             # An exception leaves no result object for the caller to inspect.
             last_error = str(e)
@@ -682,7 +722,13 @@ async def _fetch_raw_html(
     crawler: AsyncWebCrawler, url: str, failures: list[dict] | None = None
 ) -> str | None:
     result = await _arun_with_retry(
-        crawler, url, CrawlerRunConfig(cache_mode=CacheMode.BYPASS), "Raw fetch"
+        crawler,
+        url,
+        CrawlerRunConfig(
+            cache_mode=CacheMode.BYPASS,
+            page_timeout=getattr(config, "SCRAPE_PAGE_TIMEOUT_MS", 30000),
+        ),
+        "Raw fetch",
     )
     if result is None:
         logger.warning("Raw fetch failed for %s after retries", url)
@@ -718,6 +764,7 @@ async def _extract_rows_and_html(
         CrawlerRunConfig(
             extraction_strategy=JsonCssExtractionStrategy(schema),
             cache_mode=CacheMode.BYPASS,
+            page_timeout=getattr(config, "SCRAPE_PAGE_TIMEOUT_MS", 30000),
         ),
         "Listing crawl",
     )
@@ -922,7 +969,13 @@ async def _crawl_detail_generic(
 ) -> dict | None:
     """Fetch an article/detail page generically (no per-site schema)."""
     result = await _arun_with_retry(
-        crawler, url, CrawlerRunConfig(cache_mode=CacheMode.BYPASS), "Detail crawl"
+        crawler,
+        url,
+        CrawlerRunConfig(
+            cache_mode=CacheMode.BYPASS,
+            page_timeout=getattr(config, "SCRAPE_PAGE_TIMEOUT_MS", 30000),
+        ),
+        "Detail crawl",
     )
     if result is None:
         _record_failure(failures, url, "detail", "Network error after retries")
@@ -2642,11 +2695,18 @@ async def scrape_sitemap_urls(
     filtered out above), so unlike scrape_source there is no further check.
     """
     known_urls = known_urls or set()
+    # Fast O(1) dedup: normalize both known and seen sets (lowercase host, strip
+    # trailing slash, sorted query) so `.../path/` and `.../path?a=1&b=2`
+    # variants are caught without a browser fetch, and _record_skip is used for
+    # every skip so the admin sees which URLs were dropped and why.
+    known_set = set(known_urls)
+    known_normalized: set[str] = {_normalize_url(u) for u in known_set}
     report = on_progress or (lambda _msg: None)
     items: list[ScrapedItem] = []
     failures: list[dict] = []
     summarize_tasks: list[asyncio.Task] = []
     seen_urls: set[str] = set()
+    seen_normalized: set[str] = set()
     rejected = 0
     semaphore = _summarize_semaphore(summarize_concurrency)
 
@@ -2655,11 +2715,20 @@ async def scrape_sitemap_urls(
     # from the first URL so a per-item fallback is rarely needed.
     default_category, default_slug = _infer_category_from_slug(_sitemap_section(urls))
 
-    async with browser_pool.crawler_session() as crawler:
+    # Single-URL quick-scrape (admin "paste a link") bypasses the main
+    # semaphore so it does not queue behind long listing crawls that otherwise
+    # leave the UI stuck on "Crawling..." with no progress.
+    is_priority = len(urls) == 1
+    async with browser_pool.crawler_session(priority=is_priority) as crawler:
         for index, source_url in enumerate(urls):
-            if not source_url or source_url in seen_urls:
+            if not source_url:
                 continue
-            if source_url in known_urls:
+            normalized = _normalize_url(source_url)
+            # Intra-run duplicate (exact or normalized) — fast, before any fetch.
+            if source_url in seen_urls or normalized in seen_normalized:
+                _record_skip(failures, source_url, "sitemap", "duplicate_in_run")
+                continue
+            if source_url in known_set or normalized in known_normalized:
                 report(f"Skipping already-scraped: {source_url[:80]}")
                 _record_skip(failures, source_url, "sitemap", "already_scraped")
                 continue
@@ -2670,6 +2739,7 @@ async def scrape_sitemap_urls(
                 _record_skip(failures, source_url, "sitemap", "not_article_url")
                 continue
             seen_urls.add(source_url)
+            seen_normalized.add(normalized)
 
             title = None
             published_at = None

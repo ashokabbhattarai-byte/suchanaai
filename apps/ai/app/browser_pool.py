@@ -53,6 +53,11 @@ class _BrowserPool:
             )
         return self._semaphore
 
+    def _get_priority_semaphore(self) -> asyncio.Semaphore | None:
+        # Kept for future bounded priority; currently priority bypasses the
+        # main semaphore entirely (see session(priority=True)).
+        return None
+
     async def _ensure_started(self) -> AsyncWebCrawler:
         async with self._lock:
             if self._crawler is not None:
@@ -87,8 +92,34 @@ class _BrowserPool:
         await self.close(reason="session budget reached")
 
     @asynccontextmanager
-    async def session(self):
-        """Yield the shared crawler, bounded by the concurrency semaphore."""
+    async def session(self, priority: bool = False):
+        """Yield the shared crawler, bounded by the concurrency semaphore.
+
+        When ``priority`` is True (single-URL quick-scrape / scrape-a-link),
+        the call bypasses the main semaphore so it does not queue behind the
+        scheduler's 4 concurrent listing crawls that otherwise fill the pool
+        and leave the UI stuck on "Crawling..." with no progress. It still
+        shares the same pooled browser instance; bypass only affects queuing.
+        """
+        if priority:
+            # Bypass the queue — single URL fetches are short and interactive.
+            logger.info(
+                "Priority browser session bypassing semaphore (concurrency=%d)",
+                config.SCRAPE_BROWSER_CONCURRENCY,
+            )
+            crawler = await self._ensure_started()
+            self._sessions_served += 1
+            try:
+                yield crawler
+            except Exception as e:  # noqa: BLE001 — classified, then re-raised
+                if is_browser_failure(str(e)):
+                    logger.warning("Pooled browser died mid-session: %.160s", e)
+                    await self.close(reason="browser failure")
+                raise
+            else:
+                await self.recycle_if_exhausted()
+            return
+
         async with self._get_semaphore():
             crawler = await self._ensure_started()
             self._sessions_served += 1
@@ -118,6 +149,16 @@ async def shutdown() -> None:
 
 
 @asynccontextmanager
-async def crawler_session():
-    async with _pool.session() as crawler:
+async def crawler_session(priority: bool = False):
+    """Compatibility wrapper. ``priority=True`` bypasses the queue for
+    single-URL quick-scrape (scrape-a-link) so it does not wait behind
+    long listing crawls."""
+    async with _pool.session(priority=priority) as crawler:
+        yield crawler
+
+
+# Alias for callers that prefer an explicit name.
+@asynccontextmanager
+async def priority_crawler_session():
+    async with _pool.session(priority=True) as crawler:
         yield crawler

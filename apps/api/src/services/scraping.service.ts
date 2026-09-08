@@ -16,6 +16,41 @@ import { AlertMatchingService } from './alert-matching.service';
 import * as crypto from 'crypto';
 
 /**
+ * Canonical URL for dedup: lowercases host, strips trailing slash (except
+ * root), sorts query params alphabetically. Used so
+ * `https://Example.com/path/?b=2&a=1` and `https://example.com/path?a=1&b=2`
+ * and `https://example.com/path/` all map to the same key without launching
+ * a browser.
+ */
+export function normalizeUrl(raw: string): string {
+  try {
+    const u = new URL(raw.trim());
+    u.hostname = u.hostname.toLowerCase();
+    // Sort query params by key then value for stable ordering.
+    const params = [...u.searchParams.entries()];
+    if (params.length) {
+      params.sort((a, b) => {
+        if (a[0] < b[0]) return -1;
+        if (a[0] > b[0]) return 1;
+        if (a[1] < b[1]) return -1;
+        if (a[1] > b[1]) return 1;
+        return 0;
+      });
+      const sorted = new URLSearchParams(params);
+      u.search = sorted.toString() ? `?${sorted.toString()}` : '';
+    }
+    // Strip trailing slash from pathname (keep root "/").
+    if (u.pathname.length > 1 && u.pathname.endsWith('/')) {
+      u.pathname = u.pathname.replace(/\/+$/, '');
+    }
+    u.hash = '';
+    return u.toString();
+  } catch {
+    return raw;
+  }
+}
+
+/**
  * Minimum extraction-quality score (0-1, from the AI service's
  * extractor._text_quality) for PDF text to be stored as a notice's body.
  * Mirrors the AI service's own QUALITY_THRESHOLD: below this the "text" is
@@ -236,10 +271,31 @@ export class ScrapingService {
     }
     const url = parsed.toString();
     const origin = parsed.origin;
+    const normalizedUrl = normalizeUrl(url);
 
-    const existingItem = await this.prisma.scrapedItem.findUnique({
+    // Fast dedup before any browser/Source work: check exact and normalized forms.
+    // Covers trailing-slash, host casing and query-order variants without a crawl.
+    let existingItem = await this.prisma.scrapedItem.findUnique({
       where: { sourceUrl: url },
     });
+    if (!existingItem && normalizedUrl !== url) {
+      existingItem = await this.prisma.scrapedItem.findUnique({
+        where: { sourceUrl: normalizedUrl },
+      });
+    }
+    if (!existingItem) {
+      // Legacy rows may have been stored with unsorted query / different
+      // trailing-slash / host-casing that still normalizes to the same key.
+      // Bounded in-memory normalized comparison for this host — still far
+      // cheaper than launching crawl4ai and catches all legacy variants.
+      const candidates = await this.prisma.scrapedItem.findMany({
+        where: { sourceUrl: { contains: parsed.hostname, mode: 'insensitive' } },
+        select: { id: true, title: true, category: true, sourceUrl: true },
+        take: 2000,
+      });
+      const match = candidates.find((c) => normalizeUrl(c.sourceUrl) === normalizedUrl);
+      if (match) existingItem = match as unknown as typeof existingItem;
+    }
     if (existingItem) {
       return {
         alreadyExists: true as const,

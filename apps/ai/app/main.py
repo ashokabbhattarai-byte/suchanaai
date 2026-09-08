@@ -59,6 +59,7 @@ REQUEST_TIMEOUT_SECONDS = 180
 ROUTE_TIMEOUT_SECONDS = {
     "/documents": 570,
     "/scrape/source": 570,
+    "/scrape/sitemap-crawl": 570,
     "/scrape/sitemap/detect": 120,
     "/scrape/check": 120,
     "/scrape/listing/check": 120,

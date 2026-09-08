@@ -200,7 +200,23 @@ SCRAPE_DEEP_MAX_PAGES: int = _env_int("SCRAPE_DEEP_MAX_PAGES", 50)
 # constant launch/teardown churn exhausted the host's process table and every
 # run died with "[Errno 11] Resource temporarily unavailable". Sessions now
 # share one pooled browser and queue behind this semaphore.
-SCRAPE_BROWSER_CONCURRENCY: int = _env_int("SCRAPE_BROWSER_CONCURRENCY", 2)
+# Default 4 matches the scheduler's default concurrency (apps/api
+# SCRAPING_CONCURRENCY=4) so an interactive "paste a link" quick-scrape does
+# not queue indefinitely behind long listing crawls showing "Crawling..." with
+# no progress. Keep env override for small boxes.
+SCRAPE_BROWSER_CONCURRENCY: int = _env_int("SCRAPE_BROWSER_CONCURRENCY", 4)
+
+# Per-page Playwright navigation timeout (ms). Lower than crawl4ai's default
+# 60s so a slow-paint host (mofa.gov.np) fails fast instead of hanging a
+# browser tab that blocks the pool and leaves a single-URL quick-scrape stuck
+# on "Crawling..." with no progress.
+SCRAPE_PAGE_TIMEOUT_MS: int = _env_int("SCRAPE_PAGE_TIMEOUT_MS", 30000)
+
+# Overall per-call timeout (seconds) wrapping AsyncWebCrawler.arun. Even with
+# page_timeout, a hung Chromium frame can sit in arun indefinitely; this
+# ensures the caller gets control back and can retry/fail fast. Must be >
+# SCRAPE_PAGE_TIMEOUT_MS / 1000.
+SCRAPE_CRAWL_TIMEOUT_SECONDS: int = _env_int("SCRAPE_CRAWL_TIMEOUT_SECONDS", 45)
 
 # Recycle the pooled browser after this many sessions so a slow Chromium leak
 # can't grow unbounded in a long-lived process.
