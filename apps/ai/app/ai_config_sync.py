@@ -205,6 +205,7 @@ async def sync_loop() -> None:
             logger.exception("AI config sync cycle crashed unexpectedly")
         if not synced:
             await asyncio.sleep(_STARTUP_RETRY_SECONDS)
+    await _self_heal_safely()
 
     while True:
         await asyncio.sleep(_REFRESH_INTERVAL_SECONDS)
@@ -212,3 +213,13 @@ async def sync_loop() -> None:
             await refresh_once()
         except Exception:
             logger.exception("AI config sync cycle crashed unexpectedly")
+        await _self_heal_safely()
+
+
+async def _self_heal_safely() -> None:
+    """Runs every sync cycle (~3 min) — see llm.self_heal_openrouter. Any
+    failure here must never take down the config-sync loop it rides on."""
+    try:
+        await llm.self_heal_openrouter()
+    except Exception:
+        logger.exception("Self-heal cycle crashed unexpectedly")

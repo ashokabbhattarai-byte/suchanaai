@@ -25,6 +25,7 @@ import { StorageModule } from './common/storage/storage.module';
 import { CryptoModule } from './common/crypto/crypto.module';
 import { AiProvidersService } from './services/ai-providers.service';
 import { AiProvidersController } from './controllers/ai-providers.controller';
+import { InternalAiProvidersController } from './controllers/internal-ai-providers.controller';
 import { AdminUsersController } from './controllers/admin-users.controller';
 import { AdminSystemController } from './controllers/admin-system.controller';
 
@@ -59,6 +60,7 @@ import { AdminSystemController } from './controllers/admin-system.controller';
     SettingsController,
     PublicSettingsController,
     InternalAiConfigController,
+    InternalAiProvidersController,
     AdminAiHealthController,
     AiProvidersController,
     AdminUsersController,

@@ -830,9 +830,10 @@ def _describe_http_failure(status: int, body: str) -> str:
     return f"HTTP {status}: {body[:160]}"
 
 
-async def _probe_provider(provider: dict) -> tuple[bool, str | None]:
-    """One real, tiny request. Works for any registry entry, including
-    admin-added ones, because it dispatches on `kind` exactly like chat does."""
+async def _probe_one_model(provider: dict) -> tuple[bool, str | None]:
+    """One real, tiny request against exactly `provider["model"]` — no
+    fallback. Works for any registry entry, including admin-added ones,
+    because it dispatches on `kind` exactly like chat does."""
     if provider.get("kind") == "BEDROCK":
         # No raw HTTP path here — Bedrock is reached through the SDK client,
         # so the probe is the same one-token call the chat path would make.
@@ -894,6 +895,44 @@ async def _probe_provider(provider: dict) -> tuple[bool, str | None]:
     return True, None
 
 
+async def _probe_provider(provider: dict) -> tuple[bool, str | None, str | None]:
+    """Probe a provider the way a real call would actually be served.
+
+    For everything except OpenRouter this is exactly `_probe_one_model` on
+    the configured model. For OpenRouter it walks the same fallback chain
+    `_openrouter_chat_with_fallback` uses for real traffic — otherwise the
+    health panel reports "down" the moment the *specific* configured free
+    model 404s/expires, even though every real request already survives
+    that by falling through to the next free model. That mismatch is what
+    made the panel flap red while the chatbot kept answering fine.
+
+    Returns (ok, error, resolved_model) — `resolved_model` is the model
+    that actually answered, which the caller uses both to report "answered
+    via <model>" and to self-heal the stored primary (see
+    ai_config_sync.self_heal_openrouter)."""
+    if provider.get("kind") != "OPENAI_COMPATIBLE" or not _is_openrouter(provider):
+        ok, error = await _probe_one_model(provider)
+        return ok, error, provider.get("model") if ok else None
+
+    tried: set[str] = set()
+    candidates = [provider["model"], *config.OPENROUTER_FREE_MODELS]
+    last_error: str | None = None
+    for model in candidates:
+        if model in tried:
+            continue
+        tried.add(model)
+        ok, error = await _probe_one_model({**provider, "model": model})
+        if ok:
+            if model != provider["model"]:
+                logger.info(
+                    "OpenRouter health probe: primary %s is down, %s answered instead",
+                    provider["model"], model,
+                )
+            return True, None, model
+        last_error = error
+    return False, f"All {len(tried)} OpenRouter model(s) failed. Last: {last_error}", None
+
+
 async def _health_for(provider: dict) -> dict:
     base = {
         "provider": provider.get("slug"),
@@ -911,7 +950,7 @@ async def _health_for(provider: dict) -> dict:
 
     started = time.perf_counter()
     try:
-        ok, error = await _probe_provider(provider)
+        ok, error, resolved_model = await _probe_provider(provider)
     except httpx.HTTPError as e:
         return {**base, "ok": False,
                 "latencyMs": round((time.perf_counter() - started) * 1000),
@@ -927,9 +966,18 @@ async def _health_for(provider: dict) -> dict:
     if ok and observed:
         ok, error = False, f"Probe succeeded, but real requests are failing: {observed}"
 
+    # Only set when a fallback model answered instead of the configured one
+    # (OpenRouter) — surfaced so the admin panel can show "answering via X"
+    # instead of silently reporting green under the old model's name.
+    note = (
+        f"Configured model ({provider.get('model')}) is unresponsive; currently answering via {resolved_model}."
+        if ok and resolved_model and resolved_model != provider.get("model")
+        else None
+    )
+
     return {**base, "ok": ok,
             "latencyMs": round((time.perf_counter() - started) * 1000),
-            "error": error}
+            "error": error, "note": note, "resolvedModel": resolved_model if ok else None}
 
 
 async def health_snapshot(slug: str | None = None) -> dict:
@@ -970,6 +1018,81 @@ async def health_snapshot(slug: str | None = None) -> dict:
         "activeProvider": active["provider"] if active else None,
         "healthy": any(r["ok"] for r in results),
     }
+
+
+# ---------------------------------------------------------------------------
+# Self-healing: keep the stored OpenRouter model a currently-working one
+# ---------------------------------------------------------------------------
+
+_SELF_HEAL_TIMEOUT_SECONDS = 20.0
+
+
+async def self_heal_openrouter() -> None:
+    """Auto-fix drift between "the model an admin configured months ago"
+    and "the OpenRouter free models that actually still exist" — free model
+    IDs get retired/renamed on OpenRouter's own schedule with no warning,
+    which is what made the admin panel flap red on its own (see
+    config.py's OPENROUTER_MODEL comment; this was already a known,
+    previously-unfixed risk).
+
+    Called once per ai_config_sync cycle (~3 min): probes the OpenRouter
+    provider the same way the admin "Test" button and every real request
+    do (_probe_provider's fallback walk). If the *configured* model is
+    dead but a model from OPENROUTER_FREE_MODELS answered, that model is
+    persisted back to apps/api as the new primary — so the next probe,
+    and the next real request, try a known-good model first instead of
+    re-discovering the same dead model is dead every single time.
+
+    Best-effort and silent on failure: this must never be able to break
+    the sync loop it rides on.
+    """
+    provider = next(
+        (p for p in all_providers() if p.get("enabled") and p.get("api_key") and _is_openrouter(p)),
+        None,
+    )
+    if not provider:
+        return
+
+    try:
+        ok, _error, resolved_model = await _probe_provider(provider)
+    except Exception:
+        logger.exception("Self-heal: OpenRouter probe crashed")
+        return
+
+    if not ok or not resolved_model or resolved_model == provider.get("model"):
+        return  # either the whole chain is down (nothing to promote) or primary is fine
+
+    logger.warning(
+        "Self-heal: OpenRouter primary %s is unresponsive, promoting %s to primary",
+        provider.get("model"), resolved_model,
+    )
+    # Mutate in place: `provider` is the same dict object held in
+    # RUNTIME_PROVIDERS (all_providers() returns that list directly, not a
+    # copy), so this takes effect on the very next call — not three minutes
+    # from now on the next ai_config_sync pull. Persisting to apps/api below
+    # is what survives a restart / keeps the admin panel honest; it is not
+    # what makes the fix take effect.
+    provider["model"] = resolved_model
+    await _push_provider_model(provider["slug"], resolved_model)
+
+
+async def _push_provider_model(slug: str, model: str) -> None:
+    """PATCH the new primary back to apps/api — the reverse direction of
+    ai_config_sync's own GET, using the same shared secret."""
+    if not config.INTERNAL_SERVICE_SECRET:
+        return
+    url = f"{config.API_INTERNAL_URL.rstrip('/')}/internal/ai-providers/{slug}/model"
+    try:
+        async with httpx.AsyncClient(timeout=_SELF_HEAL_TIMEOUT_SECONDS, follow_redirects=True) as client:
+            response = await client.patch(
+                url,
+                json={"model": model},
+                headers={"x-internal-secret": config.INTERNAL_SERVICE_SECRET},
+            )
+        if response.status_code != 200:
+            logger.warning("Self-heal: PATCH %s returned %d: %.200s", url, response.status_code, response.text)
+    except httpx.HTTPError as e:
+        logger.warning("Self-heal: could not reach %s: %s", url, e)
 
 
 def _split_sentences(text: str) -> list[str]:

@@ -10,6 +10,7 @@ import {
   Pencil,
   Plus,
   Power,
+  RefreshCw,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -32,6 +33,7 @@ import {
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { AdminLayout } from "@/components/admin/admin-layout"
+import { useConfirm } from "@/components/ui/confirm-dialog"
 import { Header } from "@/components/layout/header"
 import { ProviderDialog } from "@/components/admin/provider-dialog"
 import { AiTemperatureCard } from "@/components/admin/ai-temperature-card"
@@ -47,6 +49,7 @@ import {
 import type { AiProvider, AiProviderHealth, AiProviderInput } from "@/lib/types"
 
 export default function AdminAiPage() {
+  const confirm = useConfirm()
   const [providers, setProviders] = useState<AiProvider[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -141,7 +144,15 @@ export default function AdminAiPage() {
   }
 
   const remove = async (p: AiProvider) => {
-    if (!confirm(`Delete "${p.label}"? Its stored API key is deleted too.`)) return
+    if (
+      !(await confirm({
+        title: `Delete "${p.label}"?`,
+        description: "Its stored API key is deleted too.",
+        confirmLabel: "Delete",
+        danger: true,
+      }))
+    )
+      return
     try {
       await deleteAiProvider(p.id)
       setProviders((list) => list.filter((x) => x.id !== p.id))
@@ -438,9 +449,17 @@ function ProviderCard({
 
         {health ? (
           health.ok ? (
-            <span className="flex items-center gap-1.5 text-green-700">
-              <CheckCircle2 className="size-3.5" /> Responding
-              <span className="tabular-nums text-vez-mute">· {health.latencyMs} ms</span>
+            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+              <span className="flex items-center gap-1.5 text-green-700">
+                <CheckCircle2 className="size-3.5" /> Responding
+                <span className="tabular-nums text-vez-mute">· {health.latencyMs} ms</span>
+              </span>
+              {health.note && (
+                <span className="flex min-w-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-amber-700">
+                  <RefreshCw className="size-3 shrink-0" />
+                  <span className="min-w-0 break-words">{health.note}</span>
+                </span>
+              )}
             </span>
           ) : (
             <span className="flex min-w-0 items-start gap-1.5 text-red-600">

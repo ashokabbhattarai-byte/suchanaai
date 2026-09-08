@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback, useMemo, useRef, Suspense } fr
 import { useRouter, usePathname, useSearchParams } from "next/navigation"
 import { Search, Trash2, ExternalLink, ChevronLeft, ChevronRight, Loader2, X, SlidersHorizontal, Edit, RotateCcw, BadgeCheck, Tag, ShieldCheck, RefreshCw } from "lucide-react"
 import { AdminLayout } from "@/components/admin/admin-layout"
+import { useConfirm } from "@/components/ui/confirm-dialog"
 import { Header } from "@/components/layout/header"
 import {
   fetchScrapedItems,
@@ -66,6 +67,7 @@ function AdminNoticesPageContent() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const didMountSync = useRef(false)
+  const confirm = useConfirm()
 
   const storedPrefs = getStoredJSON(PREFS_KEY, DEFAULT_PREFS)
 
@@ -85,7 +87,11 @@ function AdminNoticesPageContent() {
     if (bulkReextracting) return
     if (
       scope === "all" &&
-      !confirm("Re-extract every notice with an attachment? This re-runs OCR and can take a while.")
+      !(await confirm({
+        title: "Re-extract every notice with an attachment?",
+        description: "This re-runs OCR and can take a while.",
+        confirmLabel: "Re-extract all",
+      }))
     ) {
       return
     }
@@ -292,7 +298,7 @@ function AdminNoticesPageContent() {
   const activeFilterCount = [category, sourceId, dateFrom, dateTo, debouncedSearch].filter(Boolean).length
 
   async function handleDelete(id: string) {
-    if (!confirm("Remove this notice from the list?")) return
+    if (!(await confirm({ title: "Remove this notice from the list?", confirmLabel: "Remove", danger: true }))) return
     try {
       await deleteScrapedItem(id)
       toast.success("Notice removed")

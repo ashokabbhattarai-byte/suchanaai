@@ -19,6 +19,7 @@ import {
   isQuotaError, type QuotaDenial,
 } from "@/lib/api"
 import { UpgradePrompt } from "@/components/billing/upgrade-prompt"
+import { useConfirm } from "@/components/ui/confirm-dialog"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/toast"
 
@@ -465,6 +466,7 @@ function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded:
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function RagPage() {
+  const confirm = useConfirm()
   const { user } = useAuth()
 
   const [view, setView] = useState<ViewMode>("split")
@@ -576,7 +578,15 @@ export default function RagPage() {
   )
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this document? You won't be able to ask questions about it anymore.")) return
+    if (
+      !(await confirm({
+        title: "Delete this document?",
+        description: "You won't be able to ask questions about it anymore.",
+        confirmLabel: "Delete",
+        danger: true,
+      }))
+    )
+      return
     try {
       await deleteDocument(id)
       setDocs(prev => prev.filter(d => d.id !== id))

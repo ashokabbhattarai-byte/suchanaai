@@ -20,6 +20,7 @@ import {
   User,
 } from "lucide-react"
 import { AdminLayout } from "@/components/admin/admin-layout"
+import { useConfirm } from "@/components/ui/confirm-dialog"
 import { Header } from "@/components/layout/header"
 import { useAuth } from "@/lib/auth-context"
 import { toast } from "sonner"
@@ -47,6 +48,7 @@ function formatDateTime(d: string | null) {
 }
 
 export default function AdminUsersPage() {
+  const confirm = useConfirm()
   const { user: me } = useAuth()
 
   const [users, setUsers] = useState<AdminUser[]>([])
@@ -193,7 +195,7 @@ export default function AdminUsersPage() {
     }
     const nextRole = u.role === "admin" ? "user" : "admin"
     const label = nextRole === "admin" ? "promote to admin" : "revoke admin"
-    if (!confirm(`Are you sure you want to ${label} for ${u.email}?`)) return
+    if (!(await confirm({ title: `Are you sure you want to ${label} for ${u.email}?` }))) return
     setBusyId(u.id)
     try {
       await updateAdminUser(u.id, { role: nextRole })
@@ -212,7 +214,16 @@ export default function AdminUsersPage() {
       return
     }
     const nextStatus = u.status === "active" ? "inactive" : "active"
-    if (nextStatus === "inactive" && !confirm(`Deactivate ${u.email}? They will not be able to sign in.`)) return
+    if (
+      nextStatus === "inactive" &&
+      !(await confirm({
+        title: `Deactivate ${u.email}?`,
+        description: "They will not be able to sign in.",
+        confirmLabel: "Deactivate",
+        danger: true,
+      }))
+    )
+      return
     setBusyId(u.id)
     try {
       await updateAdminUser(u.id, { status: nextStatus })

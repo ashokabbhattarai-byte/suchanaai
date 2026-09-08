@@ -553,6 +553,12 @@ export interface AiProviderHealth {
   ok: boolean
   latencyMs: number | null
   error: string | null
+  /** Set when a fallback model answered instead of the configured one
+   * (OpenRouter's multi-model chain) — the panel should show this instead
+   * of silently reporting green under the old model's name. */
+  note?: string | null
+  /** The model that actually answered this probe, if any. */
+  resolvedModel?: string | null
 }
 
 export interface AiHealthSnapshot {

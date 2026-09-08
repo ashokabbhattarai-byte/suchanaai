@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Phone, CheckCircle, XCircle, Loader2, QrCode, LogOut } from "lucide-react"
 import { fetchAdminWhatsappStatus, fetchAdminWhatsappQr, logoutAdminWhatsapp, AdminWhatsappStatus } from "@/lib/api"
 import { toast } from "sonner"
+import { useConfirm } from "@/components/ui/confirm-dialog"
 
 const STATUS_POLL_MS = 5000
 
@@ -15,6 +16,7 @@ const STATUS_POLL_MS = 5000
  * session so a new one can be linked.
  */
 export function AdminWhatsappCard() {
+  const confirm = useConfirm()
   const [status, setStatus] = useState<AdminWhatsappStatus | null>(null)
   const [qr, setQr] = useState<{ base64: string | null; pairingCode: string | null } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -55,7 +57,15 @@ export function AdminWhatsappCard() {
   }
 
   const handleLogout = async () => {
-    if (!confirm("Disconnect the shared WhatsApp sender number? All users' alerts will stop delivering until a new number is linked.")) return
+    if (
+      !(await confirm({
+        title: "Disconnect the shared WhatsApp sender number?",
+        description: "All users' alerts will stop delivering until a new number is linked.",
+        confirmLabel: "Disconnect",
+        danger: true,
+      }))
+    )
+      return
     setBusy(true)
     setError(null)
     try {

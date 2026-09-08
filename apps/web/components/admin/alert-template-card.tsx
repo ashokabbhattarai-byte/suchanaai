@@ -11,6 +11,7 @@ import {
   AlertTemplateToken,
 } from "@/lib/api"
 import { toast } from "sonner"
+import { useConfirm } from "@/components/ui/confirm-dialog"
 
 const SETTING_KEY = "alerts.whatsappTemplate"
 const PREVIEW_DEBOUNCE_MS = 400
@@ -24,6 +25,7 @@ const PREVIEW_DEBOUNCE_MS = 400
  * message will actually look like rendered — this one shows both.
  */
 export function AlertTemplateCard() {
+  const confirm = useConfirm()
   const [template, setTemplate] = useState("")
   const [savedTemplate, setSavedTemplate] = useState("")
   const [defaultTemplate, setDefaultTemplate] = useState("")
@@ -90,7 +92,15 @@ export function AlertTemplateCard() {
   }
 
   const handleReset = async () => {
-    if (!confirm("Reset the WhatsApp alert template to the built-in default? Your edits will be lost.")) return
+    if (
+      !(await confirm({
+        title: "Reset the WhatsApp alert template to the built-in default?",
+        description: "Your edits will be lost.",
+        confirmLabel: "Reset",
+        danger: true,
+      }))
+    )
+      return
     setResetting(true)
     setError(null)
     try {

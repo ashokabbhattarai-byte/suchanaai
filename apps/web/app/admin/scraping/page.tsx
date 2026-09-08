@@ -37,6 +37,7 @@ import {
 } from "lucide-react"
 import { AdminLayout } from "@/components/admin/admin-layout"
 import { SourceDiagnosis } from "@/components/admin/source-diagnosis"
+import { useConfirm } from "@/components/ui/confirm-dialog"
 import { Header } from "@/components/layout/header"
 import {
   fetchScrapeSources,
@@ -214,6 +215,7 @@ function AdminScrapingPageContent() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const didMountSync = useRef(false)
+  const confirm = useConfirm()
 
   const [activeTab, setActiveTabState] = useState<"sources" | "logs">(
     () =>
@@ -514,9 +516,9 @@ function AdminScrapingPageContent() {
   /** Apply a diagnosis's suggested settings change to the source. */
   async function handleApplyFix(source: ScrapeSource, diagnosis: ScrapeDiagnosis) {
     const summary = Object.entries(diagnosis.patch)
-      .map(([field, value]) => `  ${field} → ${value}`)
+      .map(([field, value]) => `${field} → ${value}`)
       .join("\n")
-    if (!window.confirm(`Apply this fix to "${source.name}"?\n\n${summary}`)) return
+    if (!(await confirm({ title: `Apply this fix to "${source.name}"?`, description: summary }))) return
 
     setApplyingFix(`${source.id}:${diagnosis.code}`)
     try {
@@ -838,7 +840,15 @@ function AdminScrapingPageContent() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this source? Its scraped items and run history will also be removed.")) return
+    if (
+      !(await confirm({
+        title: "Delete this source?",
+        description: "Its scraped items and run history will also be removed.",
+        confirmLabel: "Delete",
+        danger: true,
+      }))
+    )
+      return
     try {
       await deleteScrapeSource(id)
       toast.success("Source deleted")
@@ -908,14 +918,14 @@ function AdminScrapingPageContent() {
               {runningAll ? "Starting runs…" : "Run all sources"}
             </button>
             <button
-              onClick={() => {
-                if (
-                  window.confirm(
-                    "Deep scrape every enabled source?\n\nEach source's listings are walked page by page to the end of the archive, not just the newest few. This can take an hour and makes far more requests to each site.",
-                  )
-                ) {
-                  void handleRunAll(true)
-                }
+              onClick={async () => {
+                const ok = await confirm({
+                  title: "Deep scrape every enabled source?",
+                  description:
+                    "Each source's listings are walked page by page to the end of the archive, not just the newest few. This can take an hour and makes far more requests to each site.",
+                  confirmLabel: "Deep scrape all",
+                })
+                if (ok) void handleRunAll(true)
               }}
               disabled={runningAll || activeSources === 0}
               className="flex items-center gap-2 rounded-full border border-vez-line px-5 py-2.5 text-sm text-vez-navy transition-colors hover:bg-vez-surface disabled:cursor-not-allowed disabled:opacity-50"
@@ -1258,14 +1268,13 @@ function AdminScrapingPageContent() {
                               {isRunning ? "Scraping…" : "Run now"}
                             </button>
                             <button
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    `Deep scrape "${source.name}"?\n\nEvery listing page is walked to the end of the archive, not just the newest ${source.maxPages}. This takes much longer and makes many more requests to the site.`,
-                                  )
-                                ) {
-                                  void handleRun(source.id, true)
-                                }
+                              onClick={async () => {
+                                const ok = await confirm({
+                                  title: `Deep scrape "${source.name}"?`,
+                                  description: `Every listing page is walked to the end of the archive, not just the newest ${source.maxPages}. This takes much longer and makes many more requests to the site.`,
+                                  confirmLabel: "Deep scrape",
+                                })
+                                if (ok) void handleRun(source.id, true)
                               }}
                               disabled={isRunning || !source.enabled}
                               className="flex items-center gap-1.5 rounded-full border border-vez-line px-4 py-2 text-xs text-vez-navy transition-colors hover:bg-vez-surface disabled:opacity-50"

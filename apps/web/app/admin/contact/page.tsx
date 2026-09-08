@@ -18,6 +18,7 @@ import {
   Clock,
 } from "lucide-react"
 import { AdminLayout } from "@/components/admin/admin-layout"
+import { useConfirm } from "@/components/ui/confirm-dialog"
 import { Header } from "@/components/layout/header"
 import {
   fetchContactMessages,
@@ -50,6 +51,7 @@ function formatDate(d: string) {
 }
 
 export default function AdminContactPage() {
+  const confirm = useConfirm()
   const [messages, setMessages] = useState<ContactMessage[]>([])
   const [meta, setMeta] = useState({ page: 1, limit: PAGE_SIZE, total: 0, totalPages: 1 })
   const [counts, setCounts] = useState<{ total: number; byStatus: Record<string, number> } | null>(null)
@@ -119,7 +121,7 @@ export default function AdminContactPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this message permanently?")) return
+    if (!(await confirm({ title: "Delete this message permanently?", confirmLabel: "Delete", danger: true }))) return
     setBusyId(id)
     try {
       await deleteContactMessage(id)

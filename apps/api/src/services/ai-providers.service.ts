@@ -515,6 +515,27 @@ export class AiProvidersService implements OnModuleInit {
     return this.toView(updated);
   }
 
+  /**
+   * Self-heal entry point: the AI service calls this (via
+   * InternalAiProvidersController) when it finds the configured model for a
+   * provider consistently failing but a fallback model from its own vetted
+   * list answering instead — see llm.py's self_heal_openrouter. Deliberately
+   * narrow (model only, by slug, no validation beyond existence) so this
+   * can never be used to change anything but which model is tried.
+   */
+  async updateModelBySlug(slug: string, model: string): Promise<void> {
+    const existing = await this.prisma.aiProvider.findUnique({ where: { slug } });
+    if (!existing) {
+      this.logger.warn(`Self-heal: unknown provider slug "${slug}", ignoring`);
+      return;
+    }
+    if (existing.model === model) return;
+    await this.prisma.aiProvider.update({ where: { slug }, data: { model } });
+    this.logger.warn(
+      `Self-heal: provider "${slug}" model auto-rotated from "${existing.model}" to "${model}" (configured model was unresponsive)`,
+    );
+  }
+
   async remove(id: string) {
     const existing = await this.findOne(id);
     if (existing.isBuiltIn) {
