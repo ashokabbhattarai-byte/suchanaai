@@ -598,7 +598,6 @@ async def _llm_chat(
     # as_completed yields in finish order, regardless of start order — that is
     # the whole point: fastest wins, even if it is not top priority.
     winner: str | None = None
-    winner_provider: dict | None = None
     try:
         for coro in asyncio.as_completed(tasks):
             try:
@@ -607,7 +606,6 @@ async def _llm_chat(
                 continue
             if result:
                 winner = result
-                winner_provider = provider
                 logger.info(
                     "Hedged race won by %s (%s) — cancelling %d other agent(s)",
                     provider.get("label", provider.get("slug")),
