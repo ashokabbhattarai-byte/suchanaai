@@ -454,11 +454,24 @@ async function throwApiError(res: Response): Promise<never> {
 /** No caller sets a longer-running request without passing its own signal, so one shared ceiling is enough. */
 const DEFAULT_TIMEOUT_MS = 20_000
 
-/** A GET is safe to retry (no side effects); a single retry papers over a dropped connection or a cold-start blip. */
+/** A GET is safe to retry (no side effects); a few retries paper over a dropped connection, DNS hiccup, or cold-start blip. */
 const RETRYABLE_METHODS = new Set(["GET", "HEAD"])
+const MAX_RETRIES = 3
+const BASE_DELAY_MS = 400
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function jitter(ms: number): number {
+  // 0.7x .. 1.3x so concurrent pollers desynchronise rather than thundering-herd on recovery.
+  return ms * (0.7 + Math.random() * 0.6)
+}
+
+function backoffDelay(attempt: number): number {
+  // 400, 800, 1600 (+jitter) - covers the ERR_NETWORK_CHANGED / ERR_NAME_NOT_RESOLVED blip in the screenshot,
+  // which is a transient OS/DNS event that recovers within seconds, not a hard failure.
+  return jitter(BASE_DELAY_MS * Math.pow(2, attempt))
 }
 
 /** Combines the caller's own abort signal (if any) with an internal timeout, so either can cancel the fetch. */
@@ -470,50 +483,78 @@ function timeoutSignal(callerSignal: AbortSignal | null | undefined, ms: number)
   return controller.signal
 }
 
-async function requestJson<T>(path: string, init: RequestInit, attempt = 0): Promise<T> {
+async function requestJson<T>(path: string, init: RequestInit): Promise<T> {
   const token = tokenStore.get()
   const method = (init.method ?? "GET").toUpperCase()
+  const retryable = RETRYABLE_METHODS.has(method)
 
-  let res: Response
-  try {
-    res = await fetch(`${API_URL}${path}`, {
-      ...init,
-      signal: timeoutSignal(init.signal, DEFAULT_TIMEOUT_MS),
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...init.headers,
-      },
-    })
-  } catch (err) {
-    // AbortError (our own timeout, not a caller-initiated cancel) and raw
-    // network failures both mean "never got a response" — retry once for
-    // idempotent requests before giving up.
-    const callerAborted = init.signal?.aborted
-    if (!callerAborted && attempt === 0 && RETRYABLE_METHODS.has(method)) {
-      await sleep(400)
-      return requestJson<T>(path, init, attempt + 1)
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    let res: Response
+    try {
+      res = await fetch(`${API_URL}${path}`, {
+        ...init,
+        signal: timeoutSignal(init.signal, DEFAULT_TIMEOUT_MS),
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...init.headers,
+        },
+      })
+    } catch (err) {
+      const callerAborted = !!init.signal?.aborted
+      if (callerAborted) throw err
+      // Network layer failure: offline, DNS (ERR_NAME_NOT_RESOLVED), interface
+      // switch (ERR_NETWORK_CHANGED), ECONNREFUSED, or our own timeout abort.
+      // Chrome surfaces all of these as TypeError("Failed to fetch") or
+      // DOMException AbortError. Retry with exponential backoff for idempotent
+      // requests; any non-retryable method or exhausted budget becomes a
+      // user-facing NetworkError.
+      if (retryable && attempt < MAX_RETRIES) {
+        const offlinePenalty =
+          typeof navigator !== "undefined" && !navigator.onLine ? 1000 : 0
+        await sleep(backoffDelay(attempt) + offlinePenalty)
+        continue
+      }
+      if (callerAborted) throw err
+      throw new NetworkError()
     }
-    if (callerAborted) throw err
-    throw new NetworkError()
-  }
 
-  if (!res.ok) {
-    // A 401 while we believed we were signed in means the session died
-    // (expired token, revoked account, storage wiped mid-session). Clear it
-    // and tell AuthProvider so protected pages bounce to /login.
-    if (res.status === 401 && token && typeof window !== "undefined") {
-      tokenStore.clear()
-      window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT))
+    if (!res.ok) {
+      // A 401 while we believed we were signed in means the session died
+      // (expired token, revoked account, storage wiped mid-session). Clear it
+      // and tell AuthProvider so protected pages bounce to /login.
+      if (res.status === 401 && token && typeof window !== "undefined") {
+        tokenStore.clear()
+        window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT))
+      }
+      const retryableStatus =
+        res.status === 429 ||
+        res.status === 408 ||
+        (res.status >= 500 && res.status <= 504)
+      if (retryable && retryableStatus && attempt < MAX_RETRIES) {
+        let delay = backoffDelay(attempt)
+        if (res.status === 429) {
+          const retryAfter = res.headers.get("retry-after")
+          if (retryAfter) {
+            const secs = parseInt(retryAfter, 10)
+            if (!isNaN(secs) && secs > 0 && secs < 60) delay = Math.max(delay, secs * 1000)
+          }
+        }
+        // Drain body so the connection can be reused before we retry.
+        try {
+          await res.text()
+        } catch {
+          // ignore
+        }
+        await sleep(delay)
+        continue
+      }
+      await throwApiError(res)
     }
-    // A transient 5xx (cold start, brief overload) is worth one retry too.
-    if (res.status >= 500 && attempt === 0 && RETRYABLE_METHODS.has(method)) {
-      await sleep(400)
-      return requestJson<T>(path, init, attempt + 1)
-    }
-    await throwApiError(res)
+    return res.json() as Promise<T>
   }
-  return res.json() as Promise<T>
+  // Should be unreachable — loop either returns or throws above.
+  throw new NetworkError()
 }
 
 /** Exchange a Google ID token for an app session and return the mapped user. */

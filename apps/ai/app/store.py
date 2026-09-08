@@ -233,13 +233,40 @@ def index_document(
 
     batch_size = 100
     total = len(points)
+    import time as _time
+
     for start in range(0, total, batch_size):
         batch = points[start : start + batch_size]
-        client.upsert(collection_name=config.QDRANT_COLLECTION, points=batch)
+        last_err = None
+        for attempt in range(3):
+            try:
+                client.upsert(collection_name=config.QDRANT_COLLECTION, points=batch)
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                if attempt == 2:
+                    break
+                backoff = 0.6 * (2**attempt)
+                logger.warning(
+                    "Qdrant upsert %d-%d/%d failed (attempt %d/3): %s — retrying in %.1fs",
+                    start,
+                    min(start + batch_size, total),
+                    total,
+                    attempt + 1,
+                    e,
+                    backoff,
+                )
+                _time.sleep(backoff)
+        if last_err is not None:
+            raise RuntimeError(f"Qdrant upsert failed after 3 attempts: {last_err}") from last_err
         done = min(start + batch_size, total)
         logger.info("Upserted points %d-%d/%d for doc_id=%s", start, done, total, doc_id)
         if on_progress:
-            on_progress(done, total)
+            try:
+                on_progress(done, total)
+            except Exception:
+                logger.exception("on_progress callback failed at %d/%d", done, total)
 
     logger.info("Indexed %d chunks for doc_id=%s", total, doc_id)
     return total

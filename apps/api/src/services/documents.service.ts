@@ -236,24 +236,47 @@ export class DocumentsService {
     });
   }
 
-  /** Live ingestion progress for many documents in a single AI-service call. */
+  /** Live ingestion progress for many documents in a single AI-service call.
+   *  Retries a couple of times with back-off so a fleeting DNS / interface
+   *  blip (the ERR_NAME_NOT_RESOLVED / ERR_NETWORK_CHANGED burst in the
+   *  screenshot) does not turn a whole poll tick into an empty `{}` and
+   *  freeze every card at its last percent.
+   */
   async getProgressBatch(
     ids: string[],
   ): Promise<Record<string, Record<string, any> | null>> {
     if (ids.length === 0) return {};
 
-    try {
-      const response = await firstValueFrom(
-        this.httpService.get(`${this.aiServiceUrl}/progress`, {
-          params: { ids: ids.join(',') },
-          timeout: 5000,
-        }),
-      );
-      return response.data.progress ?? {};
-    } catch {
-      // AI service unavailable — report nothing rather than failing the poll.
-      return {};
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await firstValueFrom(
+          this.httpService.get(`${this.aiServiceUrl}/progress`, {
+            params: { ids: ids.join(',') },
+            timeout: 5000,
+          }),
+        );
+        return response.data.progress ?? {};
+      } catch (err: any) {
+        const status = err.response?.status;
+        const retryable = !status || status === 429 || (status >= 500 && status <= 504);
+        const transientCode = err.code
+        const msg = String(err.message ?? '')
+        const isNetwork =
+          !status &&
+          (!!transientCode ||
+            /network|econn|enotfound|eai_again|err_name_not_resolved|err_network_changed|timeout|socket hang up/i.test(
+              msg + ' ' + String(transientCode ?? ''),
+            ));
+        if ((retryable || isNetwork) && attempt < 2) {
+          const delay = 300 * Math.pow(2, attempt) + Math.random() * 200;
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        // AI service unavailable — report nothing rather than failing the poll.
+        return {};
+      }
     }
+    return {};
   }
 
   /** Proxy live ingestion progress from the AI service. */
@@ -370,8 +393,9 @@ export class DocumentsService {
     });
   }
 
-  async processDocument(document: Document): Promise<void> {
-    // Mark as processing
+  async processDocument(document: Document, attempt = 0): Promise<void> {
+    const MAX_ATTEMPTS = 5
+    // Mark as processing (idempotent — re-embeds land here too)
     await this.prisma.document.update({
       where: { id: document.id },
       data: { status: DocumentStatus.PROCESSING },
@@ -419,35 +443,68 @@ export class DocumentsService {
       // embed document: …", "No text could be extracted", …). Logging only
       // axios's "Request failed with status code 500" hides all of it.
       const upstream = err.response?.data?.error;
-      const status = err.response?.status;
-      const isTimeout = err.code === 'ECONNABORTED' || /timeout/i.test(err.message ?? '');
-      const isRateLimited = status === 429;
+      const status: number | undefined = err.response?.status;
+      const code: string | undefined = err.code
+      const msg: string = err.message ?? ''
+      const isTimeout = code === 'ECONNABORTED' || /timeout/i.test(msg)
+      const isRateLimited = status === 429
+      const isNetworkError =
+        !status &&
+        (!!code ||
+          /network|econn|enotfound|eai_again|err_name_not_resolved|err_network_changed|failed to fetch|socket hang up|ehostunreach|etimedout/i.test(
+            msg + ' ' + (code ?? ''),
+          ))
+      const isTransientStatus =
+        status === 408 || status === 429 || status === 502 || status === 503 || status === 504 || status === 500
+      const isPermanentClientError = status === 400 || status === 413 || status === 422
 
-      // 429 is a transient quota/throttler signal, not a document failure.
-      // The ingestion pipeline itself (local E5 embeddings) does not spend LLM
-      // quota, so a 429 here is the AI service's own Throttler or an LLM
-      // provider exhausted for a *different* endpoint, or a burst of parallel
-      // uploads hitting the API's 20/min gate. Marking the document FAILED
-      // is wrong — it blocks the UI's re-embed and, for a poster PDF
-      // (scanned image -> OCR), the file is perfectly indexable once quota
-      // recovers. Keep it PROCESSING and retry shortly.
-      if (isRateLimited) {
-        this.logger.warn(
-          `AI service rate limited (429) for document ${document.id}: ${upstream ?? err.message} — will retry in 60s; leaving as PROCESSING`,
+      // Permanent content errors (empty extraction, bad MIME, too large after
+      // re-check) must not be retried — they'd just fail identically and
+      // spam the AI. Everything else is conservatively treated as transient
+      // and retried with exponential back-off, keeping the row PROCESSING so
+      // the frontend's batch?ids=... poll continues to show live progress
+      // instead of flashing FAILED in the middle of a network blip.
+      if (isPermanentClientError) {
+        this.logger.error(
+          `Document processing failed permanently for ${document.id}` +
+            `${status ? ` (AI service ${status})` : ''}: ${upstream ?? msg}`,
         );
-        // Retry the same pipeline after a cooldown; the document stays
-        // PROCESSING so the frontend keeps polling progress instead of
-        // showing a terminal error.
-        const t = setTimeout(() => void this.processDocument(document).catch((e) => {
-          this.logger.error(`Retry after 429 failed for ${document.id}: ${e.message}`);
-        }), 60_000);
-        if (t.unref) t.unref();
-        return;
+        await this.prisma.document.update({
+          where: { id: document.id },
+          data: { status: DocumentStatus.FAILED },
+        });
+        return
+      }
+
+      if (isRateLimited || isNetworkError || isTransientStatus || isTimeout) {
+        if (attempt < MAX_ATTEMPTS) {
+          // 429 (quota/throttler) waits longest; pure network/DNS blips
+          // (ERR_NAME_NOT_RESOLVED / ERR_NETWORK_CHANGED in the screenshot)
+          // recover fastest. Scale accordingly but always exponential.
+          const base =
+            isRateLimited ? 60_000 : isNetworkError ? 5_000 : isTimeout ? 10_000 : 8_000
+          const jitter = Math.random() * 0.4 + 0.8 // 0.8x..1.2x
+          const delay = Math.min(base * Math.pow(1.8, attempt) * jitter, 120_000)
+          this.logger.warn(
+            `Transient ${isRateLimited ? '429' : isNetworkError ? `network(${code ?? 'no-code'})` : `AI ${status ?? 'timeout'}`} for document ${document.id} (attempt ${attempt + 1}/${MAX_ATTEMPTS}): ${upstream ?? msg} — retry in ${Math.round(delay / 1000)}s; leaving as PROCESSING`,
+          );
+          const t = setTimeout(
+            () =>
+              void this.processDocument(document, attempt + 1).catch((e) => {
+                this.logger.error(`Retry attempt ${attempt + 1} failed for ${document.id}: ${e.message}`);
+              }),
+            delay,
+          );
+          if (t.unref) t.unref();
+          return
+        }
+        // Exhausted retries — fall through to mark FAILED but, for timeouts,
+        // still schedule reconciliation because the AI worker may yet finish.
       }
 
       this.logger.error(
         `Document processing failed for ${document.id}` +
-          `${status ? ` (AI service ${status})` : ''}: ${upstream ?? err.message}`,
+          `${status ? ` (AI service ${status})` : ''}: ${upstream ?? msg} (attempt ${attempt + 1}/${MAX_ATTEMPTS})`,
       );
 
       await this.prisma.document.update({
@@ -466,6 +523,11 @@ export class DocumentsService {
       // (OCR + embedding) succeeds well before either fires; this is only for
       // slow-path large docs that actually do exceed the budget.
       if (isTimeout) {
+        this.scheduleReconciliation(document.id);
+      } else if (isNetworkError || isTransientStatus) {
+        // Even a non-timeout transient that exhausted retries may have
+        // actually indexed (e.g. we timed out reading the 201 but the write
+        // committed). Give reconciliation one chance.
         this.scheduleReconciliation(document.id);
       }
     }

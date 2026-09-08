@@ -192,7 +192,15 @@ function DocCard({ doc, progress, toggleBusy, canManage, onToggleEmbed, onDelete
   const showControls = canManage && !doc.isSystem
 
   const percent = isProcessing ? (progress?.percent ?? 0) : 0
-  const stageLabel = progress?.stage ? stageLabels[progress.stage] ?? "Processing" : "Queued"
+  // When the AI has accepted the job but the first progress poll hasn't
+  // landed yet (or a transient ERR_NETWORK_CHANGED burst hid it), show
+  // "Processing" rather than "Queued" so the card already feels alive.
+  // The bar itself stays indeterminate at 3% until the first real percent arrives.
+  const stageLabel = progress?.stage
+    ? (stageLabels[progress.stage] ?? "Processing")
+    : isProcessing
+      ? "Processing"
+      : "Queued"
 
   return (
     <div className="flex h-full min-w-0 flex-col rounded-2xl border border-vez-line/50 bg-white p-4 shadow-sm transition-all hover:border-vez-sky/50 hover:shadow-md sm:p-6">
@@ -658,54 +666,88 @@ export default function RagPage() {
 
   useEffect(() => {
     if (!processingKey) return
-    const ids = processingKey.split(",")
+    const ids = processingKey.split(",").filter(Boolean)
+    if (ids.length === 0) return
     let cancelled = false
     let ticks = 0
     let backoffMs = 3000
+    let _consecutiveFailures = 0
 
     let timer: ReturnType<typeof setTimeout>
 
     const tick = async () => {
-      try {
-        await pollOnce()
+      const ok = await pollOnce()
+      // Only reset to the brisk 3s cadence after a clean, successful probe.
+      // pollOnce itself already pushed backoffMs out for 429 / network blips
+      // (the ERR_NETWORK_CHANGED / ERR_NAME_NOT_RESOLVED burst in the
+      // screenshot is a transient DNS / interface event that clears in seconds,
+      // so a short exponential back-off rides it out without hammering the API).
+      if (ok) {
         backoffMs = 3000
-      } catch {
-        // pollOnce already swallows, this is just safety
-      } finally {
-        // Schedule the next poll only once this one settled: with setInterval a
-        // slow API queued a request per tick, and the pile-up starved every
-        // other call the page makes (chat queries included).
-        // 3000ms keeps us at 20 req/min — the global ThrottlerGuard limit —
-        // and backoff handles the 429 case without user-visible errors.
-        if (!cancelled) timer = setTimeout(tick, backoffMs)
+        _consecutiveFailures = 0
       }
+      // Schedule the next poll only once this one settled: with setInterval a
+      // slow API queued a request per tick, and the pile-up starved every
+      // other call the page makes (chat queries included).
+      // 3000ms keeps us at 20 req/min — the global ThrottlerGuard limit —
+      // and backoff handles the 429 / network case without user-visible errors.
+      if (!cancelled) timer = setTimeout(tick, backoffMs)
     }
 
-    const pollOnce = async () => {
+    const pollOnce = async (): Promise<boolean> => {
       ticks += 1
       let result: Record<string, DocumentProgress | null> = {}
       try {
         result = await fetchDocumentsProgress(ids)
       } catch (e) {
+        _consecutiveFailures += 1
         if (isApiError(e) && e.status === 429) {
           backoffMs = Math.min(backoffMs * 1.5, 10000)
+        } else if (isNetworkError(e) || e instanceof TypeError || (typeof navigator !== "undefined" && !navigator.onLine)) {
+          // Chrome net::ERR_NETWORK_CHANGED / ERR_NAME_NOT_RESOLVED,
+          // Safari NSURLError, Firefox NetworkError — all surface as
+          // TypeError("Failed to fetch") / NetworkError here. Back off a
+          // little; the requestJson layer already retried 3× with jitter, so
+          // reaching here means the blip lasted seconds, not milliseconds.
+          backoffMs = Math.min(backoffMs * 1.4, 8000)
+        } else if (isApiError(e) && e.status >= 500) {
+          backoffMs = Math.min(backoffMs * 1.35, 8000)
+        } else {
+          backoffMs = Math.min(backoffMs * 1.2, 6000)
         }
-        return
+        // Keep the last known progress on screen while the network
+        // recovers — clearing it would flicker every card back to
+        // "Queued 0%" even though the AI is still embedding.
+        return false
       }
-      if (cancelled) return
+      if (cancelled) return false
 
+      // If the AI restarted mid-embed its in-memory dict is gone and
+      // getProgressBatch returns {} / nulls. Preserving the previous
+      // percent avoids a jarring 32% -> 0% jump; the every-8th-tick
+      // loadDocs fallback will self-heal the status once Qdrant catches up.
       const next: Record<string, DocumentProgress> = {}
       let anyFinished = false
+      let anyProgress = false
       for (const id of ids) {
         const entry = result[id]
         if (!entry) continue
+        anyProgress = true
         next[id] = entry
         if (entry.stage === "done" || entry.stage === "failed") anyFinished = true
       }
-      setProgressMap(prev => ({ ...prev, ...next }))
+      if (anyProgress) {
+        setProgressMap(prev => ({ ...prev, ...next }))
+        _consecutiveFailures = 0
+      }
       // Refresh the list when something finished - or periodically as a
       // safety net in case the AI service has no progress entry for a doc.
       if (anyFinished || ticks % 8 === 0) loadDocs({ silent: true })
+      // If we went offline between ticks, linger a bit longer before the next probe.
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        backoffMs = Math.min(Math.max(backoffMs, 5000), 10000)
+      }
+      return true
     }
 
     void tick()

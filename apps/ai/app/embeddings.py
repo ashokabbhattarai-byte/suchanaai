@@ -61,7 +61,12 @@ def get_embeddings(
 
     kind: "passage" for indexed content, "query" for search questions.
     on_progress(done, total) is called after each batch, letting callers
-    surface live progress for long-running embeds.
+    surface live progress for long-running embeds. Each batch is retried
+    with exponential back-off so a transient hiccup (e.g. a momentary
+    OOM pressure or a model thread interruption) does not abort a
+    100-chunk document mid-way — previously the whole ingest would jump
+    straight to `failed` and the UI's batch?ids=… progress would stall
+    at the last reported percent.
     """
     model = _load_model()
     prefixed = _apply_prefix(texts, kind)
@@ -72,9 +77,31 @@ def get_embeddings(
     for start in range(0, total, batch_size):
         batch = prefixed[start : start + batch_size]
         t0 = time.perf_counter()
-        vectors = model.encode(
-            batch, batch_size=batch_size, normalize_embeddings=True
-        )
+        vectors = None
+        last_err: Optional[Exception] = None
+        for attempt in range(3):
+            try:
+                vectors = model.encode(
+                    batch, batch_size=batch_size, normalize_embeddings=True
+                )
+                break
+            except Exception as e:
+                last_err = e
+                if attempt == 2:
+                    break
+                backoff = 0.5 * (2**attempt)  # 0.5s, 1.0s
+                logger.warning(
+                    "Embedding batch %d-%d/%d failed (attempt %d/3): %s — retrying in %.1fs",
+                    start,
+                    min(start + batch_size, total),
+                    total,
+                    attempt + 1,
+                    e,
+                    backoff,
+                )
+                time.sleep(backoff)
+        if vectors is None:
+            raise RuntimeError(f"Embedding failed after 3 attempts: {last_err}")
         results.extend(vectors.tolist())
         done = min(start + batch_size, total)
         logger.info(
@@ -85,7 +112,12 @@ def get_embeddings(
             (time.perf_counter() - t0) * 1000,
         )
         if on_progress:
-            on_progress(done, total)
+            try:
+                on_progress(done, total)
+            except Exception:
+                # Progress callback is best-effort (writes to an in-memory
+                # dict); never let it abort the embedding itself.
+                logger.exception("on_progress callback failed at %d/%d", done, total)
 
     return results
 
