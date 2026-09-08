@@ -328,11 +328,11 @@ function NoticesPageContent() {
     searchQuery !== "" || selectedCategory !== "all" || selectedSourceId !== "" || selectedTag !== ""
 
   return (
-    <div className="flex min-h-[calc(100dvh-5rem)] flex-col bg-white font-poppins overflow-x-hidden">
+    <div className="flex min-h-0 flex-col bg-white font-poppins overflow-x-hidden">
       <Header />
 
-      {/* Responsive workspace - natural scroll on mobile, fixed-height on desktop */}
-      <div className="mx-auto flex w-full max-w-[1480px] flex-1 flex-col gap-4 sm:gap-6 px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+      {/* Workspace — content-driven height (no viewport-forced flex-1), centered max-width per ui-ux-pro-max container-width */}
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-6 px-4 py-6 sm:px-6 lg:px-8">
 
         {/* Top bar - stacks vertically on mobile, horizontal on sm+ */}
         <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
@@ -480,10 +480,10 @@ function NoticesPageContent() {
           )}
         </div>
 
-        {/* Panels - the feed grows with its content; the page itself scrolls */}
-        <div className="flex flex-1 flex-col gap-4 pb-5 md:flex-row sm:gap-6">
-          {/* ── Notice feed — full-width card, no internal scroll container */}
-          <div className="flex w-full min-w-0 flex-1 flex-col overflow-visible rounded-[20px] bg-vez-surface">
+        {/* Panels - content-priority: feed height = content, single column on all breakpoints (no nested scroll) */}
+        <div className="flex flex-col gap-4 pb-8 sm:gap-6">
+          {/* ── Notice feed — h-auto, no flex-1 stretch; bg-vez-surface only wraps content (visual-hierarchy) */}
+          <div className="flex w-full min-w-0 flex-col overflow-visible rounded-[20px] bg-vez-surface border border-vez-line/50">
             <div className="flex shrink-0 flex-col items-center justify-between gap-2 border-b border-vez-line p-4 sm:flex-row sm:px-6 sm:py-4">
               <p suppressHydrationWarning className="text-sm text-vez-ink">
                 {total.toLocaleString()} notice{total !== 1 ? "s" : ""}
@@ -508,18 +508,20 @@ function NoticesPageContent() {
               </span>
             </div>
 
-            <div ref={feedRef} className="flex-1 space-y-2 overflow-visible p-4 sm:p-6">
+            <div ref={feedRef} className="space-y-3 p-4 sm:p-6">
               {loading ? (
-                <div className="flex h-full items-center justify-center text-vez-mute">
+                <div className="flex min-h-[280px] items-center justify-center py-12 text-vez-mute sm:min-h-[320px]">
                   <Loader2 className="size-5 animate-spin" />
                 </div>
               ) : error ? (
-                <ErrorState error={error} onRetry={load} className="h-full" />
+                <div className="min-h-[280px] py-6 sm:min-h-[320px]">
+                  <ErrorState error={error} onRetry={load} className="min-h-[260px]" />
+                </div>
               ) : notices.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center py-16 text-center text-vez-mute">
-                  <Filter className="mb-4 size-10 opacity-30" />
-                  <h3 className="mb-1 text-base text-vez-ink">No notices found</h3>
-                  <p className="mb-5 text-sm">Try adjusting your search or filter criteria</p>
+                <div className="flex min-h-[280px] flex-col items-center justify-center gap-1 px-6 py-12 text-center text-vez-mute sm:min-h-[320px]">
+                  <Filter className="mb-3 size-10 opacity-30" />
+                  <h3 className="text-base text-vez-ink">No notices found</h3>
+                  <p className="mb-4 text-sm">Try adjusting your search or filter criteria</p>
                   <button
                     className="min-h-[44px] rounded-full border border-vez-line bg-white px-5 py-2.5 text-sm text-vez-ink transition-colors hover:bg-vez-sky/20 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vez-navy/20"
                     onClick={clearFilters}

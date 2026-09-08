@@ -108,7 +108,7 @@ export function Header() {
             : "bg-transparent"
         )}
       >
-        <div className="mx-auto flex h-16 sm:h-20 max-w-[1480px] flex-wrap items-center justify-between gap-2 sm:gap-4 lg:gap-6 px-4 sm:px-6 md:px-8 lg:px-12">
+        <div className="mx-auto flex h-16 sm:h-20 max-w-7xl flex-wrap items-center justify-between gap-2 sm:gap-4 lg:gap-6 px-4 sm:px-6 md:px-8 lg:px-8">
           {/* Brand - responsive sizing to prevent overflow on 375px */}
           <Link href="/" className="shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vez-navy focus-visible:ring-offset-2 rounded-lg min-h-[44px] flex items-center">
             <Image

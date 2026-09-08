@@ -135,8 +135,8 @@ function Markdown({ content }: { content: string }) {
           <blockquote className="mb-2 border-l-2 border-vez-sky pl-3 text-vez-mute last:mb-0">{children}</blockquote>
         ),
         table: ({ children }) => (
-          <div className="mb-3 -mx-4 overflow-x-auto last:mb-0 sm:mx-0">
-            <table className="w-full min-w-[600px] border-collapse text-[13px]">{children}</table>
+          <div className="mb-3 max-w-full overflow-x-auto last:mb-0">
+            <table className="w-full min-w-[520px] border-collapse text-[13px]">{children}</table>
           </div>
         ),
         th: ({ children }) => <th className="whitespace-nowrap border border-vez-line/60 bg-vez-sky/10 px-3 py-2 text-left font-semibold">{children}</th>,
@@ -813,9 +813,12 @@ export default function RagPage() {
   }
 
   // Clamp the library pane to a sane share of the split container.
+  // 55% keeps a balanced split at 1024/1280/1440 breakpoints and leaves
+  // room for the 20px resizer + gap scale (4/8). Min 320 preserves
+  // readable line length (~35 chars) on 375px base.
   const clampLibWidth = useCallback((width: number) => {
-    const maxW = splitRef.current ? splitRef.current.offsetWidth * 0.6 : 720
-    return Math.min(Math.max(width, 240), maxW)
+    const maxW = splitRef.current ? splitRef.current.offsetWidth * 0.55 : 640
+    return Math.min(Math.max(width, 320), maxW)
   }, [])
 
   // Drag to resize — pointer events cover mouse, touch and pen alike.
@@ -872,7 +875,7 @@ export default function RagPage() {
   // ─── Library panel ──────────────────────────────────────────────────────────
 
   const Library = (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-vez-line/50 bg-vez-surface/50">
+    <div className="flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden overflow-x-hidden rounded-2xl border border-vez-line/50 bg-vez-surface/50">
       {/* Header */}
       <div className="shrink-0 border-b border-vez-line bg-white px-4 py-4 sm:px-6 sm:py-5">
         <div className="mb-2 flex items-center justify-between">
@@ -909,8 +912,8 @@ export default function RagPage() {
         </div>
       </div>
 
-      {/* Doc list */}
-      <div className="flex-1 space-y-3 overflow-y-auto p-4 sm:p-6">
+      {/* Doc list — min-w-0 prevents DocCard from forcing horizontal scroll on large viewports */}
+      <div className="flex-1 min-w-0 space-y-3 overflow-y-auto overflow-x-hidden p-4 sm:p-6">
         {docsLoading ? (
           <div className="flex flex-col items-center justify-center py-16 text-vez-mute">
             <Loader2 className="mb-3 size-7 animate-spin" />
@@ -957,7 +960,7 @@ export default function RagPage() {
   // ─── Chat panel ─────────────────────────────────────────────────────────────
 
   const Chat = (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-vez-line/50 bg-white shadow-sm">
+    <div className="flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden overflow-x-hidden rounded-2xl border border-vez-line/50 bg-white shadow-sm">
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-vez-line px-4 py-3.5 sm:px-6 sm:py-5">
         <div className="flex min-w-0 items-center gap-3 sm:gap-4">
@@ -991,8 +994,8 @@ export default function RagPage() {
         </div>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+      {/* Messages — min-w-0 + overflow-x-hidden prevents table/long text from forcing page scroll on large screens */}
+      <div className="flex-1 min-w-0 space-y-5 overflow-y-auto overflow-x-hidden px-4 py-4 sm:px-6 sm:py-5">
         {messages.map(msg => (
           <div key={msg.id} className={`flex gap-2.5 sm:gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
             {msg.role === "assistant" && (
@@ -1135,10 +1138,10 @@ export default function RagPage() {
   // ─── render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-white font-poppins">
+    <div className="flex h-[calc(100dvh-5rem-env(safe-area-inset-top))] min-h-0 flex-col overflow-hidden overflow-x-hidden bg-white font-poppins">
       <Header />
 
-      <div className="mx-auto flex w-full max-w-[1480px] min-h-0 flex-1 flex-col gap-3 px-4 py-3 sm:gap-5 sm:px-6 sm:py-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-7xl min-w-0 min-h-0 flex-1 flex-col gap-4 overflow-x-hidden px-4 py-4 sm:gap-6 sm:px-6 sm:py-6 lg:px-8">
 
         {/* Top bar */}
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 sm:gap-4">
@@ -1190,13 +1193,13 @@ export default function RagPage() {
         </div>
 
         {/* Panels */}
-        <div className="min-h-0 flex-1">
-          {/* Tablet and up */}
-          <div className="hidden h-full md:block">
+        <div className="min-h-0 flex-1 min-w-0 overflow-x-hidden">
+          {/* Tablet and up — md: 50/50 with gap-4 (16px), lg+: dragged width + 20px resizer gap (spacing scale 4/8) */}
+          <div className="hidden h-full min-w-0 md:block overflow-x-hidden">
             {view === "split" && (
-              <div ref={splitRef} className="flex h-full gap-0">
+              <div ref={splitRef} className="flex h-full min-w-0 gap-4 lg:gap-0">
                 {/* Tablet splits evenly; desktop honours the dragged width. */}
-                <div className="h-full w-1/2 shrink-0 lg:w-[var(--lib-w)]" style={{ ["--lib-w" as string]: `${libWidth}px` }}>
+                <div className="h-full min-w-0 w-full shrink-0 md:w-1/2 lg:w-[var(--lib-w)] max-w-full" style={{ ["--lib-w" as string]: `${libWidth}px` }}>
                   {Library}
                 </div>
                 <div
@@ -1211,7 +1214,7 @@ export default function RagPage() {
                 >
                   <div className="h-8 w-1 rounded-full bg-vez-line transition-colors group-hover:bg-vez-navy/40 group-focus-visible:bg-vez-navy group-active:bg-vez-navy" />
                 </div>
-                <div className="h-full min-w-0 flex-1 md:pl-3 lg:pl-0">
+                <div className="h-full min-w-0 flex-1 max-w-full">
                   {Chat}
                 </div>
               </div>
