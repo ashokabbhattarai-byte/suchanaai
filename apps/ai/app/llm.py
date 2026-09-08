@@ -1,9 +1,11 @@
 import asyncio
 import contextlib
+import hashlib
 import json
 import random
 import re
 import time
+from collections import OrderedDict
 from urllib.parse import urlparse
 
 import httpx
@@ -26,9 +28,6 @@ _MIN_SENTENCE_CHARS = 25
 # LRU eviction. Key = hash(question + context + language). For prod multi-
 # replica, swap this with ElastiCache Redis (same get/set API) — see note
 # in _cached_answer.
-import hashlib
-from collections import OrderedDict
-
 _ANSWER_CACHE: OrderedDict[str, tuple[float, str]] = OrderedDict()
 _ANSWER_CACHE_MAX = 500
 _ANSWER_CACHE_TTL = 300.0  # 5 min — notices don't change that fast

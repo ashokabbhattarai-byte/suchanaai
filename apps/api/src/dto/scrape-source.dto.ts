@@ -39,7 +39,7 @@ export class CreateScrapeSourceDto {
   @IsOptional()
   @IsString()
   @MaxLength(50)
-  @Matches(/^[a-zA-Z0-9_\-]+$/)
+  @Matches(/^[a-zA-Z0-9_-]+$/)
   paginationParam?: string;
 
   @IsOptional()
@@ -97,7 +97,7 @@ export class UpdateScrapeSourceDto {
   @IsOptional()
   @IsString()
   @MaxLength(50)
-  @Matches(/^[a-zA-Z0-9_\-]+$/)
+  @Matches(/^[a-zA-Z0-9_-]+$/)
   paginationParam?: string;
 
   @IsOptional()
