@@ -126,7 +126,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <RequireAuth>
-      <div className="flex flex-col lg:flex-row h-[calc(100vh-5rem)] w-full max-w-full overflow-hidden">
+      <div className="flex flex-col lg:flex-row h-[calc(100dvh-5rem)] min-h-0 w-full max-w-full overflow-hidden overflow-x-hidden">
       {/* Mobile hamburger - top bar for larger mobile, also floating */}
       <div className="flex items-center justify-between gap-2 border-b border-vez-line bg-white px-4 py-3 lg:hidden">
         <button
@@ -175,7 +175,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       </aside>
 
       <main className="min-w-0 flex-1 w-full overflow-y-auto overflow-x-hidden bg-vez-surface/60">
-        <div className="mx-auto w-full max-w-full p-4 sm:p-5 md:p-6 lg:p-8 overflow-x-hidden">
+        <div className="mx-auto w-full max-w-7xl min-w-0 p-4 sm:p-5 md:p-6 lg:p-8 overflow-x-hidden">
           {children}
         </div>
       </main>

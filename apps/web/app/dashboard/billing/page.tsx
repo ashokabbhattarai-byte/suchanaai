@@ -96,7 +96,7 @@ function BillingPageContent() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24 text-vez-mute">
+      <div className="flex min-h-[280px] items-center justify-center py-16 text-vez-mute">
         <Loader2 className="size-6 animate-spin" />
       </div>
     )
@@ -133,18 +133,25 @@ function BillingPageContent() {
           <span className="min-w-0 flex-1 break-words">
             {error instanceof Error ? error.message : "Could not open the billing portal"}
           </span>
+          <button
+            onClick={() => setError(null)}
+            className="shrink-0 rounded-full px-2 py-1 text-xs text-red-700 hover:bg-red-100 cursor-pointer min-h-[28px]"
+            aria-label="Dismiss error"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
       {/* Current plan — gradient hero for paid tiers, quieter card for Free */}
       <section
-        className={`w-full max-w-full min-w-0 overflow-hidden rounded-[24px] p-5 sm:p-8 ${
+        className={`w-full max-w-full min-w-0 overflow-hidden rounded-[24px] p-4 sm:p-6 lg:p-8 ${
           isPaid
             ? "bg-gradient-to-br from-vez-navy to-[#0b2a52] text-white shadow-lg shadow-vez-navy/15"
             : "border border-vez-line bg-white"
         }`}
       >
-        <div className="flex w-full min-w-0 flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex w-full min-w-0 flex-col gap-4 sm:gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0 flex-1 overflow-hidden">
             <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
               <span
@@ -189,11 +196,14 @@ function BillingPageContent() {
             </p>
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:gap-3">
             <Link
               href="/pricing"
-              className={`flex items-center gap-1.5 rounded-full px-4 py-2.5 text-sm transition-opacity hover:opacity-90 sm:px-5 ${
-                isPaid ? "bg-white text-vez-navy" : "bg-vez-navy text-white"
+              prefetch={false}
+              className={`flex min-h-[44px] cursor-pointer items-center justify-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-medium transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
+                isPaid
+                  ? "bg-white text-vez-navy focus-visible:ring-white/50"
+                  : "bg-vez-navy text-white focus-visible:ring-vez-navy"
               }`}
             >
               {summary.plan.tier === "MAX" ? "Compare plans" : "Upgrade"}
@@ -204,14 +214,15 @@ function BillingPageContent() {
               <button
                 onClick={handlePortal}
                 disabled={openingPortal}
-                className={`flex items-center gap-1.5 rounded-full border px-4 py-2.5 text-sm transition-colors disabled:opacity-60 sm:px-5 ${
+                aria-busy={openingPortal}
+                className={`flex min-h-[44px] cursor-pointer items-center justify-center gap-1.5 rounded-full border px-5 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-60 ${
                   isPaid
-                    ? "border-white/25 text-white hover:bg-white/10"
-                    : "border-vez-line text-vez-ink hover:bg-vez-surface"
+                    ? "border-white/25 text-white hover:bg-white/10 focus-visible:ring-white/50"
+                    : "border-vez-line text-vez-ink hover:bg-vez-surface focus-visible:ring-vez-navy"
                 }`}
               >
                 {openingPortal ? (
-                  <Loader2 className="size-3.5 animate-spin" />
+                  <Loader2 className="size-3.5 animate-spin shrink-0" />
                 ) : (
                   <CreditCard className="size-3.5 shrink-0" />
                 )}
@@ -234,7 +245,7 @@ function BillingPageContent() {
       </section>
 
       {/* Usage */}
-      <section className="w-full max-w-full min-w-0 overflow-hidden rounded-[24px] border border-vez-line bg-white p-5 sm:p-8">
+      <section className="w-full max-w-full min-w-0 overflow-hidden rounded-[24px] border border-vez-line bg-white p-4 sm:p-6 lg:p-8">
         <div className="mb-5 flex min-w-0 items-center justify-between gap-2 sm:mb-6">
           <div className="min-w-0 flex-1 overflow-hidden">
             <h3 className="break-words text-base font-medium text-vez-ink">This month&apos;s usage</h3>
@@ -244,13 +255,13 @@ function BillingPageContent() {
           </div>
           <button
             onClick={() => void load({ silent: true })}
-            className="flex shrink-0 items-center gap-1.5 rounded-full border border-vez-line px-3 py-1.5 text-xs text-vez-ink transition-colors hover:bg-vez-surface sm:px-3.5"
+            className="flex min-h-[36px] shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-vez-line px-3 py-1.5 text-xs font-medium text-vez-ink transition-colors hover:bg-vez-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vez-navy/20 sm:px-3.5"
           >
             <RefreshCw className="size-3 shrink-0" /> Refresh
           </button>
         </div>
 
-        <div className="grid w-full min-w-0 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 overflow-hidden">
+        <div className="grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3 xl:grid-cols-4 overflow-hidden">
           {meters.map((m) => (
             <div
               key={m.label}
@@ -264,7 +275,7 @@ function BillingPageContent() {
           ))}
         </div>
 
-        <div className="mt-7 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 border-t border-vez-line pt-6 text-xs text-vez-mute">
+        <div className="mt-7 grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-4 border-t border-vez-line pt-6 text-xs text-vez-mute">
           <div className="min-w-0 overflow-hidden">
             <p className="break-words text-base text-vez-ink">{summary.limits.maxUploadMb} MB</p>
             <p className="break-words">Max upload size</p>
@@ -300,7 +311,7 @@ export default function BillingPage() {
     <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-white font-poppins">
       <Header />
       <DashboardLayout>
-        <div className="w-full max-w-full min-w-0 overflow-hidden">
+        <div className="mx-auto w-full max-w-7xl min-w-0 overflow-hidden">
           <div className="mb-6 w-full max-w-full min-w-0 overflow-hidden sm:mb-8">
             <h1 className="break-words text-[clamp(22px,6vw,40px)] font-normal leading-tight tracking-[-0.03em] text-vez-ink">
               Plan &amp; usage.

@@ -2,9 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Check, Loader2, Sparkles, AlertCircle, Zap, Crown, Compass, Minus } from "lucide-react"
+import { Check, Loader2, Sparkles, AlertCircle, Zap, Crown, Compass, Minus, ArrowUpRight } from "lucide-react"
 import { Header } from "@/components/layout/header"
 import { useAuth } from "@/lib/auth-context"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog"
 import {
   fetchPlans,
   fetchBillingSummary,
@@ -69,6 +77,7 @@ export default function PricingPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [checkingOut, setCheckingOut] = useState<PlanTier | null>(null)
+  const [confirmPlan, setConfirmPlan] = useState<PublicPlan | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -117,19 +126,31 @@ export default function PricingPage() {
         router.push(`/login?redirect=${encodeURIComponent("/pricing")}`)
         return
       }
-
-      setCheckingOut(plan.tier)
-      setError(null)
-      try {
-        const { url } = await startCheckout(plan.tier as "PRO" | "MAX")
-        window.location.href = url
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not start checkout")
-        setCheckingOut(null)
+      if (!plan.purchasable) {
+        setError(`${plan.name} checkout is not configured yet. Please contact support.`)
+        return
       }
+      // Show confirmation dialog before redirecting to Stripe — prevents accidental
+      // clicks and gives a clear loading state inside the dialog.
+      setConfirmPlan(plan)
     },
     [router, user],
   )
+
+  const handleConfirmCheckout = useCallback(async () => {
+    if (!confirmPlan || confirmPlan.tier === "FREE") return
+    const tier = confirmPlan.tier as "PRO" | "MAX"
+    setCheckingOut(tier)
+    setError(null)
+    try {
+      const { url } = await startCheckout(tier)
+      window.location.href = url
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start checkout")
+      setCheckingOut(null)
+      setConfirmPlan(null)
+    }
+  }, [confirmPlan])
 
   const rows = comparisonRows(plans)
 
@@ -137,8 +158,8 @@ export default function PricingPage() {
     <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-white font-poppins">
       <Header />
 
-      <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-8 sm:py-14 md:py-20">
-        <div className="mx-auto max-w-2xl text-center px-2 sm:px-0">
+      <main className="mx-auto w-full max-w-7xl min-w-0 px-4 sm:px-6 lg:px-8 py-8 sm:py-12 lg:py-16 overflow-x-hidden">
+        <div className="mx-auto max-w-2xl min-w-0 text-center px-2 sm:px-0 overflow-hidden">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-vez-sky/25 px-3 sm:px-3.5 py-1 sm:py-1.5 text-[10px] sm:text-[11px] font-medium uppercase tracking-wide text-vez-navy">
             <Sparkles className="size-3 shrink-0" /> Pricing
           </span>
@@ -152,18 +173,27 @@ export default function PricingPage() {
         </div>
 
         {error && (
-          <div className="mx-auto mt-8 flex max-w-xl items-center gap-2 rounded-[14px] bg-red-50 px-4 py-3 text-sm text-red-600">
-            <AlertCircle className="size-4 shrink-0" /> {error}
+          <div className="mx-auto mt-6 sm:mt-8 flex w-full max-w-5xl min-w-0 items-start gap-2 overflow-hidden rounded-[14px] bg-red-50 px-4 py-3 text-sm text-red-600">
+            <AlertCircle className="mt-0.5 size-4 shrink-0" />
+            <span className="min-w-0 flex-1 break-words">{error}</span>
+            <button
+              onClick={() => setError(null)}
+              className="shrink-0 rounded-full px-2 py-1 text-xs text-red-700 hover:bg-red-100 cursor-pointer min-h-[28px]"
+              aria-label="Dismiss error"
+            >
+              Dismiss
+            </button>
           </div>
         )}
 
         {loading ? (
-          <div className="flex items-center justify-center py-24 text-vez-mute">
+          <div className="flex min-h-[280px] items-center justify-center py-16 text-vez-mute">
             <Loader2 className="size-6 animate-spin" />
           </div>
         ) : (
           <>
-            <div className="mx-auto mt-8 sm:mt-14 grid max-w-5xl grid-cols-1 gap-4 sm:gap-6 lg:max-w-none sm:grid-cols-2 lg:grid-cols-3 lg:gap-8">
+            {/* Cards: 1 col mobile, 3 col md+ — avoids awkward 2-col with 3 cards (2+1) at 640-1024. max-w-5xl stays consistent on all breakpoints per container-width. */}
+            <div className="mx-auto mt-8 sm:mt-12 grid w-full max-w-5xl min-w-0 grid-cols-1 gap-4 sm:gap-6 md:grid-cols-3 lg:gap-8 overflow-hidden">
               {plans.map((plan) => {
                 const isCurrent = currentTier === plan.tier
                 // The middle tier carries the emphasis; it's the intended default.
@@ -173,9 +203,9 @@ export default function PricingPage() {
                 return (
                   <div
                     key={plan.tier}
-                    className={`relative flex flex-col rounded-2xl sm:rounded-[26px] border p-5 sm:p-8 transition-all lg:p-9 min-w-0 ${
+                    className={`relative flex w-full min-w-0 flex-col overflow-hidden rounded-2xl sm:rounded-[26px] border p-5 sm:p-7 lg:p-8 transition-all duration-300 ${
                       featured
-                        ? "border-transparent bg-gradient-to-b from-vez-navy to-[#0b2a52] text-white shadow-2xl shadow-vez-navy/20 lg:-translate-y-3"
+                        ? "border-transparent bg-gradient-to-b from-vez-navy to-[#0b2a52] text-white shadow-xl shadow-vez-navy/15 md:-translate-y-2"
                         : "border-vez-line bg-white hover:-translate-y-1 hover:shadow-lg"
                     }`}
                   >
@@ -217,23 +247,30 @@ export default function PricingPage() {
 
                     <button
                       onClick={() => handleChoose(plan)}
-                      disabled={isCurrent || checkingOut !== null}
-                      className={`mt-7 flex items-center justify-center gap-2 rounded-full px-5 py-3.5 text-sm font-medium transition-opacity disabled:cursor-not-allowed disabled:opacity-60 ${
+                      disabled={isCurrent || checkingOut === plan.tier || (!plan.purchasable && plan.tier !== "FREE")}
+                      aria-busy={checkingOut === plan.tier}
+                      className={`mt-7 flex w-full min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-full px-5 py-3.5 text-sm font-medium transition-all duration-200 hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
                         featured
-                          ? "bg-white text-vez-navy hover:opacity-90"
-                          : "bg-vez-navy text-white hover:opacity-90"
+                          ? "bg-white text-vez-navy focus-visible:ring-white/50"
+                          : "bg-vez-navy text-white focus-visible:ring-vez-navy"
                       }`}
                     >
-                      {checkingOut === plan.tier && <Loader2 className="size-4 animate-spin" />}
-                      {isCurrent
-                        ? "Your current plan"
-                        : plan.tier === "FREE"
-                          ? "Get started"
-                          : `Upgrade to ${plan.name}`}
+                      {checkingOut === plan.tier ? (
+                        <>
+                          <Loader2 className="size-4 animate-spin shrink-0" />
+                          <span>Redirecting…</span>
+                        </>
+                      ) : isCurrent ? (
+                        "Your current plan"
+                      ) : plan.tier === "FREE" ? (
+                        "Get started"
+                      ) : (
+                        `Upgrade to ${plan.name}`
+                      )}
                     </button>
 
                     {plan.tier !== "FREE" && !plan.purchasable && (
-                      <p className={`mt-2 text-center text-[11px] ${featured ? "text-white/60" : "text-vez-mute"}`}>
+                      <p className={`mt-2 min-w-0 break-words text-center text-[11px] ${featured ? "text-white/60" : "text-vez-mute"}`}>
                         Checkout is not configured for this plan yet.
                       </p>
                     )}
@@ -261,13 +298,13 @@ export default function PricingPage() {
               })}
             </div>
 
-            {/* Detailed comparison */}
-            <div className="mt-12 sm:mt-20">
-              <h2 className="text-center text-xl sm:text-2xl font-normal tracking-[-0.02em] text-vez-ink px-4">
+            {/* Detailed comparison — overflow-x-auto is scoped to this wrapper only, no -mx-4 hack that breaks large-device centering. Table min-w forces scroll only when needed. */}
+            <div className="mt-12 sm:mt-20 min-w-0 overflow-hidden">
+              <h2 className="text-center text-xl sm:text-2xl font-normal tracking-[-0.02em] text-vez-ink px-4 break-words">
                 Compare plans in detail
               </h2>
-              <div className="mx-auto mt-6 sm:mt-8 w-full max-w-5xl overflow-x-auto rounded-xl sm:rounded-[22px] border border-vez-line -mx-4 sm:mx-auto">
-                <table className="w-full min-w-[500px] sm:min-w-[560px] border-collapse text-xs sm:text-sm">
+              <div className="mx-auto mt-6 sm:mt-8 w-full max-w-5xl min-w-0 overflow-x-auto rounded-xl sm:rounded-[22px] border border-vez-line bg-white">
+                <table className="w-full min-w-[560px] border-collapse text-xs sm:text-sm">
                   <thead>
                     <tr className="border-b border-vez-line bg-vez-surface/60">
                       <th className="px-5 py-4 text-left font-medium text-vez-mute">Feature</th>
@@ -318,10 +355,68 @@ export default function PricingPage() {
           </>
         )}
 
-        <p className="mt-12 text-center text-xs text-vez-mute">
+        <p className="mt-12 text-center text-xs text-vez-mute break-words px-4">
           Prices in USD. Cancel any time from your billing settings — access continues until the end
           of the paid period.
         </p>
+
+        {/* Upgrade confirmation dialog — responsive, centered without mx-4 offset break, proper touch targets */}
+        <Dialog open={confirmPlan !== null} onOpenChange={(open) => !open && !checkingOut && setConfirmPlan(null)}>
+          <DialogContent className="max-w-[420px] p-6 sm:p-7">
+            {confirmPlan && (
+              <>
+                <DialogHeader className="text-left p-0">
+                  <DialogTitle className="flex items-center gap-2 text-lg">
+                    {confirmPlan.tier === "PRO" ? <Zap className="size-5 text-vez-navy" /> : <Crown className="size-5 text-vez-navy" />}
+                    Upgrade to {confirmPlan.name}
+                  </DialogTitle>
+                  <DialogDescription className="text-sm leading-relaxed break-words">
+                    You will be redirected to Stripe Checkout to complete your subscription. You can cancel anytime from billing settings.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="rounded-2xl border border-vez-line bg-vez-surface/60 p-4">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm text-vez-mute">{confirmPlan.name} plan</span>
+                    <span className="text-lg font-medium text-vez-ink">
+                      {formatPlanPrice(confirmPlan.priceMonthlyCents, confirmPlan.currency)}
+                      {confirmPlan.priceMonthlyCents > 0 && <span className="text-sm font-normal text-vez-mute"> / month</span>}
+                    </span>
+                  </div>
+                  {confirmPlan.tagline && (
+                    <p className="mt-1 text-xs text-vez-mute break-words">{confirmPlan.tagline}</p>
+                  )}
+                  <ul className="mt-3 space-y-1.5">
+                    {(confirmPlan.features?.length ? confirmPlan.features.slice(0, 3) : limitLines(confirmPlan).slice(0, 3)).map((f) => (
+                      <li key={f} className="flex items-start gap-2 text-xs leading-relaxed text-vez-ink">
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-vez-navy" />
+                        <span className="min-w-0 flex-1 break-words">{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <DialogFooter className="gap-2 sm:gap-3 p-0 pt-2">
+                  <button
+                    onClick={() => !checkingOut && setConfirmPlan(null)}
+                    disabled={checkingOut !== null}
+                    className="min-h-[44px] w-full sm:w-auto cursor-pointer rounded-full border border-vez-line bg-white px-5 py-2.5 text-sm font-medium text-vez-ink transition-colors hover:bg-vez-surface disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmCheckout}
+                    disabled={checkingOut !== null}
+                    className="flex min-h-[44px] w-full sm:w-auto cursor-pointer items-center justify-center gap-2 rounded-full bg-vez-navy px-6 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                  >
+                    {checkingOut ? <Loader2 className="size-4 animate-spin" /> : <ArrowUpRight className="size-4" />}
+                    {checkingOut ? "Redirecting…" : "Continue to checkout"}
+                  </button>
+                </DialogFooter>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   )
