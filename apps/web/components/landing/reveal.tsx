@@ -26,7 +26,7 @@ export function Reveal({ children, className, delay = 0, as = "div" }: RevealPro
     const el = ref.current
     if (!el) return
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      gsap.set(el, { clearProps: "all", opacity: 1, y: 0, filter: "blur(0px)" })
+      gsap.set(el, { opacity: 1, y: 0, filter: "blur(0px)" })
       el.classList.add("is-visible")
       return
     }

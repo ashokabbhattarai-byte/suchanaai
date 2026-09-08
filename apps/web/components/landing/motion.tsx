@@ -186,7 +186,7 @@ export function StaggerGrid({
     if (!items.length) return
 
     if (reducedMotion()) {
-      gsap.set(items, { clearProps: "all", opacity: 1 })
+      gsap.set(items, { opacity: 1, y: 0, rotation: 0, scale: 1 })
       return
     }
 
@@ -210,7 +210,7 @@ export function StaggerGrid({
     )
     const fallback = window.setTimeout(() => {
       if (items[0] && getComputedStyle(items[0]).opacity === "0") {
-        gsap.set(items, { clearProps: "all", opacity: 1, y: 0, rotation: 0, scale: 1 })
+        gsap.set(items, { opacity: 1, y: 0, rotation: 0, scale: 1 })
         tween.scrollTrigger?.kill()
       }
     }, 1500)

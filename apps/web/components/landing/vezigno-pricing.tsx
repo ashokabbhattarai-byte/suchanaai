@@ -150,15 +150,15 @@ export function VezignoPricing() {
           </div>
         </Reveal>
 
-        {/* Plan cards */}
-        <StaggerGrid amount={0.5} className="mt-8 sm:mt-10 grid gap-4 sm:gap-5 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 lg:gap-6">
+        {/* Plan cards — 1 col on phone (375), 3 col from md to avoid 2+1 awkward at 768-1023, consistent gap */}
+        <StaggerGrid amount={0.5} className="mt-8 sm:mt-10 grid w-full min-w-0 gap-4 sm:gap-5 lg:gap-6 grid-cols-1 md:grid-cols-3">
           {plans.map((plan) => (
             <div key={plan.name} className="flex min-w-0">
               <article
                 className={cn(
-                  "flex w-full min-w-0 flex-col rounded-2xl sm:rounded-3xl p-5 sm:p-7 lg:p-8",
+                  "flex w-full min-w-0 flex-col rounded-2xl sm:rounded-3xl p-5 sm:p-7 lg:p-8 min-h-[360px] sm:min-h-[440px]",
                   plan.highlight
-                    ? "relative bg-vez-navy text-white shadow-xl md:-my-3"
+                    ? "relative bg-vez-navy text-white shadow-xl lg:-my-3"
                     : "border border-vez-line bg-vez-surface text-vez-ink"
                 )}
               >

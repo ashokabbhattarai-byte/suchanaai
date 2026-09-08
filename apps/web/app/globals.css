@@ -420,6 +420,23 @@
   }
 }
 
+/* No-JS fallback — if scripting disabled, reveal everything */
+@media (scripting: none) {
+  .vz-reveal {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+  .vz-word-line .vz-word {
+    transform: none;
+  }
+  .vz-stagger-grid > *,
+  .vz-pop {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* Vezigno landing — sky sweep hover: a sky-blue layer slides down from the
    top of the card on hover. Children stay above via position:relative. */
 .vz-sweep {
