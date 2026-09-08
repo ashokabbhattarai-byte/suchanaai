@@ -608,11 +608,12 @@ async def _llm_chat(
     if len(providers) == 1:
         return await _call_provider(providers[0], messages, max_tokens, temperature)
 
-    # Cap concurrency: top 6 agents cover Ollama + vLLM + OpenRouter(x2) + Groq(x2) + Gemini.
+    # Cap concurrency: top 7 agents cover Ollama + vLLM + OpenRouter(x2) + Groq(x2) + Gemini.
+    # 7 ensures Gemini is raced even when both vendors have 2 keys (Ollama,vLLM,OR,OR2,Groq,Groq2 =6, Gemini=7).
     # More keys => more hedged agents doubles free-tier quota without extra latency.
     # Bedrock (paid, rarely needed) stays sequential fallback to avoid
     # spending on every request.
-    hedged = [p for p in providers if p.get("kind") != "BEDROCK"][:6]
+    hedged = [p for p in providers if p.get("kind") != "BEDROCK"][:7]
     sequential_tail = [p for p in providers if p not in hedged]
 
     # Fire hedged agents concurrently.
