@@ -19,6 +19,28 @@ export class DocumentsService {
   private readonly logger = new Logger(DocumentsService.name);
   private readonly aiServiceUrl: string;
   private readonly aiIndexTimeoutMs: number;
+  // ── AI concurrency guard (no env) ───────────────────────────────────
+  // The AI service is single-worker and bounded to 2 concurrent ingests.
+  // If the API blasts 10 POST /documents at once, the AI will queue 8 and
+  // eventually return 503 for overflow — this limiter smooths the burst on
+  // the API side so requests are paced, retried with backoff, and never
+  // thunder-herd the AI. Fixed 3 matches the AI's 2 + 1 headroom for
+  // query/health probes, without any env tuning.
+  private readonly AI_CONCURRENCY = 3;
+  private aiActive = 0;
+  private aiQueue: Array<() => void> = [];
+
+  // ── Progress cache: survives AI blips restarts ─────────────────────────
+  // The AI service holds progress in a process-local dict, so a restart or a
+  // transient DNS blip (ERR_NETWORK_CHANGED) makes /progress return {} / nulls.
+  // Previously the UI preserved the last known percent client-side, but a *new*
+  // document that hadn't yet had a successful poll would stay stuck at
+  // "Queued 0%" until the blip cleared. Caching the last successful entry
+  // server-side and synthesising a minimal "Processing..." entry from the
+  // authoritative DB status (PROCESSING/PENDING) guarantees the card always has
+  // something to render, even before the first poll succeeds.
+  private readonly progressCache = new Map<string, { entry: Record<string, any>; ts: number }>();
+  private readonly PROGRESS_CACHE_TTL_MS = 2 * 60 * 1000;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -32,6 +54,20 @@ export class DocumentsService {
     this.aiIndexTimeoutMs = Number(
       this.config.get<string>('AI_INDEX_TIMEOUT_MS') ?? 600000,
     );
+  }
+
+  private async withAiSlot<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.aiActive >= this.AI_CONCURRENCY) {
+      await new Promise<void>((resolve) => this.aiQueue.push(resolve));
+    }
+    this.aiActive++;
+    try {
+      return await fn();
+    } finally {
+      this.aiActive--;
+      const next = this.aiQueue.shift();
+      if (next) next();
+    }
   }
 
   async create(data: {
@@ -48,8 +84,13 @@ export class DocumentsService {
     const storageKey = this.storage.buildDocumentKey(data.id, data.filename);
     await this.storage.uploadBuffer(storageKey, buffer, data.mimeType);
 
+    // Create as PROCESSING immediately so the first GET /documents poll
+    // already shows the doc in the processingKey set and the UI can
+    // display an instant synthetic progress, rather than a brief PENDING
+    // window where the card flickers "Queued 0%" until processDocument's
+    // first line updates the row.
     const document = await this.prisma.document.create({
-      data: { ...rest, storageKey },
+      data: { ...rest, storageKey, status: DocumentStatus.PROCESSING },
     });
 
     // Process asynchronously - don't block the upload response
@@ -240,12 +281,18 @@ export class DocumentsService {
    *  Retries a couple of times with back-off so a fleeting DNS / interface
    *  blip (the ERR_NAME_NOT_RESOLVED / ERR_NETWORK_CHANGED burst in the
    *  screenshot) does not turn a whole poll tick into an empty `{}` and
-   *  freeze every card at its last percent.
+   *  freeze every card at its last percent. On AI failure or for docs whose
+   *  in-memory entry was lost (AI restart), falls back to a server-side
+   *  cache and finally to a synthetic DB-driven "Processing..." entry so
+   *  the UI never flickers to "Queued 0%".
    */
   async getProgressBatch(
     ids: string[],
   ): Promise<Record<string, Record<string, any> | null>> {
     if (ids.length === 0) return {};
+
+    let aiProgress: Record<string, Record<string, any> | null> = {};
+    let aiSucceeded = false;
 
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
@@ -255,7 +302,13 @@ export class DocumentsService {
             timeout: 5000,
           }),
         );
-        return response.data.progress ?? {};
+        aiProgress = response.data.progress ?? {};
+        aiSucceeded = true;
+        // Cache successful live entries so a later blip can replay them
+        for (const [k, v] of Object.entries(aiProgress)) {
+          if (v) this.progressCache.set(k, { entry: v as Record<string, any>, ts: Date.now() });
+        }
+        break;
       } catch (err: any) {
         const status = err.response?.status;
         const retryable = !status || status === 429 || (status >= 500 && status <= 504);
@@ -272,11 +325,71 @@ export class DocumentsService {
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }
-        // AI service unavailable — report nothing rather than failing the poll.
-        return {};
+        // AI service unavailable this tick — fall through to cache / synthetic.
+        break;
       }
     }
-    return {};
+
+    // Prune stale cache entries occasionally
+    if (this.progressCache.size > 100) {
+      const now = Date.now();
+      for (const [k, v] of this.progressCache) {
+        if (now - v.ts > this.PROGRESS_CACHE_TTL_MS) this.progressCache.delete(k);
+      }
+    }
+
+    // For any id without a live entry, try cache then synthetic DB fallback.
+    // Fetch DB statuses in one query rather than per-id.
+    const missingIds = ids.filter((id) => !aiProgress[id]);
+    let dbMap = new Map<string, Document>();
+    if (missingIds.length > 0) {
+      const dbDocs = await this.prisma.document.findMany({
+        where: { id: { in: missingIds } },
+        select: {
+          id: true,
+          status: true,
+          title: true,
+          filename: true,
+          chunkCount: true,
+          createdAt: true,
+        } as any,
+      });
+      // findMany with select still returns Document-ish objects
+      for (const d of dbDocs as unknown as Document[]) {
+        dbMap.set(d.id, d);
+      }
+    }
+
+    const result: Record<string, Record<string, any> | null> = { ...aiProgress };
+    for (const id of ids) {
+      if (result[id]) continue;
+      const cached = this.progressCache.get(id);
+      if (cached && Date.now() - cached.ts < this.PROGRESS_CACHE_TTL_MS) {
+        result[id] = cached.entry;
+        continue;
+      }
+      const doc = dbMap.get(id);
+      if (doc && (doc.status === DocumentStatus.PROCESSING || doc.status === DocumentStatus.PENDING)) {
+        // Synthetic: guarantees the card shows "Processing 5-10%" instantly,
+        // even before the AI's first progress.update or after a restart.
+        result[id] = {
+          doc_id: id,
+          filename: (doc as any).filename ?? (doc as any).title ?? 'document',
+          stage: 'extracting',
+          percent: 5,
+          total_chunks: (doc as any).chunkCount ?? 0,
+          processed_chunks: 0,
+          message: 'Starting...',
+          error: null,
+          status: doc.status,
+          updated_at: new Date().toISOString(),
+          _synthetic: true,
+        };
+      } else {
+        result[id] = (aiProgress as any)[id] ?? null;
+      }
+    }
+    return result;
   }
 
   /** Proxy live ingestion progress from the AI service. */
@@ -413,15 +526,20 @@ export class DocumentsService {
       form.append('document_id', document.id);
       form.append('title', document.title);
 
-      const response = await firstValueFrom(
-        this.httpService.post(`${this.aiServiceUrl}/documents`, form, {
-          headers: {
-            ...form.getHeaders(),
-          },
-          timeout: this.aiIndexTimeoutMs,
-          maxBodyLength: Infinity,
-          maxContentLength: Infinity,
-        }),
+      // Pace outbound AI calls so 10 concurrent uploads don't hit the AI's
+      // 503 queue-full at once. The queue is FIFO and cheap — waiting here
+      // holds a Node event-loop timer, not a Python worker thread.
+      const response = await this.withAiSlot(() =>
+        firstValueFrom(
+          this.httpService.post(`${this.aiServiceUrl}/documents`, form, {
+            headers: {
+              ...form.getHeaders(),
+            },
+            timeout: this.aiIndexTimeoutMs,
+            maxBodyLength: Infinity,
+            maxContentLength: Infinity,
+          }),
+        ),
       );
 
       const result = response.data;
@@ -481,8 +599,16 @@ export class DocumentsService {
           // 429 (quota/throttler) waits longest; pure network/DNS blips
           // (ERR_NAME_NOT_RESOLVED / ERR_NETWORK_CHANGED in the screenshot)
           // recover fastest. Scale accordingly but always exponential.
-          const base =
-            isRateLimited ? 60_000 : isNetworkError ? 5_000 : isTimeout ? 10_000 : 8_000
+          // Honour Retry-After from AI's 503 queue-full (5s) to avoid
+          // hammering while the AI drains its 2-slot pipeline.
+          let base =
+            isRateLimited ? 60_000 : isNetworkError ? 3_000 : isTimeout ? 8_000 : 6_000
+          const retryAfterHeader =
+            err.response?.headers?.['retry-after'] ?? err.response?.headers?.['Retry-After']
+          if (status === 503 && retryAfterHeader) {
+            const secs = parseInt(String(retryAfterHeader), 10)
+            if (!isNaN(secs) && secs > 0 && secs < 30) base = Math.min(base, secs * 1000)
+          }
           const jitter = Math.random() * 0.4 + 0.8 // 0.8x..1.2x
           const delay = Math.min(base * Math.pow(1.8, attempt) * jitter, 120_000)
           this.logger.warn(

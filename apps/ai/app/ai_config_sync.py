@@ -172,7 +172,10 @@ async def refresh_once() -> bool:
             if p.get("slug") and p.get("model")
         ]
         llm.set_runtime_providers(normalised)
-        usable = [p["slug"] for p in normalised if p["enabled"] and p["api_key"]]
+        usable = [
+            p["slug"] for p in normalised
+            if p["enabled"] and (p["api_key"] or llm._key_optional(p))
+        ]
         logger.info(
             "AI provider registry synced: %d provider(s), fallback order: %s",
             len(normalised),

@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -70,6 +71,29 @@ ROUTE_TIMEOUT_SECONDS = {
 # ones. Signalled by a header because the timeout is applied before the body
 # is read. Stays just under the API's own deep-run axios timeout.
 DEEP_SCRAPE_TIMEOUT_SECONDS = 3300
+
+
+# ── Ingest concurrency + queue (no env knob) ──────────────────────────────
+# The AI service runs as a single uvicorn worker ( --workers 1 ) because the
+# embedding model is 1.1 GB resident. Every /documents ingest occupies a
+# thread (asyncio.to_thread) for minutes (OCR + encode + Qdrant). Without a
+# bound, 10 concurrent uploads spawn 10 heavy threads that thrash CPU and
+# exhaust the 4 GB t3.medium / 1 GB Oracle host and OOM (exit 137). A fixed
+# bound of 2 keeps RSS/CPU bounded; additional requests queue on the
+# semaphore rather than failing. This is backpressure + queue, not an env
+# max/min.
+_INGEST_CONCURRENCY = 2
+_INGEST_SEMAPHORE: asyncio.Semaphore | None = None
+_INGEST_QUEUE_LIMIT = 30  # waiting + running; beyond this return 503 so API can retry
+_INGEST_WAITING = 0
+_INGEST_WAITING_LOCK = threading.Lock()
+
+
+def _get_ingest_semaphore() -> asyncio.Semaphore:
+    global _INGEST_SEMAPHORE
+    if _INGEST_SEMAPHORE is None:
+        _INGEST_SEMAPHORE = asyncio.Semaphore(_INGEST_CONCURRENCY)
+    return _INGEST_SEMAPHORE
 
 
 def _timeout_for(path: str, scope: dict | None = None) -> int:
@@ -512,6 +536,11 @@ async def _upload_document(scope: dict, receive) -> tuple[int, dict]:
             return 413, {"error": str(e)}
         return 400, {"error": str(e)}
     parts = _parse_multipart(body, boundary)
+    # Free the raw body early — it duplicates file_data (110 MB worst) and
+    # would otherwise stay alive until the handler returns, doubling RSS
+    # during the minutes-long ingest. 10 concurrent 50 MB uploads would be
+    # 1 GB extra without this.
+    del body
 
     file_part = parts.get("file")
     if not file_part:
@@ -582,30 +611,81 @@ async def _upload_document(scope: dict, receive) -> tuple[int, dict]:
         save_path.resolve().relative_to(upload_dir.resolve())
     except ValueError:
         return 400, {"error": "Invalid document_id"}
+    file_size = len(file_data)
     await asyncio.to_thread(save_path.write_bytes, file_data)
+    # Drop the in-memory copy — the file is now durable on disk for the
+    # worker thread to read, so 10 concurrent 50 MB uploads don't require
+    # 500 MB RSS for the duration of the ingest.
+    del file_data
+    # Also drop the parsed multipart dict's file bytes — same duplication
+    parts.pop("file", None)
 
     logger.info(
         "Upload received: doc_id=%s, filename=%s, size=%d bytes, hash=%s",
         doc_id,
         filename,
-        len(file_data),
+        file_size,
         file_hash[:16],
     )
 
     metadata["file_hash"] = file_hash
 
-    progress.start(doc_id, filename)
+    # Backpressure: if many uploads arrive at once, queue rather than running
+    # all in parallel and OOMing. Track waiting count for a bounded queue;
+    # excess returns 503 with Retry-After so the API's retry logic kicks in
+    # (5 retries, exponential) instead of the user seeing a hang.
+    global _INGEST_WAITING
+    with _INGEST_WAITING_LOCK:
+        # _INGEST_WAITING counts queued+running for this process
+        if _INGEST_WAITING >= _INGEST_QUEUE_LIMIT:
+            # free the just-written temp file; caller will retry
+            save_path.unlink(missing_ok=True)
+            logger.warning(
+                "Ingest queue full (%d waiting, limit %d) — rejecting doc_id=%s with 503",
+                _INGEST_WAITING,
+                _INGEST_QUEUE_LIMIT,
+                doc_id,
+            )
+            return 503, {"error": "Server busy — too many concurrent ingests, please retry shortly", "retry_after": 5}
+        _INGEST_WAITING += 1
 
-    # The pipeline (OCR, embedding) is CPU-bound and synchronous. Run it in a
-    # worker thread so the event loop stays free to serve progress polls and
-    # queries while a large document is being processed.
+    # Start progress immediately so the first batch?ids= poll (3s later) has
+    # something to show instead of {} -> "Queued 0%" flicker. If we end up
+    # waiting for the semaphore, mark as queued so the UI can show "Queued"
+    # rather than "Processing 0%".
+    progress.start(doc_id, filename)
+    semaphore = _get_ingest_semaphore()
+    # Quick check if we'll queue: if semaphore is locked, we're about to wait
+    if semaphore.locked():
+        try:
+            # estimate position: waiting count is rough but cheap and useful
+            with _INGEST_WAITING_LOCK:
+                pos = _INGEST_WAITING
+            progress.update(doc_id, "queued", f"Queued — {pos} document(s) ahead, will start shortly...", 0, 0)
+        except Exception:
+            pass
+
     try:
-        return await asyncio.to_thread(
-            _ingest_document, doc_id, save_path, filename, mime_type, metadata
-        )
-    except Exception as e:
-        progress.fail(doc_id, str(e))
-        raise
+        async with semaphore:
+            # Once we hold the slot, flip from queued to extracting for a
+            # smooth progress transition (queued -> extracting -> chunking...)
+            if progress.get(doc_id) and progress.get(doc_id).get("stage") == "queued":
+                progress.update(doc_id, "extracting", f"Extracting text from {filename}...")
+            # The pipeline (OCR, embedding) is CPU-bound and synchronous. Run it
+            # in a worker thread so the event loop stays free to serve progress
+            # polls and queries while a large document is being processed.
+            # Use asyncio.to_thread which uses the global ThreadPoolExecutor;
+            # concurrency is bounded by the semaphore above, not the pool size.
+            try:
+                return await asyncio.to_thread(
+                    _ingest_document, doc_id, save_path, filename, mime_type, metadata
+                )
+            except Exception as e:
+                progress.fail(doc_id, str(e))
+                raise
+    finally:
+        with _INGEST_WAITING_LOCK:
+            _INGEST_WAITING = max(0, _INGEST_WAITING - 1)
 
 
 def _ingest_document(

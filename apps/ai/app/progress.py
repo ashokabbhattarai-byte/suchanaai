@@ -17,11 +17,15 @@ _MAX_ENTRIES = 200
 _lock = threading.Lock()
 _progress: dict[str, dict] = {}
 
-STAGES = ("extracting", "chunking", "embedding", "indexing", "done", "failed")
+STAGES = ("queued", "extracting", "chunking", "embedding", "indexing", "done", "failed")
 
 # Portion of the overall progress bar allotted to each stage.
+# queued is 0-3 so a card waiting for the concurrency slot still looks alive
+# rather than stuck at 0% — the 3% indeterminate bar prevents "Queued 0%"
+# flicker that confused users in the previous batch?ids=... burst.
 _STAGE_BASE = {
-    "extracting": (0, 15),
+    "queued": (0, 3),
+    "extracting": (3, 15),
     "chunking": (15, 25),
     "embedding": (25, 85),
     "indexing": (85, 100),
@@ -34,11 +38,11 @@ def start(doc_id: str, filename: str) -> None:
         _progress[doc_id] = {
             "doc_id": doc_id,
             "filename": filename,
-            "stage": "extracting",
-            "percent": 0,
+            "stage": "queued",
+            "percent": 2,
             "total_chunks": 0,
             "processed_chunks": 0,
-            "message": "Extracting text...",
+            "message": "Queued — waiting for worker...",
             "error": None,
             "started_at": time.time(),
             "updated_at": time.time(),
@@ -58,6 +62,19 @@ def update(
         entry = _progress.get(doc_id)
         if entry is None:
             return
+        # Never regress stage order — a retry's new ``start`` resets via
+        # ``start()``, but ``update`` should not jump embedding 45% back to
+        # extracting 5% if a stray callback fires late.
+        stage_order = {"queued": 0, "extracting": 1, "chunking": 2, "embedding": 3, "indexing": 4, "done": 5, "failed": 6}
+        # Allow forward moves and same-stage progress; ignore backward stage updates
+        # unless moving to a terminal stage.
+        if stage in stage_order and entry["stage"] in stage_order:
+            if stage_order[stage] < stage_order[entry["stage"]] and stage not in ("done", "failed"):
+                # Keep newer stage's message but don't move percent backwards
+                if message:
+                    entry["message"] = message
+                entry["updated_at"] = time.time()
+                return
         entry["stage"] = stage
         if message:
             entry["message"] = message
@@ -65,8 +82,29 @@ def update(
             entry["total_chunks"] = total
             entry["processed_chunks"] = done
         lo, hi = _STAGE_BASE.get(stage, (0, 0))
-        fraction = (done / total) if total else 0.0
-        entry["percent"] = round(lo + (hi - lo) * min(fraction, 1.0))
+        if total:
+            fraction = done / total
+            new_percent = round(lo + (hi - lo) * min(fraction, 1.0))
+        else:
+            # Indeterminate stages have no total but still need a visible,
+            # non-zero percent so the card never flickers to "Queued 0%"
+            # while OCR is running or while waiting for a concurrency slot.
+            if stage == "queued":
+                new_percent = lo + 2  # 2% — shows queued is alive
+            elif stage == "extracting":
+                new_percent = lo + 4  # 7% within 3-15
+            elif stage == "chunking":
+                new_percent = lo + 4  # 19% within 15-25
+            elif stage in ("embedding", "indexing"):
+                # Should have total; fallback still shows movement
+                new_percent = lo + 2
+            else:
+                new_percent = lo
+        # Monotonic percent — retries or out-of-order callbacks must not make
+        # the bar jump backwards (32% -> 5%), which reads as a flicker/failure.
+        if stage not in ("done", "failed"):
+            new_percent = max(int(entry.get("percent", 0)), int(new_percent))
+        entry["percent"] = int(new_percent)
         entry["updated_at"] = time.time()
 
 

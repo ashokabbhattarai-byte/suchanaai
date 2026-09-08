@@ -86,10 +86,11 @@ const suggestions = [
 ]
 
 const stageLabels: Record<string, string> = {
+  queued: "Queued",
   extracting: "Reading document",
-  chunking: "Preparing",
-  embedding: "Preparing",
-  indexing: "Almost ready",
+  chunking: "Organizing",
+  embedding: "Embedding",
+  indexing: "Finalizing",
 }
 
 function formatFileSize(bytes: number): string {
@@ -191,16 +192,33 @@ function DocCard({ doc, progress, toggleBusy, canManage, onToggleEmbed, onDelete
   const isUnembedded = doc.status === "UNEMBEDDED"
   const showControls = canManage && !doc.isSystem
 
-  const percent = isProcessing ? (progress?.percent ?? 0) : 0
+  // Never show 0% for a processing doc — 0 reads as "Queued/stuck" and flickers
+  // when a transient network blip hides the first poll. Fall back to 2 so the
+  // bar and number stay visibly alive even before the first real percent lands
+  // (matches the AI's queued 0-3% start).
+  const percent = isProcessing ? (progress?.percent ?? 2) : 0
   // When the AI has accepted the job but the first progress poll hasn't
   // landed yet (or a transient ERR_NETWORK_CHANGED burst hid it), show
   // "Processing" rather than "Queued" so the card already feels alive.
-  // The bar itself stays indeterminate at 3% until the first real percent arrives.
+  // The bar itself stays indeterminate at 5% until the first real percent arrives.
   const stageLabel = progress?.stage
-    ? (stageLabels[progress.stage] ?? "Processing")
+    ? (stageLabels[progress.stage] ?? progress.message ?? "Processing")
     : isProcessing
       ? "Processing"
       : "Queued"
+  // Rich detail: prefer explicit chunk counts, fallback to the AI's message
+  const progressDetail = (() => {
+    if (!isProcessing || !progress) return null
+    if (progress.total_chunks && progress.total_chunks > 0) {
+      const done = progress.processed_chunks ?? 0
+      // Show "Embedding 12/48" when in the embedding stage
+      if (progress.stage === "embedding" || progress.stage === "indexing") {
+        return `${done}/${progress.total_chunks} chunks`
+      }
+    }
+    if (progress.message && progress.message !== stageLabel) return progress.message
+    return null
+  })()
 
   return (
     <div className="flex h-full min-w-0 flex-col rounded-2xl border border-vez-line/50 bg-white p-4 shadow-sm transition-all hover:border-vez-sky/50 hover:shadow-md sm:p-6">
@@ -250,7 +268,7 @@ function DocCard({ doc, progress, toggleBusy, canManage, onToggleEmbed, onDelete
             <span className="flex items-center gap-1.5 font-medium text-vez-navy">
               <Loader2 className="size-3 animate-spin" /> {stageLabel}
             </span>
-            <span className="tabular-nums text-vez-mute">{percent}%</span>
+            <span className="tabular-nums text-vez-mute">{Math.max(percent, 2)}%</span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-vez-line/50">
             <div
@@ -258,6 +276,9 @@ function DocCard({ doc, progress, toggleBusy, canManage, onToggleEmbed, onDelete
               style={{ width: `${Math.max(percent, 3)}%` }}
             />
           </div>
+          {progressDetail && (
+            <p className="mt-1.5 truncate text-[11px] leading-none text-vez-mute">{progressDetail}</p>
+          )}
         </div>
       ) : (
         <div className="mb-3 flex flex-col gap-3 rounded-xl bg-vez-surface/70 p-3 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-3">
@@ -668,6 +689,26 @@ export default function RagPage() {
     if (!processingKey) return
     const ids = processingKey.split(",").filter(Boolean)
     if (ids.length === 0) return
+    // Seed optimistic placeholders instantly so the user sees "Processing 5%"
+    // the moment the card appears, without waiting for the first poll to
+    // return. Prevents the initial "Queued 0%" flash before the AI's
+    // progress.start has been polled.
+    setProgressMap(prev => {
+      const seeded: Record<string, DocumentProgress> = {}
+      for (const id of ids) {
+        if (!prev[id]) {
+          seeded[id] = {
+            doc_id: id,
+            stage: "queued",
+            percent: 2,
+            total_chunks: 0,
+            processed_chunks: 0,
+            message: "Queued — starting...",
+          }
+        }
+      }
+      return Object.keys(seeded).length ? { ...prev, ...seeded } : prev
+    })
     let cancelled = false
     let ticks = 0
     let backoffMs = 3000
@@ -722,10 +763,12 @@ export default function RagPage() {
       }
       if (cancelled) return false
 
-      // If the AI restarted mid-embed its in-memory dict is gone and
-      // getProgressBatch returns {} / nulls. Preserving the previous
-      // percent avoids a jarring 32% -> 0% jump; the every-8th-tick
-      // loadDocs fallback will self-heal the status once Qdrant catches up.
+      // The API now always returns a live, cached, or synthetic entry for
+      // processing docs, so a transient AI restart no longer yields {} and
+      // the client no longer needs to preserve the previous percent to avoid
+      // a 32% -> 0% jump. Still guard against regressions: a retry's fresh
+      // "extracting 5%" must not overwrite a later "embedding 45%" that
+      // arrived from a successful poll.
       const next: Record<string, DocumentProgress> = {}
       let anyFinished = false
       let anyProgress = false
@@ -737,12 +780,27 @@ export default function RagPage() {
         if (entry.stage === "done" || entry.stage === "failed") anyFinished = true
       }
       if (anyProgress) {
-        setProgressMap(prev => ({ ...prev, ...next }))
+        setProgressMap(prev => {
+          const merged: Record<string, DocumentProgress> = { ...prev }
+          for (const [k, v] of Object.entries(next)) {
+            const prevEntry = prev[k]
+            if (prevEntry && v.percent != null && prevEntry.percent != null && v.percent < prevEntry.percent && v.stage !== "done" && v.stage !== "failed") {
+              // Monotonic client-side guard: ignore backward jumps (e.g.
+              // synthetic 5% after we already showed 42%). Terminal stages
+              // are exempt so "done 100%" always wins.
+              continue
+            }
+            merged[k] = v
+          }
+          return merged
+        })
         _consecutiveFailures = 0
       }
       // Refresh the list when something finished - or periodically as a
       // safety net in case the AI service has no progress entry for a doc.
-      if (anyFinished || ticks % 8 === 0) loadDocs({ silent: true })
+      // Every 4th tick (12s) is quick enough to surface a completion that
+      // missed the "done" stage due to a blip, without hammering the API.
+      if (anyFinished || ticks % 4 === 0) loadDocs({ silent: true })
       // If we went offline between ticks, linger a bit longer before the next probe.
       if (typeof navigator !== "undefined" && !navigator.onLine) {
         backoffMs = Math.min(Math.max(backoffMs, 5000), 10000)
@@ -783,6 +841,21 @@ export default function RagPage() {
 
   const handleToggleEmbed = async (doc: RagDocument) => {
     setTogglingIds(prev => new Set(prev).add(doc.id))
+    // Optimistic: show "Processing" instantly on re-embed so the toggle feels
+    // fast — don't wait for the embed POST + first poll round-trip.
+    if (doc.status !== "INDEXED") {
+      setProgressMap(prev => ({
+        ...prev,
+        [doc.id]: {
+          doc_id: doc.id,
+          stage: "queued",
+          percent: 2,
+          total_chunks: 0,
+          processed_chunks: 0,
+          message: "Queued — starting...",
+        },
+      }))
+    }
     try {
       const updated = doc.status === "INDEXED"
         ? await unembedDocument(doc.id)

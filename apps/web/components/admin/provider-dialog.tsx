@@ -63,7 +63,9 @@ const PRESETS: Array<{
   {
     label: "Ollama (qwen2.5:7b) — EC2 services",
     kind: "OPENAI_COMPATIBLE",
-    baseUrl: "http://172.31.95.204:11434/v1/chat/completions",
+    // Public IP, not the instance's private one — apps/api and apps/ai run
+    // outside this box's VPC and can't route to a 172.31.x.x address at all.
+    baseUrl: "http://3.80.188.210:11434/v1/chat/completions",
     model: "qwen2.5:7b",
   },
   {
@@ -276,6 +278,7 @@ export function ProviderDialog({
                 onChange={(e) => setBaseUrl(e.target.value)}
                 placeholder="https://api.example.com/v1/chat/completions"
                 spellCheck={false}
+                autoComplete="off"
                 className={inputCls + " font-mono text-[13px]"}
               />
             </Field>
@@ -312,6 +315,7 @@ export function ProviderDialog({
                     onChange={(e) => setModelQuery(e.target.value)}
                     placeholder={models.length ? "Search models…" : "Load models to pick one"}
                     spellCheck={false}
+                    autoComplete="off"
                     className={inputCls + " font-mono text-[13px]"}
                   />
                   <button

@@ -1,5 +1,6 @@
-from typing import Callable, Optional
+import threading as _threading
 import uuid
+from typing import Callable, Optional
 
 import numpy as np
 from qdrant_client import QdrantClient
@@ -31,6 +32,16 @@ DENSE_VECTOR = "dense"
 SPARSE_VECTOR = "bm25"
 
 _client: Optional[QdrantClient] = None
+_collection_ready: bool = False
+_collection_ready_lock = _threading.Lock()
+
+# Qdrant upsert guard: Qdrant itself handles concurrent writes, but on a
+# t3.medium the host's 4 GB is already tight with the embedding model resident.
+# Bounding concurrent upserts keeps Python-side batch buffers and HTTP
+# connections from multiplying (10 docs * 100-point batches). No env needed.
+
+_QDRANT_CONCURRENCY = 3
+_qdrant_semaphore = _threading.Semaphore(_QDRANT_CONCURRENCY)
 
 
 def get_client() -> QdrantClient:
@@ -102,76 +113,85 @@ def _collection_matches(client: QdrantClient) -> bool:
 
 
 def ensure_collection() -> None:
-    client = get_client()
-    collections = client.get_collections().collections
-    names = [c.name for c in collections]
-
-    if config.QDRANT_COLLECTION in names:
-        if _collection_matches(client):
-            logger.debug(
-                "Qdrant collection '%s' already exists", config.QDRANT_COLLECTION
-            )
+    global _collection_ready
+    if _collection_ready:
+        return
+    with _collection_ready_lock:
+        if _collection_ready:
             return
-        # Vectors from a different model/schema are unusable with the current
-        # config, so the collection must be rebuilt; documents need re-upload.
-        logger.warning(
-            "Recreating collection '%s' with the current schema — previously "
-            "indexed documents must be re-uploaded",
-            config.QDRANT_COLLECTION,
-        )
-        try:
-            client.delete_collection(config.QDRANT_COLLECTION)
-        except Exception as e:
-            # Race: another worker may have already deleted it
-            if "not found" in str(e).lower() or "doesn't exist" in str(e).lower():
-                logger.info("Collection '%s' already deleted by concurrent worker", config.QDRANT_COLLECTION)
-            else:
-                raise
+        client = get_client()
+        collections = client.get_collections().collections
+        names = [c.name for c in collections]
 
-    logger.info(
-        "Creating Qdrant collection '%s' (dense=%d cosine, sparse=%s)",
-        config.QDRANT_COLLECTION,
-        config.EMBEDDING_DIM,
-        SPARSE_VECTOR if config.HYBRID_SEARCH else "off",
-    )
-    sparse_config = None
-    if config.HYBRID_SEARCH:
-        sparse_config = {
-            SPARSE_VECTOR: SparseVectorParams(
-                index=SparseIndexParams(), modifier=Modifier.IDF
-            )
-        }
-    try:
-        client.create_collection(
-            collection_name=config.QDRANT_COLLECTION,
-            vectors_config={
-                DENSE_VECTOR: VectorParams(
-                    size=config.EMBEDDING_DIM, distance=Distance.COSINE
+        if config.QDRANT_COLLECTION in names:
+            if _collection_matches(client):
+                logger.debug(
+                    "Qdrant collection '%s' already exists", config.QDRANT_COLLECTION
                 )
-            },
-            sparse_vectors_config=sparse_config,
+                _collection_ready = True
+                return
+            # Vectors from a different model/schema are unusable with the current
+            # config, so the collection must be rebuilt; documents need re-upload.
+            logger.warning(
+                "Recreating collection '%s' with the current schema — previously "
+                "indexed documents must be re-uploaded",
+                config.QDRANT_COLLECTION,
+            )
+            try:
+                client.delete_collection(config.QDRANT_COLLECTION)
+            except Exception as e:
+                # Race: another worker may have already deleted it
+                if "not found" in str(e).lower() or "doesn't exist" in str(e).lower():
+                    logger.info("Collection '%s' already deleted by concurrent worker", config.QDRANT_COLLECTION)
+                else:
+                    raise
+
+        logger.info(
+            "Creating Qdrant collection '%s' (dense=%d cosine, sparse=%s)",
+            config.QDRANT_COLLECTION,
+            config.EMBEDDING_DIM,
+            SPARSE_VECTOR if config.HYBRID_SEARCH else "off",
         )
-    except Exception as e:
-        # Race: another worker created it between our check and create.
-        # qdrant-client raises UnexpectedResponse / AlreadyExists
-        msg = str(e).lower()
-        if "already exists" in msg or "already exist" in msg or "exists" in msg and "collection" in msg:
-            logger.info("Collection '%s' already created by concurrent worker", config.QDRANT_COLLECTION)
-            return
-        raise
-    # Keyword index so per-document filtering stays fast as the corpus grows.
-    try:
-        client.create_payload_index(
-            collection_name=config.QDRANT_COLLECTION,
-            field_name="doc_id",
-            field_schema=PayloadSchemaType.KEYWORD,
-        )
-    except Exception as e:
-        msg = str(e).lower()
-        if "already exists" in msg or "already exist" in msg:
-            logger.debug("Payload index already exists for '%s'", config.QDRANT_COLLECTION)
-        else:
-            logger.warning("Failed to create payload index for '%s': %s", config.QDRANT_COLLECTION, e)
+        sparse_config = None
+        if config.HYBRID_SEARCH:
+            sparse_config = {
+                SPARSE_VECTOR: SparseVectorParams(
+                    index=SparseIndexParams(), modifier=Modifier.IDF
+                )
+            }
+        try:
+            client.create_collection(
+                collection_name=config.QDRANT_COLLECTION,
+                vectors_config={
+                    DENSE_VECTOR: VectorParams(
+                        size=config.EMBEDDING_DIM, distance=Distance.COSINE
+                    )
+                },
+                sparse_vectors_config=sparse_config,
+            )
+        except Exception as e:
+            # Race: another worker created it between our check and create.
+            # qdrant-client raises UnexpectedResponse / AlreadyExists
+            msg = str(e).lower()
+            if "already exists" in msg or "already exist" in msg or "exists" in msg and "collection" in msg:
+                logger.info("Collection '%s' already created by concurrent worker", config.QDRANT_COLLECTION)
+                _collection_ready = True
+                return
+            raise
+        # Keyword index so per-document filtering stays fast as the corpus grows.
+        try:
+            client.create_payload_index(
+                collection_name=config.QDRANT_COLLECTION,
+                field_name="doc_id",
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
+        except Exception as e:
+            msg = str(e).lower()
+            if "already exists" in msg or "already exist" in msg:
+                logger.debug("Payload index already exists for '%s'", config.QDRANT_COLLECTION)
+            else:
+                logger.warning("Failed to create payload index for '%s': %s", config.QDRANT_COLLECTION, e)
+        _collection_ready = True
 
 
 def index_document(
@@ -231,42 +251,56 @@ def index_document(
             vector[SPARSE_VECTOR] = SparseVector(indices=indices, values=values)
         points.append(PointStruct(id=point_id, vector=vector, payload=payload))
 
-    batch_size = 100
+    # 128 balances speed (half the round-trips of 64) with memory:
+    # 128 * 768 * 4 bytes ≈ 0.4 MB vectors plus payload, well under the 4 GB
+    # box even with 3 concurrent upserts (semaphore-bounded). Smaller batches
+    # were measurable slower for 300-chunk docs due to extra HTTP overhead.
+    batch_size = 128
     total = len(points)
     import time as _time
+    import random as _rand
 
-    for start in range(0, total, batch_size):
-        batch = points[start : start + batch_size]
-        last_err = None
-        for attempt in range(3):
-            try:
-                client.upsert(collection_name=config.QDRANT_COLLECTION, points=batch)
-                last_err = None
-                break
-            except Exception as e:
-                last_err = e
-                if attempt == 2:
+    # Bounding concurrent upserts keeps Qdrant connection count and Python
+    # memory from multiplying under burst. Queue rather than fail.
+    acquired = _qdrant_semaphore.acquire(timeout=120)
+    if not acquired:
+        raise RuntimeError("Qdrant busy — too many concurrent indexing jobs, please retry shortly")
+    try:
+        for start in range(0, total, batch_size):
+            batch = points[start : start + batch_size]
+            last_err = None
+            for attempt in range(3):
+                try:
+                    client.upsert(collection_name=config.QDRANT_COLLECTION, points=batch)
+                    last_err = None
                     break
-                backoff = 0.6 * (2**attempt)
-                logger.warning(
-                    "Qdrant upsert %d-%d/%d failed (attempt %d/3): %s — retrying in %.1fs",
-                    start,
-                    min(start + batch_size, total),
-                    total,
-                    attempt + 1,
-                    e,
-                    backoff,
-                )
-                _time.sleep(backoff)
-        if last_err is not None:
-            raise RuntimeError(f"Qdrant upsert failed after 3 attempts: {last_err}") from last_err
-        done = min(start + batch_size, total)
-        logger.info("Upserted points %d-%d/%d for doc_id=%s", start, done, total, doc_id)
-        if on_progress:
-            try:
-                on_progress(done, total)
-            except Exception:
-                logger.exception("on_progress callback failed at %d/%d", done, total)
+                except Exception as e:
+                    last_err = e
+                    if attempt == 2:
+                        break
+                    # jitter desynchronises thundering herd when 10 docs retry at once
+                    backoff = 0.6 * (2**attempt) + _rand.uniform(0, 0.3)
+                    logger.warning(
+                        "Qdrant upsert %d-%d/%d failed (attempt %d/3): %s — retrying in %.1fs",
+                        start,
+                        min(start + batch_size, total),
+                        total,
+                        attempt + 1,
+                        e,
+                        backoff,
+                    )
+                    _time.sleep(backoff)
+            if last_err is not None:
+                raise RuntimeError(f"Qdrant upsert failed after 3 attempts: {last_err}") from last_err
+            done = min(start + batch_size, total)
+            logger.info("Upserted points %d-%d/%d for doc_id=%s", start, done, total, doc_id)
+            if on_progress:
+                try:
+                    on_progress(done, total)
+                except Exception:
+                    logger.exception("on_progress callback failed at %d/%d", done, total)
+    finally:
+        _qdrant_semaphore.release()
 
     logger.info("Indexed %d chunks for doc_id=%s", total, doc_id)
     return total

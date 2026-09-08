@@ -389,13 +389,26 @@ def all_providers() -> list[dict]:
     return RUNTIME_PROVIDERS or _env_fallback_providers()
 
 
-def active_providers() -> list[dict]:
-    """Enabled providers that actually have a key, in fallback order.
+def _key_optional(provider: dict) -> bool:
+    """OPENAI_COMPATIBLE covers self-hosted endpoints (Ollama, vLLM, LM
+    Studio) that take no Authorization header at all, not just hosted
+    vendors — GEMINI and BEDROCK always need a key to shape the request, but
+    an OPENAI_COMPATIBLE row with no key is "self-hosted, no auth", not
+    "unconfigured"."""
+    return provider.get("kind") == "OPENAI_COMPATIBLE"
 
-    A provider with no key is skipped rather than treated as an error: that is
-    just an unconfigured tier. A disabled one is never called at all.
+
+def active_providers() -> list[dict]:
+    """Enabled providers that can actually be called, in fallback order.
+
+    A provider with no key is skipped rather than treated as an error — that
+    is just an unconfigured tier — unless its kind doesn't require one (see
+    _key_optional). A disabled one is never called at all.
     """
-    return [p for p in all_providers() if p.get("enabled") and p.get("api_key")]
+    return [
+        p for p in all_providers()
+        if p.get("enabled") and (p.get("api_key") or _key_optional(p))
+    ]
 
 
 def any_provider_configured() -> bool:
@@ -813,15 +826,11 @@ async def _openai_compatible_chat(
 
     for attempt in range(2):
         try:
+            headers = {"Content-Type": "application/json"}
+            if provider.get("api_key"):
+                headers["Authorization"] = f"Bearer {provider['api_key']}"
             async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {provider['api_key']}",
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                )
+                response = await client.post(url, headers=headers, json=payload)
         except httpx.HTTPError as e:
             logger.error("%s request failed (attempt %d): %s", provider.get("slug"), attempt + 1, e)
             if attempt == 0:
@@ -950,15 +959,11 @@ async def _probe_one_model(provider: dict) -> tuple[bool, str | None]:
             "max_tokens": _PROBE_MAX_TOKENS,
             "temperature": 0.0,
         }
+        probe_headers = {"Content-Type": "application/json"}
+        if provider.get("api_key"):
+            probe_headers["Authorization"] = f"Bearer {provider['api_key']}"
         async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT_SECONDS) as client:
-            response = await client.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {provider['api_key']}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
+            response = await client.post(url, headers=probe_headers, json=payload)
 
     if response.status_code != 200:
         return False, _describe_http_failure(response.status_code, response.text)
@@ -1026,7 +1031,7 @@ async def _health_for(provider: dict) -> dict:
         "model": provider.get("model"),
         "kind": provider.get("kind"),
         "enabled": bool(provider.get("enabled")),
-        "configured": bool(provider.get("api_key")),
+        "configured": bool(provider.get("api_key")) or _key_optional(provider),
     }
     if not base["enabled"]:
         return {**base, "ok": False, "latencyMs": None,

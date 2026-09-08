@@ -86,7 +86,7 @@ export type DocumentStatus = "PENDING" | "PROCESSING" | "INDEXED" | "UNEMBEDDED"
 /** Live ingestion progress reported by the AI service while a document embeds. */
 export interface DocumentProgress {
   doc_id: string
-  stage: "extracting" | "chunking" | "embedding" | "indexing" | "done" | "failed" | null
+  stage: "queued" | "extracting" | "chunking" | "embedding" | "indexing" | "done" | "failed" | null
   percent: number | null
   total_chunks?: number
   processed_chunks?: number
