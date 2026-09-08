@@ -7,7 +7,6 @@ import {
   Loader2, Paperclip, Sparkles, RotateCcw, Tag as TagIcon,
 } from "lucide-react"
 import { Header } from "@/components/layout/header"
-import { Footer } from "@/components/layout/footer"
 import { ErrorState } from "@/components/ui/error-state"
 import { useAuth } from "@/lib/auth-context"
 import { fetchNotices, fetchNoticeCategoryCounts, fetchNoticeSources } from "@/lib/api"
@@ -568,8 +567,6 @@ function NoticesPageContent() {
 
         {/* Notice detail - now uses slug-based route /notices/[slug] */}
       </div>
-
-      <Footer />
     </div>
   )
 }

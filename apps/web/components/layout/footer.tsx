@@ -47,10 +47,10 @@ export function Footer() {
     }
   }, [])
 
-  // Documents is a full-height app layout (h-dvh) — never show the global dark
-  // footer there. If the root layout ever renders <Footer /> unconditionally,
-  // this guard keeps the footer from peeking at the bottom of "My documents".
-  if (pathname?.startsWith("/documents")) return null
+  // Documents and Notices are full-height app layouts (h-dvh) — never show
+  // the global dark footer there. Prevents footer flash/glitch for a sec
+  // on hydration before layout's client guard.
+  if (pathname?.startsWith("/documents") || pathname?.startsWith("/notices")) return null
 
   return (
     <footer className="bg-vez-navy">
