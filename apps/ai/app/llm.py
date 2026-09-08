@@ -550,34 +550,104 @@ async def raw_chat(
     )
 
 
+async def _call_provider_safe(provider: dict, messages: list[dict], max_tokens: int, temperature: float) -> tuple[str | None, dict]:
+    """Wrapper that never raises — hedged race needs one bad provider to not kill the rest."""
+    try:
+        res = await _call_provider(provider, messages, max_tokens, temperature)
+        return res, provider
+    except Exception as e:  # noqa: BLE001 — one provider must never break the chain
+        logger.warning("%s hedged call crashed: %s", provider.get("slug"), e)
+        return None, provider
+
+
 async def _llm_chat(
     messages: list[dict], max_tokens: int, temperature: float
 ) -> str | None:
-    """ULTRA-FAST multi-agent hedged race — fastest healthy provider wins.
+    """VERY VERY FAST — multi-agent hedged race, fastest healthy provider wins.
 
-    Previously sequential — kept for stability after parallel race caused hangs.
-    Ultra-fast achieved via 7s per-model timeout + liquid primary (<600ms) +
-    5-min cache (<5ms hit) + shared-quota fast-path. Groq (0.3s) is the
-    next provider after OpenRouter, so worst case is 7s + 0.3s, typical
-    liquid hit is <600ms. For true parallel multi-agent, re-enable hedged
-    race once Bedrock is verified (currently account unverified).
+    vLLM (Qwen2.5-1.5B CPU, 3-7s) is TOP PRIORITY at sortOrder -10 but it is
+    *not* always fastest: OpenRouter liquid (0.6s) and Groq (0.3s) beat it
+    when they have quota. Sequential fallback previously waited 60s for vLLM
+    to time out before trying them — that is why the UI felt slow. Now the
+    top N enabled providers are fired *concurrently* via asyncio.as_completed;
+    the first non-None answer wins and the rest are cancelled. This is the
+    "multiple agents" pattern: 2-4 agents (vLLM + OpenRouter chain + Groq +
+    Gemini) race, continuous batching (--max-num-seqs 4) on vLLM is the
+    multiple-agents-in-one-host variant. Cache (<5ms) still short-circuits
+    before any network call (see generate_answer). Hedged delay is 0ms —
+    stagger would just add latency when every agent is already fast.
     """
     providers = active_providers()
     if not providers:
         logger.info("No LLM provider is configured")
         return None
+    # Single provider — no race needed, keep sequential path (simpler logs).
+    if len(providers) == 1:
+        return await _call_provider(providers[0], messages, max_tokens, temperature)
 
-    for i, provider in enumerate(providers):
-        result = await _call_provider(provider, messages, max_tokens, temperature)
-        if result:
-            return result
-        remaining = providers[i + 1:]
-        logger.warning(
-            "%s failed or returned empty; %s",
-            provider.get("label", provider.get("slug")),
-            f"falling back to {remaining[0].get('label')}" if remaining
-            else "no fallback providers remain",
-        )
+    # Cap concurrency: top 4 agents cover vLLM + OpenRouter + Groq + Gemini.
+    # Bedrock (paid, rarely needed) stays sequential fallback to avoid
+    # spending on every request.
+    hedged = [p for p in providers if p.get("kind") != "BEDROCK"][:4]
+    sequential_tail = [p for p in providers if p not in hedged]
+
+    # Fire hedged agents concurrently.
+    tasks: list[asyncio.Task] = [
+        asyncio.create_task(_call_provider_safe(p, messages, max_tokens, temperature)) for p in hedged
+    ]
+    # as_completed yields in finish order, regardless of start order — that is
+    # the whole point: fastest wins, even if it is not top priority.
+    winner: str | None = None
+    winner_provider: dict | None = None
+    try:
+        for coro in asyncio.as_completed(tasks):
+            try:
+                result, provider = await coro
+            except asyncio.CancelledError:
+                continue
+            if result:
+                winner = result
+                winner_provider = provider
+                logger.info(
+                    "Hedged race won by %s (%s) — cancelling %d other agent(s)",
+                    provider.get("label", provider.get("slug")),
+                    provider.get("model"),
+                    len([t for t in tasks if not t.done()]),
+                )
+                break
+            else:
+                logger.warning(
+                    "%s failed or returned empty in hedged race; %d agent(s) still racing",
+                    provider.get("label", provider.get("slug")),
+                    len([t for t in tasks if not t.done()]),
+                )
+        # Cancel any still-running hedged tasks (frees vLLM KV cache sooner).
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+        # Gather with return_exceptions so cancellation doesn't propagate.
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+    except Exception:
+        # Safety — ensure no hedged task is left dangling to leak httpx clients.
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    if winner:
+        return winner
+
+    # No hedged agent succeeded — fall back to sequential tail (Bedrock etc).
+    if sequential_tail:
+        logger.warning("All %d hedged agents failed; falling back to sequential tail %s", len(hedged), [p.get("slug") for p in sequential_tail])
+        for provider in sequential_tail:
+            result = await _call_provider(provider, messages, max_tokens, temperature)
+            if result:
+                return result
+            logger.warning("%s (tail) failed or returned empty", provider.get("label", provider.get("slug")))
+    else:
+        logger.warning("All %d hedged agents failed and no sequential tail remains", len(hedged))
     return None
 
 
