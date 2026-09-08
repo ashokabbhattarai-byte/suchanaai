@@ -221,7 +221,7 @@ function DocCard({ doc, progress, toggleBusy, canManage, onToggleEmbed, onDelete
   })()
 
   return (
-    <div className="flex h-full min-w-0 flex-col rounded-2xl border border-vez-line/50 bg-white p-4 shadow-sm transition-all hover:border-vez-sky/50 hover:shadow-md sm:p-6">
+    <div className="flex h-auto min-h-0 min-w-0 shrink-0 flex-col rounded-2xl border border-vez-line/50 bg-white p-4 shadow-sm transition-all hover:border-vez-sky/50 hover:shadow-md">
       <div className="mb-3 flex items-start gap-3 sm:gap-4">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-vez-sky/20 sm:size-11">
           <FileText className="size-5 text-vez-navy" />
