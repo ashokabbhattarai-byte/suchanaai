@@ -341,7 +341,7 @@ export class DocumentsService {
     // For any id without a live entry, try cache then synthetic DB fallback.
     // Fetch DB statuses in one query rather than per-id.
     const missingIds = ids.filter((id) => !aiProgress[id]);
-    let dbMap = new Map<string, Document>();
+    const dbMap = new Map<string, Document>();
     if (missingIds.length > 0) {
       const dbDocs = await this.prisma.document.findMany({
         where: { id: { in: missingIds } },
