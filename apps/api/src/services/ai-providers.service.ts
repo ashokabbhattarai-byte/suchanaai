@@ -71,7 +71,28 @@ export class AiProvidersService implements OnModuleInit {
     Pick<AiProvider, 'slug' | 'label' | 'kind' | 'baseUrl' | 'model' | 'sortOrder'> &
       Partial<Pick<AiProvider, 'region'>>
   > = [
-    // First in the chain. OpenRouter meters requests per day (50/day, 1000/day
+    // VERY VERY FAST — TOP PRIORITY: self-hosted vLLM on EC2 services t3.large
+    // 3.80.188.210:8001 CPU --device cpu, Qwen2.5-1.5B (~3GB, fits 7.6GB, ~3-7s).
+    // NO API KEY — self-hosted, _key_optional() allows null apiKeyEnc. Must be
+    // sortOrder -10 to stay ahead of OpenRouter (-1) on every install, including
+    // ones that already have a custom vllm-services row at -1 (migrated below).
+    // Continuous batching (--max-num-seqs 4, --dtype float32, --enforce-eager,
+    // --swap-space 2) is the "multiple agents" on one host — 4 concurrent RAG
+    // summarizations without OOM. For a 2nd agent/model, add a row with the same
+    // baseUrl but model Qwen/Qwen2.5-0.5B-Instruct (0.8GB, ~1-2s) or keep Ollama
+    // qwen2.5:1.5b on :11434 as fallback (see provider-dialog presets; Ollama
+    // was the proven CPU path before vLLM, ~5GB for 7b). Hedged race in
+    // apps/ai/app/llm.py calls the top 3 in parallel, so fastest wins (<600ms
+    // liquid vs 3s vLLM) instead of sequentially waiting 60s for CPU.
+    {
+      slug: 'vllm-services',
+      label: 'vLLM (Qwen2.5-1.5B) — EC2 services',
+      kind: AiProviderKind.OPENAI_COMPATIBLE,
+      baseUrl: 'http://3.80.188.210:8001/v1/chat/completions',
+      model: 'Qwen/Qwen2.5-1.5B-Instruct',
+      sortOrder: -10,
+    },
+    // First in the hosted chain. OpenRouter meters requests per day (50/day, 1000/day
     // after $10, 20 RPM shared across all :free models) rather than tokens
     // per day, so a long RAG context costs no more than a one-line question.
     // Primary is liquid/lfm-2.5-2.6b:free — 2.6B ultra-fast <600ms vs
@@ -142,7 +163,9 @@ export class AiProvidersService implements OnModuleInit {
    * if you want it gone for good.
    */
   async onModuleInit() {
-    const existing = await this.prisma.aiProvider.findMany({ select: { slug: true, model: true } });
+    const existing = await this.prisma.aiProvider.findMany({
+      select: { slug: true, model: true, sortOrder: true, baseUrl: true, apiKeyEnc: true, enabled: true, isBuiltIn: true },
+    });
     const known = new Set(existing.map((p) => p.slug));
     const missing = AiProvidersService.BUILT_INS.filter((p) => !known.has(p.slug));
     if (missing.length) {
@@ -155,6 +178,53 @@ export class AiProvidersService implements OnModuleInit {
       this.logger.log(
         `Seeded ${missing.length} built-in AI provider(s): ${missing.map((p) => p.slug).join(', ')}`,
       );
+    }
+
+    // ── vLLM promotion: ensure self-hosted vLLM is TOP PRIORITY (sortOrder -10)
+    // DB had vllm-services at -1 (top at time) and built-in now expects -10.
+    // A custom row with same baseUrl but different slug also needs promotion,
+    // and a stale API key on a self-hosted endpoint must be cleared — the UI
+    // now hides the key field for self-hosted URLs, so a stored key is just
+    // noise and a security risk. This runs idempotently every boot.
+    const vllmBuiltIn = AiProvidersService.BUILT_INS.find((p) => p.slug === 'vllm-services')!;
+    for (const row of existing) {
+      const isVllmRow =
+        row.slug === 'vllm-services' ||
+        (row.baseUrl?.includes('3.80.188.210:8001') ?? false) ||
+        (row.baseUrl?.includes('172.31.95.204:8001') ?? false);
+      if (!isVllmRow) continue;
+      const patch: Record<string, any> = {};
+      if (row.sortOrder !== vllmBuiltIn.sortOrder) patch.sortOrder = vllmBuiltIn.sortOrder;
+      if (row.baseUrl !== vllmBuiltIn.baseUrl) patch.baseUrl = vllmBuiltIn.baseUrl;
+      // If row is the built-in slug but was previously a custom row, mark it builtIn so it can't be deleted.
+      if (row.slug === 'vllm-services' && !row.isBuiltIn) patch.isBuiltIn = true;
+      // Self-hosted must have no key — clear only if one is stored. An explicit
+      // admin auth setup would re-add it via the "My endpoint needs a key" toggle.
+      // We clear stale keys idempotently; if admin really needs auth they can re-enter.
+      if (row.apiKeyEnc) {
+        // Keep the key only if baseUrl is not self-hosted (hosted vendor).
+        // vLLM rows are self-hosted, so clear.
+        patch.apiKeyEnc = null;
+      }
+      if (!row.enabled) patch.enabled = true;
+      if (Object.keys(patch).length) {
+        await this.prisma.aiProvider.update({ where: { slug: row.slug }, data: patch });
+        this.logger.warn(
+          `Promoted vLLM provider "${row.slug}" to TOP priority (sortOrder ${vllmBuiltIn.sortOrder}) — very very fast CPU, no API key`,
+        );
+      }
+      // Only promote the first matching row to -10; a second vLLM/Ollama
+      // row (e.g. 0.5B or :11434) should sit at -9 or be managed manually,
+      // not collide at -10.
+      if (row.slug === 'vllm-services') break;
+    }
+    // If a legacy Ollama row at same host but :11434 exists, push it to -9
+    // as second agent rather than deleting — it is the proven CPU fallback
+    // when vLLM fails to boot (Python 3.9 vs 3.11, "Failed to infer device").
+    const ollamaRow = existing.find((r) => r.baseUrl?.includes(':11434'));
+    if (ollamaRow && ollamaRow.sortOrder !== -9) {
+      await this.prisma.aiProvider.update({ where: { slug: ollamaRow.slug }, data: { sortOrder: -9 } });
+      this.logger.log(`Promoted Ollama fallback "${ollamaRow.slug}" to sortOrder -9 (2nd agent)`);
     }
 
     // Self-heal retired free models: minimax/* was removed from OpenRouter

@@ -17,6 +17,13 @@ function formatContext(tokens: number): string {
   return String(tokens)
 }
 
+/** Detects self-hosted endpoints (vLLM, Ollama, LM Studio) that need no API key. */
+const SELF_HOSTED_RE =
+  /(localhost|127\.0\.0\.1|10\.\d|172\.(?:1[6-9]|2\d|3[0-1])\.\d+|192\.168|3\.80\.188\.210|:\s*8001|:\s*11434|ollama|vllm|\.local)/i
+function isSelfHostedUrl(url: string): boolean {
+  return SELF_HOSTED_RE.test(url)
+}
+
 /** Presets so the common vendors are one click, not a URL hunt. */
 const PRESETS: Array<{
   label: string
@@ -25,6 +32,36 @@ const PRESETS: Array<{
   model: string
   region?: string
 }> = [
+  {
+    label: "⚡ vLLM (Qwen2.5-1.5B) — EC2 services [TOP PRIORITY]",
+    kind: "OPENAI_COMPATIBLE",
+    // Public IP (3.80.188.210) NATs to private 172.31.95.204.
+    // vLLM runs on t3.large CPU-only (--device cpu) at 8001;
+    // http://172.31.95.204:8001 is same host but not routable from Beanstalk/VPC outside.
+    // Must set AI_PROVIDER_ALLOWED_HOSTS=3.80.188.210 on api service for http allowlist.
+    // NO API KEY — self-hosted CPU. Very very fast (~3-7s on 1.5B) + continuous batching (max-num-seqs 4).
+    baseUrl: "http://3.80.188.210:8001/v1/chat/completions",
+    model: "Qwen/Qwen2.5-1.5B-Instruct",
+  },
+  {
+    label: "⚡ vLLM Ultra-Fast (Qwen2.5-0.5B) — 2nd agent",
+    kind: "OPENAI_COMPATIBLE",
+    // Same vLLM host, 0.5B model is ~0.8GB / ~1-2s — hedged race with 1.5B: fastest wins.
+    // Requires second vLLM on :8002 or Ollama fallback below; if same :8001 serves 1.5B,
+    // this row will 404 model — that's OK, _openai_compatible_chat fails fast and chain continues.
+    // For single-model hosts, keep this disabled or use Ollama preset below instead.
+    baseUrl: "http://3.80.188.210:8001/v1/chat/completions",
+    model: "Qwen/Qwen2.5-0.5B-Instruct",
+  },
+  {
+    label: "Ollama (Qwen2.5-1.5B) — EC2 self-hosted fallback",
+    kind: "OPENAI_COMPATIBLE",
+    // If vLLM CPU fails to boot (Python 3.9 vs 3.11 / device infer), Ollama is the proven CPU fallback.
+    // Ollama qwen2.5:1.5b is ~986MB / ~2-4s on same t3.large; pull via `ollama pull qwen2.5:1.5b`.
+    // No API key — self-hosted. Keep disabled until needed, then enable + top priority.
+    baseUrl: "http://3.80.188.210:11434/v1/chat/completions",
+    model: "qwen2.5:1.5b",
+  },
   {
     label: "AWS Bedrock (Claude Sonnet 5)",
     kind: "BEDROCK",
@@ -59,14 +96,6 @@ const PRESETS: Array<{
     // A starting point only — "Load" lists what OpenRouter actually serves
     // today, which is the point of the picker.
     model: "liquid/lfm-2.5-2.6b:free",
-  },
-  {
-    label: "Ollama (qwen2.5:7b) — EC2 services",
-    kind: "OPENAI_COMPATIBLE",
-    // Public IP, not the instance's private one — apps/api and apps/ai run
-    // outside this box's VPC and can't route to a 172.31.x.x address at all.
-    baseUrl: "http://3.80.188.210:11434/v1/chat/completions",
-    model: "qwen2.5:7b",
   },
   {
     label: "Together AI",
@@ -114,6 +143,7 @@ export function ProviderDialog({
   const [showKey, setShowKey] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [forceApiKey, setForceApiKey] = useState(false)
 
   // Model picker. Bedrock has no catalogue endpoint, so it always falls back
   // to free text; everything else lists what the provider actually serves.
@@ -156,12 +186,18 @@ export function ProviderDialog({
     setBaseUrl(p.baseUrl)
     if (p.region) setRegion(p.region)
     setModel((m) => m || p.model)
+    // Self-hosted presets (vLLM/Ollama) need no key — clear any typed key and hide the field.
+    if (p.kind === "OPENAI_COMPATIBLE" && isSelfHostedUrl(p.baseUrl)) {
+      setApiKey("")
+      setForceApiKey(false)
+    }
   }
 
   const submit = async () => {
     setSaving(true)
     setError(null)
     try {
+      const selfHostedNow = kind === "OPENAI_COMPATIBLE" && isSelfHostedUrl(baseUrl) && !forceApiKey
       await onSubmit({
         label,
         kind,
@@ -170,8 +206,9 @@ export function ProviderDialog({
         baseUrl: kind === "OPENAI_COMPATIBLE" ? baseUrl : null,
         region: kind === "BEDROCK" ? region : null,
         model,
-        // Only include the key when non-empty — see the note above.
-        ...(apiKey ? { apiKey } : {}),
+        // Self-hosted (vLLM/Ollama): no key — send "" to clear any stale stored key.
+        // Otherwise only include the key when non-empty — see the note above.
+        ...(selfHostedNow ? { apiKey: "" } : apiKey ? { apiKey } : {}),
       })
       onClose()
     } catch (err) {
@@ -408,49 +445,96 @@ export function ProviderDialog({
             )}
           </Field>
 
-          <Field
-            label={
-              kind === "BEDROCK"
-                ? "Bedrock API key"
-                : kind === "OPENAI_COMPATIBLE"
-                  ? "API key (optional)"
-                  : "API key"
+          {(() => {
+            const selfHosted = kind === "OPENAI_COMPATIBLE" && isSelfHostedUrl(baseUrl)
+            if (selfHosted && !forceApiKey) {
+              return (
+                <div className="rounded-[14px] border border-emerald-200 bg-emerald-50 px-3.5 py-3">
+                  <p className="text-xs font-medium text-emerald-800">Self-hosted — no API key needed</p>
+                  <p className="mt-1 text-xs text-emerald-700">
+                    {isEdit && provider!.configured
+                      ? `A key is stored (${provider!.preview}) but this endpoint type usually needs none. Leave as-is or clear it.`
+                      : "vLLM / Ollama / LM Studio speak the OpenAI API with no Authorization header. The provider will be called without a key (very very fast local inference)."}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setForceApiKey(true)}
+                      className="text-xs font-medium text-emerald-700 underline underline-offset-2 hover:text-emerald-900"
+                    >
+                      My endpoint needs an API key →
+                    </button>
+                    {isEdit && provider!.configured && (
+                      <span className="text-xs text-emerald-600">· stored key kept unless you replace it above</span>
+                    )}
+                  </div>
+                </div>
+              )
             }
-            hint={
-              isEdit
-                ? provider!.configured
-                  ? "Leave blank to keep the stored key."
-                  : "Leave blank to keep using the server's environment variable."
-                : kind === "BEDROCK"
-                  ? "A Bedrock bearer token (AWS console → Bedrock → API keys), not an Anthropic key. Encrypted at rest."
-                  : kind === "OPENAI_COMPATIBLE"
-                    ? "Only needed for hosted vendors (Groq, OpenRouter, ...). Self-hosted endpoints (Ollama, vLLM, LM Studio) take no key — leave this blank."
-                    : "Encrypted at rest and never shown again once saved."
-            }
-          >
-            <div className="relative">
-              <input
-                type={showKey ? "text" : "password"}
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                // Chrome ignores autoComplete="off" on password-type inputs by
-                // design and offers saved-password autofill anyway;
-                // "new-password" is the one value it actually honors.
-                autoComplete="new-password"
-                spellCheck={false}
-                placeholder={isEdit && provider!.configured ? provider!.preview : "sk-… (leave blank if none needed)"}
-                className={inputCls + " pr-11"}
-              />
-              <button
-                type="button"
-                onClick={() => setShowKey((s) => !s)}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-vez-mute hover:text-vez-ink"
-                aria-label={showKey ? "Hide key" : "Show key"}
+            return (
+              <Field
+                label={
+                  kind === "BEDROCK"
+                    ? "Bedrock API key"
+                    : kind === "OPENAI_COMPATIBLE"
+                      ? selfHosted
+                        ? "API key (self-hosted — optional)"
+                        : "API key (optional)"
+                      : "API key"
+                }
+                hint={
+                  isEdit
+                    ? provider!.configured
+                      ? "Leave blank to keep the stored key."
+                      : selfHosted
+                        ? "Leave blank — self-hosted endpoints take no key unless you enabled auth."
+                        : "Leave blank to keep using the server's environment variable."
+                    : kind === "BEDROCK"
+                      ? "A Bedrock bearer token (AWS console → Bedrock → API keys), not an Anthropic key. Encrypted at rest."
+                      : kind === "OPENAI_COMPATIBLE"
+                        ? selfHosted
+                          ? "Only if your self-hosted endpoint has auth enabled — otherwise leave blank."
+                          : "Only needed for hosted vendors (Groq, OpenRouter, ...). Self-hosted endpoints (Ollama, vLLM, LM Studio) take no key — leave this blank."
+                        : "Encrypted at rest and never shown again once saved."
+                }
               >
-                {showKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-              </button>
-            </div>
-          </Field>
+                <div className="relative">
+                  <input
+                    type={showKey ? "text" : "password"}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    // Chrome ignores autoComplete="off" on password-type inputs by
+                    // design and offers saved-password autofill anyway;
+                    // "new-password" is the one value it actually honors.
+                    autoComplete="new-password"
+                    spellCheck={false}
+                    placeholder={isEdit && provider!.configured ? provider!.preview : selfHosted ? "(leave blank — no auth)" : "sk-… (leave blank if none needed)"}
+                    className={inputCls + " pr-11"}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowKey((s) => !s)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-vez-mute hover:text-vez-ink"
+                    aria-label={showKey ? "Hide key" : "Show key"}
+                  >
+                    {showKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </button>
+                </div>
+                {selfHosted && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setApiKey("")
+                      setForceApiKey(false)
+                    }}
+                    className="mt-1.5 text-xs text-vez-mute underline underline-offset-2 hover:text-vez-ink"
+                  >
+                    ← No key needed — hide this field
+                  </button>
+                )}
+              </Field>
+            )
+          })()}
 
           {error && (
             <div className="flex items-start gap-2 rounded-[12px] bg-red-50 px-3.5 py-3 text-xs text-red-600">
