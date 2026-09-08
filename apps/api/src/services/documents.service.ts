@@ -159,11 +159,11 @@ export class DocumentsService {
       setTimeout(() => void this.retryVectorDelete(id, 2), 5 * 60_000);
     }
 
+    // Delete from database first (if this fails, S3 object remains and can be retried — no orphan DB pointer)
+    await this.prisma.document.delete({ where: { id } });
+
     // Delete the file from S3 (best-effort — deleteObject swallows its own errors)
     await this.storage.deleteObject(document.storageKey);
-
-    // Delete from database
-    await this.prisma.document.delete({ where: { id } });
   }
 
   private async retryVectorDelete(id: string, attempt: number): Promise<void> {

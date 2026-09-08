@@ -1014,8 +1014,8 @@ function AdminScrapingPageContent() {
           </div>
         )}
 
-        {/* Stats row */}
-        <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+        {/* Stats row - responsive */}
+        <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           {[
             { label: "Active sources", value: activeSources, icon: Globe },
             { label: "Total sources", value: sources.length, icon: Terminal },
@@ -1067,7 +1067,7 @@ function AdminScrapingPageContent() {
           <>
             {/* Sources Tab */}
             {activeTab === "sources" && (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                 {sources.length === 0 && (
                   <div className="col-span-full rounded-[20px] bg-white p-10 text-center text-sm text-vez-mute">
                     No sources yet. Click &quot;Add source&quot; to start scraping a government or public website.
@@ -1106,8 +1106,8 @@ function AdminScrapingPageContent() {
                   const dedupRate = totalFound > 0 ? Math.round((totalSkipped / totalFound) * 100) : null
 
                   return (
-                    <div key={source.id} className="rounded-[20px] bg-white p-6">
-                      <div className="mb-4 flex items-start justify-between gap-3">
+                    <div key={source.id} className="rounded-[20px] bg-white p-4 sm:p-6 w-full min-w-0 overflow-hidden">
+                      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                           <h3 className="flex items-center gap-1.5 text-base text-vez-ink">
                             {source.name}
@@ -1149,37 +1149,37 @@ function AdminScrapingPageContent() {
                         </div>
                       </div>
                       {source.isAdHoc ? (
-                        <div className="mb-4 grid grid-cols-2 gap-3 rounded-[14px] bg-vez-surface px-4 py-3 text-xs">
+                        <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-[14px] bg-vez-surface p-4 sm:p-3 text-xs">
                           <div>
                             <span className="text-vez-mute">Category</span>
-                            <p className="mt-0.5 text-vez-ink">{categories || "—"}</p>
+                            <p className="mt-0.5 break-words text-vez-ink">{categories || "—"}</p>
                           </div>
                           <div>
                             <span className="text-vez-mute">Items scraped</span>
-                            <p className="mt-0.5 text-vez-ink">{source.itemCount.toLocaleString()}</p>
+                            <p className="mt-0.5 break-words text-vez-ink">{source.itemCount.toLocaleString()}</p>
                           </div>
-                          <div className="col-span-2 text-vez-mute">
+                          <div className="col-span-1 sm:col-span-2 text-vez-mute break-words">
                             Created from a pasted link — no listing pages, not polled automatically.
                             Use &quot;Scrape a link&quot; above to add more from this domain.
                           </div>
                         </div>
                       ) : (
-                      <div className="mb-4 grid grid-cols-2 gap-3 rounded-[14px] bg-vez-surface px-4 py-3 text-xs">
+                      <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-[14px] bg-vez-surface p-4 sm:p-3 text-xs">
                         <div>
                           <span className="text-vez-mute">Category</span>
-                          <p className="mt-0.5 text-vez-ink">{categories || "—"}</p>
+                          <p className="mt-0.5 break-words text-vez-ink">{categories || "—"}</p>
                         </div>
                         <div>
                           <span className="text-vez-mute">Items scraped</span>
-                          <p className="mt-0.5 text-vez-ink">{source.itemCount.toLocaleString()}</p>
+                          <p className="mt-0.5 break-words text-vez-ink">{source.itemCount.toLocaleString()}</p>
                         </div>
-                        <div className="col-span-2">
+                        <div className="col-span-1 sm:col-span-2">
                           <span className="text-vez-mute">Pagination</span>
-                          <p className="mt-0.5 text-vez-ink">{paginationLabel}</p>
+                          <p className="mt-0.5 break-words text-vez-ink">{paginationLabel}</p>
                         </div>
-                        <div className="col-span-2">
+                        <div className="col-span-1 sm:col-span-2">
                           <span className="text-vez-mute">Auto-polling</span>
-                          <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-vez-ink">
+                          <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 break-words text-vez-ink">
                             <span className="flex items-center gap-1">
                               <Timer className="size-3 text-vez-mute" />
                               every {formatInterval(source.pollIntervalSeconds)}
@@ -1201,17 +1201,17 @@ function AdminScrapingPageContent() {
                             ) : null}
                           </p>
                         </div>
-                        <div className="col-span-2">
+                        <div className="col-span-1 sm:col-span-2">
                           <span className="text-vez-mute">Sitemap fast-path</span>
-                          <p className="mt-0.5 flex items-center gap-1 text-vez-ink">
+                          <p className="mt-0.5 flex items-center gap-1 break-words text-vez-ink">
                             <Link2 className="size-3 shrink-0 text-vez-mute" />
                             <span className="truncate">{sitemapLabel}</span>
                           </p>
                         </div>
                         {dedupRate !== null && (
-                          <div className="col-span-2">
+                          <div className="col-span-1 sm:col-span-2">
                             <span className="text-vez-mute">Dedup efficiency (recent runs)</span>
-                            <p className="mt-0.5 text-vez-ink">
+                            <p className="mt-0.5 break-words text-vez-ink">
                               {dedupRate}% already-scraped items skipped without re-fetching
                             </p>
                           </div>
@@ -1326,7 +1326,7 @@ function AdminScrapingPageContent() {
 
             {/* Logs Tab */}
             {activeTab === "logs" && (
-              <div className="rounded-[20px] bg-white p-6">
+              <div className="rounded-[20px] bg-white p-4 sm:p-6 overflow-hidden">
                 <div className="mb-5 flex items-center justify-between">
                   <div>
                     <h2 className="text-lg text-vez-ink">Scraping logs</h2>
@@ -1437,8 +1437,8 @@ function AdminScrapingPageContent() {
                   </div>
                 ) : (
                   <>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
+                    <div className="overflow-x-auto rounded-lg border border-vez-line">
+                      <table className="w-full min-w-[640px] text-left text-xs">
                         <thead>
                           <tr className="border-b border-vez-line text-vez-mute">
                             <th className="whitespace-nowrap py-2.5 pr-3 font-medium">Status</th>
@@ -2021,7 +2021,7 @@ function AdminScrapingPageContent() {
                         </p>
                       )}
                       {form.paginationType !== "NONE" && (
-                        <div className="grid grid-cols-2 gap-3 md:col-span-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:col-span-2">
                           <div>
                             <label className="mb-1 block text-xs text-vez-mute">Start page number</label>
                             <input

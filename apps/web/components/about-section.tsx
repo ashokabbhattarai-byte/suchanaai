@@ -103,7 +103,7 @@ export function AboutSection() {
     <section
       ref={sectionRef}
       id="about"
-      className="relative py-12 md:py-20 lg:py-24 px-6 md:px-8 lg:px-12 bg-background overflow-hidden"
+      className="relative py-8 sm:py-12 md:py-20 lg:py-24 px-4 sm:px-6 md:px-8 lg:px-8 bg-background overflow-hidden"
     >
       {/* Technical grid */}
       <div className="absolute inset-0 pointer-events-none opacity-[0.02]">
@@ -117,9 +117,9 @@ export function AboutSection() {
         </svg>
       </div>
 
-      <div className="relative max-w-[1280px] mx-auto">
+      <div className="relative max-w-7xl mx-auto">
         {/* Tactical header */}
-        <div ref={headingRef} className="mb-12 border-l-2 border-indigo-500 pl-5 relative">
+        <div ref={headingRef} className="mb-8 sm:mb-12 border-l-2 border-indigo-500 pl-4 sm:pl-5 relative min-w-0">
           <div className="absolute -left-[2px] top-0 w-4 h-px bg-indigo-500" />
           <div className="absolute -left-[2px] bottom-0 w-4 h-px bg-indigo-500" />
 
@@ -133,7 +133,7 @@ export function AboutSection() {
             </span>
           </div>
 
-          <h2 className="text-3xl md:text-5xl font-bold text-foreground mb-5 leading-tight uppercase tracking-tight">
+          <h2 className="text-2xl sm:text-3xl md:text-5xl font-bold text-foreground mb-3 sm:mb-5 leading-tight uppercase tracking-tight break-words">
             Building the future of <span className="text-indigo-400">public information</span>
           </h2>
 
@@ -145,8 +145,8 @@ export function AboutSection() {
         </div>
 
         {/* Content */}
-        <div ref={contentRef} className="mb-12 max-w-3xl">
-          <p className="text-muted-foreground text-base md:text-lg leading-relaxed mb-4">
+        <div ref={contentRef} className="mb-8 sm:mb-12 max-w-3xl min-w-0">
+          <p className="text-muted-foreground text-sm sm:text-base md:text-lg leading-relaxed mb-4 break-words">
             Suchana AI is a mission-driven technology platform addressing Nepal&apos;s fragmented public information ecosystem. We aggregate official government notices from 50+ portals, process them with AI, and make every document instantly searchable in plain language.
           </p>
           <p className="text-muted-foreground text-base md:text-lg leading-relaxed">
@@ -155,14 +155,14 @@ export function AboutSection() {
         </div>
 
         {/* Values Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8 sm:mb-12">
           {values.map((value, i) => {
             const Icon = value.icon
             return (
               <div
                 key={value.title}
                 ref={(el) => { cardsRef.current[i] = el }}
-                className="relative bg-card backdrop-blur-xl p-6 group hover:bg-card transition-all duration-300"
+                className="relative bg-card backdrop-blur-xl p-4 sm:p-6 group hover:bg-card transition-all duration-300 min-w-0"
               >
                 {/* Tactical border */}
                 <div className="absolute inset-0 border border-border pointer-events-none" />
@@ -193,20 +193,20 @@ export function AboutSection() {
         {/* Stats */}
         <div
           ref={statsRef}
-          className="relative bg-card backdrop-blur-xl p-8 border border-border"
+          className="relative bg-card backdrop-blur-xl p-4 sm:p-8 border border-border"
         >
           <div className="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-indigo-500" />
           <div className="absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 border-indigo-500" />
           <div className="absolute bottom-0 left-0 w-2 h-2 border-b-2 border-l-2 border-indigo-500" />
           <div className="absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 border-indigo-500" />
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
             {stats.map((stat) => (
-              <div key={stat.label} className="text-center">
-                <p className="text-3xl md:text-4xl font-black text-indigo-400 mb-2 tabular-nums">
+              <div key={stat.label} className="text-center min-w-0">
+                <p className="text-2xl sm:text-3xl md:text-4xl font-black text-indigo-400 mb-1 sm:mb-2 tabular-nums break-words">
                   {stat.value}
                 </p>
-                <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">
+                <p className="text-[11px] sm:text-xs text-muted-foreground font-mono uppercase tracking-wider break-words">
                   {stat.label}
                 </p>
               </div>

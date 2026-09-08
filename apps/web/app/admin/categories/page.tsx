@@ -20,8 +20,8 @@ export default function AdminCategoriesPage() {
           <p className="mt-2 text-sm text-vez-mute">Manage notice categories</p>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          <div className="rounded-[20px] bg-white p-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+          <div className="rounded-[20px] bg-white p-4 sm:p-6 w-full overflow-hidden">
             <h2 className="mb-5 text-lg text-vez-ink">Existing categories</h2>
             <div className="space-y-2.5">
               {categories.map((cat) => (
@@ -39,7 +39,7 @@ export default function AdminCategoriesPage() {
             </div>
           </div>
 
-          <div className="h-fit rounded-[20px] bg-vez-sky/25 p-6">
+          <div className="h-fit rounded-[20px] bg-vez-sky/25 p-4 sm:p-6 w-full overflow-hidden">
             <h2 className="mb-5 text-lg text-vez-ink">Add category</h2>
             <div className="space-y-4">
               <div>

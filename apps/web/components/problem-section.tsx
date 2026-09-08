@@ -186,7 +186,7 @@ export function ProblemSection() {
   }, [])
 
   return (
-    <section ref={sectionRef} className="py-12 md:py-20 lg:py-24 px-6 md:px-8 lg:px-12 relative overflow-hidden bg-background">
+    <section ref={sectionRef} className="py-8 sm:py-12 md:py-20 lg:py-24 px-4 sm:px-6 md:px-8 lg:px-8 relative overflow-hidden bg-background">
       {/* Technical grid overlay */}
       <div className="absolute inset-0 pointer-events-none opacity-[0.02]">
         <svg width="100%" height="100%">
@@ -205,9 +205,9 @@ export function ProblemSection() {
         <div className="absolute top-2/3 left-0 w-full h-px bg-gradient-to-r from-transparent via-destructive/20 to-transparent" />
       </div>
 
-      <div className="max-w-[1480px] mx-auto relative">
+      <div className="max-w-7xl mx-auto relative">
         {/* Tactical Header */}
-        <div ref={headingRef} className="mb-12 border-l-2 border-indigo-500 pl-5 relative">
+        <div ref={headingRef} className="mb-8 sm:mb-12 border-l-2 border-indigo-500 pl-4 sm:pl-5 relative min-w-0">
           {/* Corner brackets */}
           <div className="absolute -left-[2px] top-0 w-4 h-px bg-indigo-500" />
           <div className="absolute -left-[2px] bottom-0 w-4 h-px bg-indigo-500" />
@@ -223,7 +223,7 @@ export function ProblemSection() {
             </span>
           </div>
 
-          <h2 className="text-3xl md:text-5xl lg:text-6xl font-bold text-foreground mb-5 leading-[1.1] uppercase tracking-tight text-foreground">
+          <h2 className="text-2xl sm:text-3xl md:text-5xl lg:text-6xl font-bold text-foreground mb-3 sm:mb-5 leading-[1.1] uppercase tracking-tight break-words">
             Nepal&apos;s public information<br />
             <span className="text-destructive">system is broken.</span>
           </h2>
@@ -242,7 +242,7 @@ export function ProblemSection() {
         {/* Tactical Metrics Grid */}
         <div
           ref={cardsRef}
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
           style={{ perspective: "1000px" }}
         >
           {problems.map((p, i) => {
@@ -252,7 +252,7 @@ export function ProblemSection() {
             return (
               <div
                 key={i}
-                className="problem-card relative group bg-card backdrop-blur-xl overflow-hidden transition-all duration-300 hover:bg-card"
+                className="problem-card relative group bg-card backdrop-blur-xl overflow-hidden transition-all duration-300 hover:bg-card min-w-0"
                 style={{ transformStyle: "preserve-3d" }}
               >
                 {/* Tactical border with corner brackets */}
@@ -280,7 +280,7 @@ export function ProblemSection() {
                 {/* Hover scan effect */}
                 <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/0 via-indigo-500/5 to-indigo-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
 
-                <div className="relative p-5 md:p-6">
+                <div className="relative p-4 sm:p-5 md:p-6 min-w-0">
                   {/* Icon + Title */}
                   <div className="flex items-center gap-3 mb-4">
                     <div className="problem-icon size-8 flex items-center justify-center shrink-0 relative">

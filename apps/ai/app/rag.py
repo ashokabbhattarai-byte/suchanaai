@@ -1,3 +1,4 @@
+import asyncio
 import re
 import time
 from typing import Optional
@@ -115,8 +116,10 @@ async def _detect_chat_intent(question: str, query_embedding: list[float]) -> bo
 
     global _chat_vecs, _doc_vecs
     if _chat_vecs is None:
-        _chat_vecs = np.array(embeddings.get_embeddings(_CHAT_EXAMPLES, kind="query"))
-        _doc_vecs = np.array(embeddings.get_embeddings(_DOC_EXAMPLES, kind="query"))
+        chat_embs = await asyncio.to_thread(embeddings.get_embeddings, _CHAT_EXAMPLES, kind="query")
+        doc_embs = await asyncio.to_thread(embeddings.get_embeddings, _DOC_EXAMPLES, kind="query")
+        _chat_vecs = np.array(chat_embs)
+        _doc_vecs = np.array(doc_embs)
 
     q_vec = np.array(query_embedding)
     chat_sim = float(np.max(_chat_vecs @ q_vec))
@@ -310,7 +313,7 @@ async def query(
         logger.info("Small talk detected (lexical); skipping retrieval")
         return await _chat_reply()
 
-    query_embedding = embeddings.get_embedding(question, kind="query")
+    query_embedding = await asyncio.to_thread(embeddings.get_embedding, question, kind="query")
 
     if await _detect_chat_intent(question, query_embedding):
         logger.info("Small talk detected (semantic); skipping retrieval")

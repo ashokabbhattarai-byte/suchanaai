@@ -23,14 +23,16 @@ class Histogram:
     counts: list[int] = field(default_factory=lambda: [0] * 10)
     total: int = 0
     sum: float = 0.0
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def observe(self, value: float) -> None:
-        self.total += 1
-        self.sum += value
-        for i, bucket in enumerate(self.buckets):
-            if value <= bucket:
-                self.counts[i] += 1
-                break
+        with self._lock:
+            self.total += 1
+            self.sum += value
+            for i, bucket in enumerate(self.buckets):
+                if value <= bucket:
+                    self.counts[i] += 1
+                    break
 
     def percentiles(self) -> dict[str, float]:
         if self.total == 0:

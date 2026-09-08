@@ -203,12 +203,19 @@ export function StaggerGrid({
         stagger: { amount, from: "center" },
         scrollTrigger: {
           trigger: el,
-          start: "top 85%",
+          start: "top 92%",
           once: true,
         },
       }
     )
+    const fallback = window.setTimeout(() => {
+      if (items[0] && getComputedStyle(items[0]).opacity === "0") {
+        gsap.set(items, { clearProps: "all", opacity: 1, y: 0, rotation: 0, scale: 1 })
+        tween.scrollTrigger?.kill()
+      }
+    }, 1500)
     return () => {
+      window.clearTimeout(fallback)
       tween.scrollTrigger?.kill()
       tween.kill()
     }
@@ -255,10 +262,17 @@ export function PopIcon({
         duration: 0.7,
         delay: delay / 1000,
         ease: "back.out(2)",
-        scrollTrigger: { trigger: el, start: "top 88%", once: true },
+        scrollTrigger: { trigger: el, start: "top 92%", once: true },
       }
     )
+    const fallback = window.setTimeout(() => {
+      if (getComputedStyle(el).opacity === "0") {
+        gsap.set(el, { opacity: 1, scale: 1, rotation: 0 })
+        tween.scrollTrigger?.kill()
+      }
+    }, 1400 + delay)
     return () => {
+      window.clearTimeout(fallback)
       tween.scrollTrigger?.kill()
       tween.kill()
     }

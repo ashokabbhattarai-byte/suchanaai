@@ -193,7 +193,7 @@ export function ContactSection() {
     <section
       ref={sectionRef}
       id="contact"
-      className="relative py-12 md:py-20 lg:py-24 px-6 md:px-8 lg:px-12 overflow-hidden bg-background"
+      className="relative py-8 sm:py-12 md:py-20 lg:py-24 px-4 sm:px-6 md:px-8 lg:px-8 overflow-hidden bg-background"
     >
       <div className="absolute inset-0 pointer-events-none opacity-[0.02]">
         <svg width="100%" height="100%">
@@ -206,8 +206,8 @@ export function ContactSection() {
         </svg>
       </div>
 
-      <div className="relative z-10 max-w-[1280px] mx-auto">
-        <div ref={headingRef} className="mb-12 border-l-2 border-indigo-500 pl-5 relative max-w-3xl">
+      <div className="relative z-10 max-w-7xl mx-auto">
+        <div ref={headingRef} className="mb-8 sm:mb-12 border-l-2 border-indigo-500 pl-4 sm:pl-5 relative max-w-3xl min-w-0">
           <div className="absolute -left-[2px] top-0 w-4 h-px bg-indigo-500" />
           <div className="absolute -left-[2px] bottom-0 w-4 h-px bg-indigo-500" />
           <div className="flex items-center gap-2 mb-4">
@@ -219,7 +219,7 @@ export function ContactSection() {
               [CONTACT_INTERFACE // GET_IN_TOUCH]
             </span>
           </div>
-          <h2 className="text-3xl md:text-5xl font-bold text-foreground mb-5 leading-tight uppercase tracking-tight">
+          <h2 className="text-2xl sm:text-3xl md:text-5xl font-bold text-foreground mb-3 sm:mb-5 leading-tight uppercase tracking-tight break-words">
             Let&apos;s Build <span className="text-indigo-400">Together</span>
           </h2>
           <div className="flex gap-4 items-center mt-6">
@@ -232,12 +232,12 @@ export function ContactSection() {
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-[1fr_0.9fr] gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_0.9fr] gap-6 sm:gap-8">
           <form
             ref={formRef}
             onSubmit={handleSubmit}
             noValidate
-            className="relative bg-card backdrop-blur-xl p-6 md:p-8 border border-border"
+            className="relative bg-card backdrop-blur-xl p-4 sm:p-6 md:p-8 border border-border min-w-0"
           >
             <div className="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-indigo-500" />
             <div className="absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 border-indigo-500" />
@@ -251,8 +251,8 @@ export function ContactSection() {
             </div>
 
             <div className="space-y-5">
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="min-w-0">
                   <label className="block text-xs font-mono font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                     Name <span className="text-red-500">*</span>
                   </label>
@@ -269,7 +269,7 @@ export function ContactSection() {
                   />
                   {fieldErrors.name && <p className="mt-1 text-xs text-red-600">{fieldErrors.name}</p>}
                 </div>
-                <div>
+                <div className="min-w-0">
                   <label className="block text-xs font-mono font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                     Email <span className="text-red-500">*</span>
                   </label>

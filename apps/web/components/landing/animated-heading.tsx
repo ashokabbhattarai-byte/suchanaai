@@ -23,10 +23,12 @@ export function AnimatedHeading({ text, className, as = "h2" }: AnimatedHeadingP
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
-
-    const words = el.querySelectorAll(".vz-word")
+    const words = el.querySelectorAll(".vz-word") as NodeListOf<HTMLElement>
     if (!words.length) return
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      gsap.set(words, { yPercent: 0 })
+      return
+    }
 
     const tween = gsap.fromTo(
       words,
@@ -38,13 +40,27 @@ export function AnimatedHeading({ text, className, as = "h2" }: AnimatedHeadingP
         ease: "power4.out",
         scrollTrigger: {
           trigger: el,
-          start: "top 88%",
+          start: "top 95%",
           once: true,
         },
       }
     )
 
+    // Fallback: force visible if words still hidden after 1.2s (mobile early viewport)
+    const fallback = window.setTimeout(() => {
+      const first = words[0]
+      if (first && getComputedStyle(first).transform !== "none") {
+        const m = new DOMMatrix(getComputedStyle(first).transform)
+        // if translateY is still large, force
+        if (m.m42 > 10) gsap.set(words, { yPercent: 0 })
+      } else if (first) {
+        // check opacity via parent line
+        gsap.set(words, { yPercent: 0 })
+      }
+    }, 1200)
+
     return () => {
+      window.clearTimeout(fallback)
       tween.scrollTrigger?.kill()
       tween.kill()
     }

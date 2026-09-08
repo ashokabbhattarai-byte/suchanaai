@@ -272,14 +272,14 @@ export function FloatingChat() {
           ref={chatRef}
           style={isDesktop && size ? { width: size.width, height: size.height, maxHeight: "none" } : undefined}
           className={cn(
-            "fixed z-[60] flex flex-col overflow-hidden border border-border/60 bg-card/95 backdrop-blur-xl shadow-2xl",
-            "inset-x-0 bottom-0 h-[85vh] rounded-t-2xl",
+            "fixed z-[60] flex flex-col overflow-hidden border border-vez-line bg-card/95 backdrop-blur-xl shadow-2xl rounded-xl sm:rounded-2xl",
+            "inset-x-4 bottom-4 h-[85vh] max-h-[80vh] w-auto rounded-2xl",
             // Smaller footprint than before (was 400x540, ~75vh) — it was
             // covering page controls (action buttons, title) on narrower or
             // shorter desktop viewports. max-h keeps it well clear of the
             // top of the page even on short windows. Overridden by `style`
             // above once the user has dragged/maximized to a custom size.
-            "sm:inset-x-auto sm:bottom-6 sm:right-6 sm:h-[65vh] sm:max-h-[480px] sm:w-[360px] sm:rounded-2xl",
+            "sm:inset-x-auto sm:bottom-4 sm:right-4 sm:h-[65vh] sm:max-h-[80vh] sm:w-[380px]",
           )}
         >
           {/* Resize grip — floating-card layout only; drag to grow toward the
@@ -298,22 +298,22 @@ export function FloatingChat() {
           )}
 
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-border/60 bg-primary/5">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                <Bot className="size-4 text-primary" />
+          <div className="flex items-center justify-between p-3 sm:p-4 border-b border-vez-line bg-primary/5">
+            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+              <div className="size-7 sm:size-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Bot className="size-3.5 sm:size-4 text-primary" />
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-semibold">Suchana AI</p>
-                <p className="text-[10px] text-muted-foreground truncate max-w-[200px]">{subtitle}</p>
+                <p className="text-sm sm:text-base font-semibold font-poppins tracking-tight leading-tight">Suchana AI</p>
+                <p className="text-[10px] sm:text-xs text-muted-foreground truncate max-w-[160px] sm:max-w-[200px] font-poppins">{subtitle}</p>
               </div>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
               {messages.length > 0 && (
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-8"
+                  className="size-8 sm:size-9 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
                   onClick={resetChat}
                   aria-label="Start a new chat"
                   title="New chat"
@@ -325,7 +325,7 @@ export function FloatingChat() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-8"
+                  className="size-8 sm:size-9 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
                   onClick={toggleMaximize}
                   aria-label={size && size.width >= EXPANDED_SIZE.width ? "Restore chat size" : "Expand chat"}
                   title={size && size.width >= EXPANDED_SIZE.width ? "Restore size" : "Expand"}
@@ -340,7 +340,7 @@ export function FloatingChat() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-8"
+                className="size-8 sm:size-9 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
                 onClick={() => setOpen(false)}
                 aria-label="Close chat"
               >
@@ -351,19 +351,19 @@ export function FloatingChat() {
 
           {/* Context badge */}
           {contextNotice && (
-            <div className="flex items-center gap-2 px-4 py-2 border-b border-border/40 bg-primary/3">
+            <div className="flex items-center gap-2 px-3 sm:px-4 py-2 border-b border-vez-line/60 bg-primary/3">
               <FileText className="size-3 text-primary shrink-0" />
-              <p className="text-[10px] text-primary truncate flex-1">
+              <p className="text-[10px] sm:text-xs text-primary truncate flex-1 font-poppins tracking-tight">
                 Context: {contextNotice.title}
               </p>
-              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">
+              <span className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">
                 Locked
               </span>
             </div>
           )}
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4">
             {messages.length === 0 && (
               <div className="text-center py-6">
                 <div className="size-12 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
@@ -492,22 +492,22 @@ export function FloatingChat() {
           </div>
 
           {/* Input */}
-          <div className="p-3 border-t border-border/60" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
+          <div className="p-3 sm:p-4 border-t border-vez-line" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
             {quota && (
               <div className="mb-2">
                 <UpgradePrompt quota={quota} compact onDismiss={() => setQuota(null)} />
               </div>
             )}
-            <form onSubmit={(e) => { e.preventDefault(); handleSend() }} className="flex gap-2">
+            <form onSubmit={(e) => { e.preventDefault(); handleSend() }} className="flex gap-2 sm:gap-3">
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={contextNotice ? "Ask about this notice…" : "Ask about notices..."}
-                className="flex-1 h-9 rounded-lg border border-border/60 bg-background px-3 text-sm outline-none focus:border-primary/50 transition-colors"
+                className="flex-1 h-9 sm:h-10 rounded-lg border border-vez-line bg-background px-3 sm:px-4 text-sm sm:text-base font-poppins tracking-tight outline-none focus:border-primary/50 transition-colors min-h-[44px] sm:min-h-0"
                 disabled={loading}
               />
-              <Button type="submit" size="icon" className="size-9 rounded-lg shrink-0" disabled={!input.trim() || loading}>
+              <Button type="submit" size="icon" className="size-9 sm:size-10 rounded-lg shrink-0 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0" disabled={!input.trim() || loading}>
                 <Send className="size-3.5" />
               </Button>
             </form>
@@ -524,13 +524,13 @@ export function FloatingChat() {
           ref={fabRef}
           onClick={() => setOpen(true)}
           aria-label="Open chat"
-          className="fixed right-4 sm:right-6 z-[60] size-14 sm:size-16 rounded-full shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 bg-white text-gray-900 ring-4 ring-white/30"
+          className="fixed right-4 sm:right-6 z-[60] size-14 sm:size-16 min-h-[44px] min-w-[44px] rounded-full shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 bg-white text-gray-900 ring-4 ring-white/30 touch-manipulation"
           style={{
             boxShadow: "0 0 20px rgba(255,255,255,0.3), 0 8px 32px rgba(0,0,0,0.4)",
             bottom: "max(1rem, env(safe-area-inset-bottom))",
           }}
         >
-          <MessageCircle className="size-6" />
+          <MessageCircle className="size-5 sm:size-6" />
           <span className="absolute -top-1 -right-1 size-5 rounded-full bg-green-400 border-2 border-white flex items-center justify-center animate-pulse">
             <span className="size-2.5 rounded-full bg-white" />
           </span>

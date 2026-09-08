@@ -137,13 +137,13 @@ export function RecaptchaV2({ siteKey, onVerify, onExpire, onError, theme = "lig
 
   if (failed) {
     return (
-      <div className={`rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 ${className ?? ""}`}>
+      <div className={`rounded-xl sm:rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm sm:text-base font-poppins tracking-tight ${className ?? ""}`}>
         Couldn&apos;t load reCAPTCHA. Please refresh the page and try again.
       </div>
     )
   }
 
-  return <div ref={containerRef} className={className} aria-label="reCAPTCHA verification" />
+  return <div ref={containerRef} className={`max-w-full overflow-hidden ${className ?? ""}`} aria-label="reCAPTCHA verification" />
 }
 
 /** Imperative helper for parents that need to reset after a successful submit. */

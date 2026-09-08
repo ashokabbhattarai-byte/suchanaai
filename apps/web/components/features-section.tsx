@@ -176,7 +176,7 @@ export function FeaturesSection({ features }: { features: Feature[] }) {
   }, [])
 
   return (
-    <section ref={sectionRef} className="py-12 md:py-20 lg:py-24 px-6 md:px-8 lg:px-12 relative overflow-hidden bg-background">
+    <section ref={sectionRef} className="py-8 sm:py-12 md:py-20 lg:py-24 px-4 sm:px-6 md:px-8 lg:px-8 relative overflow-hidden bg-background">
       <div ref={glowOrbs} className="absolute inset-0 pointer-events-none" />
 
       {/* Technical grid */}
@@ -191,9 +191,9 @@ export function FeaturesSection({ features }: { features: Feature[] }) {
         </svg>
       </div>
 
-      <div className="max-w-[1480px] mx-auto relative">
+      <div className="max-w-7xl mx-auto relative">
         {/* Tactical header */}
-        <div ref={headingRef} className="mb-12 border-l-2 border-indigo-500 pl-5 relative">
+        <div ref={headingRef} className="mb-8 sm:mb-12 border-l-2 border-indigo-500 pl-4 sm:pl-5 relative min-w-0">
           <div className="absolute -left-[2px] top-0 w-4 h-px bg-indigo-500" />
           <div className="absolute -left-[2px] bottom-0 w-4 h-px bg-indigo-500" />
 
@@ -207,7 +207,7 @@ export function FeaturesSection({ features }: { features: Feature[] }) {
             </span>
           </div>
 
-          <h2 className="text-3xl md:text-5xl font-bold text-foreground mb-5 leading-tight uppercase tracking-tight">
+          <h2 className="text-2xl sm:text-3xl md:text-5xl font-bold text-foreground mb-3 sm:mb-5 leading-tight uppercase tracking-tight break-words">
             Everything you need for <span className="text-indigo-400">public notices</span>
           </h2>
 
@@ -222,13 +222,13 @@ export function FeaturesSection({ features }: { features: Feature[] }) {
         </div>
 
         {/* Tactical feature cards */}
-        <div ref={cardsRef} className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ perspective: "1000px" }}>
+        <div ref={cardsRef} className="grid grid-cols-1 sm:grid-cols-2 gap-4" style={{ perspective: "1000px" }}>
           {features.map((feature, i) => {
             const Icon = feature.icon
             return (
               <div
                 key={i}
-                className="feature-card relative group bg-card backdrop-blur-xl p-6 flex flex-col sm:flex-row gap-5 cursor-pointer overflow-hidden transition-all duration-300 hover:bg-card"
+                className="feature-card relative group bg-card backdrop-blur-xl p-4 sm:p-6 flex flex-col sm:flex-row gap-4 sm:gap-5 cursor-pointer overflow-hidden transition-all duration-300 hover:bg-card min-w-0"
                 style={{ transformStyle: "preserve-3d" }}
               >
                 {/* Tactical border */}

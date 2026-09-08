@@ -250,11 +250,11 @@ function BillingPageContent() {
           </button>
         </div>
 
-        <div className="grid w-full min-w-0 grid-cols-1 gap-4 overflow-hidden sm:grid-cols-2 sm:gap-5 xl:grid-cols-4">
+        <div className="grid w-full min-w-0 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 overflow-hidden">
           {meters.map((m) => (
             <div
               key={m.label}
-              className="min-w-0 overflow-hidden rounded-[16px] bg-vez-surface/60 p-4"
+              className="min-w-0 overflow-hidden rounded-[16px] bg-vez-surface/60 p-4 sm:p-5"
             >
               <div className="mb-3 flex size-9 items-center justify-center rounded-xl bg-white">
                 <m.icon className="size-4 text-vez-navy" />
@@ -264,7 +264,7 @@ function BillingPageContent() {
           ))}
         </div>
 
-        <div className="mt-7 grid grid-cols-2 gap-3 border-t border-vez-line pt-6 text-xs text-vez-mute sm:gap-4 lg:grid-cols-4">
+        <div className="mt-7 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 border-t border-vez-line pt-6 text-xs text-vez-mute">
           <div className="min-w-0 overflow-hidden">
             <p className="break-words text-base text-vez-ink">{summary.limits.maxUploadMb} MB</p>
             <p className="break-words">Max upload size</p>

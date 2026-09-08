@@ -133,8 +133,8 @@ export function WhatsappConnectCard() {
   }
 
   return (
-    <div className="mb-6 rounded-[20px] bg-vez-surface p-6 md:p-8">
-      <div className="flex items-center gap-3">
+    <div className="mb-6 rounded-[20px] bg-vez-surface p-4 sm:p-6 md:p-8 w-full overflow-hidden">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-700">
           <MessageCircle className="size-5" />
         </div>

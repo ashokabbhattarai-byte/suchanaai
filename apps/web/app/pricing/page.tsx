@@ -114,7 +114,7 @@ export default function PricingPage() {
       }
       if (!user) {
         // Sign in first; Stripe needs an account to attach the subscription to.
-        router.push(`/login?next=${encodeURIComponent("/pricing")}`)
+        router.push(`/login?redirect=${encodeURIComponent("/pricing")}`)
         return
       }
 
@@ -137,15 +137,15 @@ export default function PricingPage() {
     <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-white font-poppins">
       <Header />
 
-      <main className="mx-auto w-full max-w-[1480px] px-6 py-14 md:px-8 md:py-20 lg:px-12">
-        <div className="mx-auto max-w-2xl text-center">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-vez-sky/25 px-3.5 py-1.5 text-[11px] font-medium uppercase tracking-wide text-vez-navy">
-            <Sparkles className="size-3" /> Pricing
+      <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-8 sm:py-14 md:py-20">
+        <div className="mx-auto max-w-2xl text-center px-2 sm:px-0">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-vez-sky/25 px-3 sm:px-3.5 py-1 sm:py-1.5 text-[10px] sm:text-[11px] font-medium uppercase tracking-wide text-vez-navy">
+            <Sparkles className="size-3 shrink-0" /> Pricing
           </span>
-          <h1 className="mt-4 text-[clamp(32px,4.5vw,52px)] font-normal leading-tight tracking-[-0.03em] text-vez-ink">
+          <h1 className="mt-3 sm:mt-4 text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-[52px] font-normal leading-tight tracking-[-0.03em] text-vez-ink break-words">
             Plans for every level of attention.
           </h1>
-          <p className="mt-3 text-sm leading-relaxed text-vez-mute sm:text-base">
+          <p className="mt-2 sm:mt-3 text-sm leading-relaxed text-vez-mute sm:text-base break-words">
             Every plan includes the full archive of Nepalese government notices, news and press
             releases. Paid plans add AI research, instant alerts and bigger document limits.
           </p>
@@ -163,7 +163,7 @@ export default function PricingPage() {
           </div>
         ) : (
           <>
-            <div className="mx-auto mt-14 grid max-w-5xl grid-cols-1 gap-6 lg:max-w-none lg:grid-cols-3 lg:gap-8">
+            <div className="mx-auto mt-8 sm:mt-14 grid max-w-5xl grid-cols-1 gap-4 sm:gap-6 lg:max-w-none sm:grid-cols-2 lg:grid-cols-3 lg:gap-8">
               {plans.map((plan) => {
                 const isCurrent = currentTier === plan.tier
                 // The middle tier carries the emphasis; it's the intended default.
@@ -173,7 +173,7 @@ export default function PricingPage() {
                 return (
                   <div
                     key={plan.tier}
-                    className={`relative flex flex-col rounded-[26px] border p-8 transition-all lg:p-9 ${
+                    className={`relative flex flex-col rounded-2xl sm:rounded-[26px] border p-5 sm:p-8 transition-all lg:p-9 min-w-0 ${
                       featured
                         ? "border-transparent bg-gradient-to-b from-vez-navy to-[#0b2a52] text-white shadow-2xl shadow-vez-navy/20 lg:-translate-y-3"
                         : "border-vez-line bg-white hover:-translate-y-1 hover:shadow-lg"
@@ -186,30 +186,30 @@ export default function PricingPage() {
                     )}
 
                     <div
-                      className={`flex size-11 items-center justify-center rounded-2xl ${
+                      className={`flex size-10 sm:size-11 items-center justify-center rounded-xl sm:rounded-2xl shrink-0 ${
                         featured ? "bg-white/15" : "bg-vez-sky/20"
                       }`}
                     >
-                      <Icon className={`size-5 ${featured ? "text-white" : "text-vez-navy"}`} />
+                      <Icon className={`size-4 sm:size-5 ${featured ? "text-white" : "text-vez-navy"}`} />
                     </div>
 
-                    <h2 className={`mt-5 text-xl ${featured ? "text-white" : "text-vez-ink"}`}>
+                    <h2 className={`mt-4 sm:mt-5 text-lg sm:text-xl break-words ${featured ? "text-white" : "text-vez-ink"}`}>
                       {plan.name}
                     </h2>
                     {plan.tagline && (
-                      <p className={`mt-1 text-xs ${featured ? "text-white/70" : "text-vez-mute"}`}>
+                      <p className={`mt-1 text-xs break-words ${featured ? "text-white/70" : "text-vez-mute"}`}>
                         {plan.tagline}
                       </p>
                     )}
 
-                    <div className="mt-6 flex items-baseline gap-1.5">
+                    <div className="mt-5 sm:mt-6 flex flex-wrap items-baseline gap-1 sm:gap-1.5 min-w-0">
                       <span
-                        className={`text-[40px] leading-none tracking-[-0.02em] ${featured ? "text-white" : "text-vez-ink"}`}
+                        className={`text-3xl sm:text-[40px] leading-none tracking-[-0.02em] break-words ${featured ? "text-white" : "text-vez-ink"}`}
                       >
                         {formatPlanPrice(plan.priceMonthlyCents, plan.currency)}
                       </span>
                       {plan.priceMonthlyCents > 0 && (
-                        <span className={`text-sm ${featured ? "text-white/60" : "text-vez-mute"}`}>
+                        <span className={`text-xs sm:text-sm ${featured ? "text-white/60" : "text-vez-mute"}`}>
                           / month
                         </span>
                       )}
@@ -262,12 +262,12 @@ export default function PricingPage() {
             </div>
 
             {/* Detailed comparison */}
-            <div className="mt-20">
-              <h2 className="text-center text-2xl font-normal tracking-[-0.02em] text-vez-ink">
+            <div className="mt-12 sm:mt-20">
+              <h2 className="text-center text-xl sm:text-2xl font-normal tracking-[-0.02em] text-vez-ink px-4">
                 Compare plans in detail
               </h2>
-              <div className="mx-auto mt-8 w-full max-w-5xl overflow-x-auto rounded-[22px] border border-vez-line">
-                <table className="w-full min-w-[560px] border-collapse text-sm">
+              <div className="mx-auto mt-6 sm:mt-8 w-full max-w-5xl overflow-x-auto rounded-xl sm:rounded-[22px] border border-vez-line -mx-4 sm:mx-auto">
+                <table className="w-full min-w-[500px] sm:min-w-[560px] border-collapse text-xs sm:text-sm">
                   <thead>
                     <tr className="border-b border-vez-line bg-vez-surface/60">
                       <th className="px-5 py-4 text-left font-medium text-vez-mute">Feature</th>

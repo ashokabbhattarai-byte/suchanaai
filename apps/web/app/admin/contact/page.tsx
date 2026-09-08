@@ -173,9 +173,9 @@ export default function AdminContactPage() {
           </button>
         </div>
 
-        {/* Counts cards */}
+        {/* Counts cards - responsive */}
         {counts && (
-          <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             {[
               { label: "Total", value: counts.total, key: "total" as const },
               { label: "New", value: counts.byStatus.NEW ?? 0, key: "NEW" as const },
@@ -247,9 +247,9 @@ export default function AdminContactPage() {
             </div>
           ) : (
             <>
-              {/* Desktop table */}
-              <div className="hidden md:block overflow-x-auto -mx-2">
-                <table className="w-full min-w-[760px] text-sm">
+              {/* Desktop table - scroll on overflow, cards on mobile */}
+              <div className="hidden md:block overflow-x-auto rounded-lg border border-vez-line -mx-2 md:mx-0">
+                <table className="w-full min-w-[640px] text-sm">
                   <thead>
                     <tr className="border-b border-vez-line text-left">
                       <th className="pb-3 font-normal text-vez-mute">From</th>
@@ -350,11 +350,11 @@ export default function AdminContactPage() {
               </div>
 
               {totalPages > 1 && (
-                <div className="mt-6 flex items-center justify-between text-sm">
+                <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-sm">
                   <p className="text-vez-mute">
                     Page {meta.page} of {totalPages} · {meta.total} total
                   </p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => setPage((p) => Math.max(1, p - 1))}
                       disabled={page <= 1}
@@ -380,11 +380,11 @@ export default function AdminContactPage() {
       {/* Detail drawer */}
       {selected && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={() => setSelected(null)}>
-          <div className="h-full w-full max-w-lg overflow-y-auto bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-5 flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="text-lg text-vez-ink truncate">{selected.subject}</h3>
-                <p className="text-sm text-vez-mute">
+          <div className="h-full w-full max-w-lg overflow-y-auto bg-white p-4 sm:p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base sm:text-lg text-vez-ink break-words">{selected.subject}</h3>
+                <p className="text-sm text-vez-mute break-words">
                   From {selected.name} &lt;{selected.email}&gt; · {formatDate(selected.createdAt)}
                 </p>
                 {selected.ip && <p className="text-xs text-vez-mute">IP: {selected.ip}</p>}

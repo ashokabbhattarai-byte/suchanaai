@@ -83,10 +83,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning className="overflow-x-hidden">
-      <body className={`${inter.variable} ${poppins.variable} font-sans antialiased overflow-x-hidden w-full max-w-[100vw] text-[16px] leading-[1.5] [text-size-adjust:100%]`}>
+      <body className={`${inter.variable} ${poppins.variable} font-sans font-poppins antialiased overflow-x-hidden w-full max-w-[100vw] text-[16px] sm:text-[16px] leading-[1.5] tracking-tight [text-size-adjust:100%]`}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
           <Providers>
-            {children}
+            <div className="min-w-0 w-full max-w-[100vw] overflow-x-clip">
+              {children}
+            </div>
           </Providers>
           <Toaster position="top-right" richColors closeButton />
         </ThemeProvider>

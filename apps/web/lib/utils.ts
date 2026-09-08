@@ -1,6 +1,17 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
+/**
+ * Merge Tailwind classes with responsive & design-system awareness.
+ * Uses clsx + tailwind-merge to deduplicate conflicting utilities,
+ * correctly handling responsive prefixes (sm:, md:, lg:, xl:) and
+ * breakpoint-specific overrides (sm:640, md:768, lg:1024, xl:1280).
+ *
+ * Spacing scale: gap-3 sm:gap-4 lg:gap-6, p-4 sm:p-6 lg:p-8
+ * Typography: font-poppins, tracking-tight, leading-tight/relaxed
+ * Cards: rounded-xl sm:rounded-2xl border border-vez-line shadow-sm
+ * Touch targets: min-h-[44px] min-w-[44px] on mobile
+ */
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }

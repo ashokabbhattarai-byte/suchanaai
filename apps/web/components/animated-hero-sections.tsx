@@ -162,8 +162,8 @@ export function AnimatedHeroSections() {
                   }}
                 />
 
-                {/* Radial glow center */}
-                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] rounded-full bg-gradient-to-r ${slide.accent} opacity-[0.07] blur-3xl`} />
+                {/* Radial glow center - responsive to avoid overflow */}
+                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] sm:w-[700px] sm:h-[700px] lg:w-[900px] lg:h-[900px] max-w-[90vw] max-h-[90vw] rounded-full bg-gradient-to-r ${slide.accent} opacity-[0.07] blur-3xl`} />
 
                 {/* Decorative lines */}
                 <div className="absolute inset-0 overflow-hidden opacity-10 pointer-events-none">
@@ -175,23 +175,23 @@ export function AnimatedHeroSections() {
               </div>
 
               {/* Slide content */}
-              <div className="relative z-10 h-full flex flex-col items-center justify-center px-4">
+              <div className="relative z-10 h-full flex flex-col items-center justify-center px-4 sm:px-6">
                 <div
                   ref={(el) => { if (el) headingsRef.current[i] = el as HTMLHeadingElement }}
-                  className="text-center max-w-4xl mx-auto"
+                  className="text-center max-w-4xl mx-auto w-full"
                 >
                   {/* Icon */}
-                  <div className={`inline-flex items-center justify-center size-20 rounded-3xl bg-gradient-to-br ${slide.accent} text-white mb-8 shadow-2xl shadow-current/20`}>
+                  <div className={`inline-flex items-center justify-center size-14 sm:size-16 md:size-20 rounded-2xl sm:rounded-3xl bg-gradient-to-br ${slide.accent} text-white mb-6 sm:mb-8 shadow-2xl shadow-current/20`}>
                     {slide.icon}
                   </div>
 
                   {/* Title */}
-                  <h1 className="text-5xl md:text-7xl lg:text-[6rem] font-bold text-foreground mb-6 leading-[1.05] tracking-tight">
+                  <h1 className="text-3xl sm:text-5xl md:text-7xl lg:text-[6rem] font-bold text-foreground mb-4 sm:mb-6 leading-[1.05] tracking-tight px-2 sm:px-0">
                     {slide.title}
                   </h1>
 
                   {/* Subtitle */}
-                  <p className="text-lg md:text-xl lg:text-2xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+                  <p className="text-base sm:text-lg md:text-xl lg:text-2xl text-muted-foreground max-w-2xl mx-auto leading-relaxed px-4 sm:px-0">
                     {slide.subtitle}
                   </p>
 
@@ -210,8 +210,8 @@ export function AnimatedHeroSections() {
         </section>
       ))}
 
-      {/* Slide indicators - right side */}
-      <div className="absolute right-8 top-1/2 -translate-y-1/2 z-50 flex flex-col gap-3">
+      {/* Slide indicators - right side - hidden on mobile to avoid overlap */}
+      <div className="absolute hidden sm:flex right-4 sm:right-8 top-1/2 -translate-y-1/2 z-50 flex-col gap-3">
         {slides.map((_, i) => (
           <div
             key={i}
@@ -225,8 +225,8 @@ export function AnimatedHeroSections() {
         ))}
       </div>
 
-      {/* Scroll hint */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2 text-muted-foreground/60">
+      {/* Scroll hint - responsive */}
+      <div className="absolute bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-1 sm:gap-2 text-muted-foreground/60">
         <span className="text-xs font-medium uppercase tracking-widest">Scroll to navigate</span>
         <div className="w-5 h-9 rounded-full border-2 border-muted-foreground/30 flex items-start justify-center p-1.5">
           <div className="w-1 h-2 rounded-full bg-muted-foreground/60 animate-bounce" />

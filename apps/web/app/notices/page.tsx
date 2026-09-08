@@ -16,12 +16,9 @@ import type { ScrapedItem, ScrapedItemCategory, PublicNoticeSource } from "@/lib
 import Link from "next/link"
 import { useRouter, usePathname, useSearchParams } from "next/navigation"
 import gsap from "gsap"
+import { generateSlug } from "@/lib/utils"
 
 // ─── helpers ────────────────────────────────────────────────────────────────
-
-function generateSlug(title: string, id: string): string {
-  return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") + "-" + id
-}
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
@@ -60,23 +57,23 @@ function NoticeCard({
   return (
     <Link
       href={`/notices/${generateSlug(notice.title, notice.id)}`}
-      className="vz-sweep group flex cursor-pointer items-center gap-3 rounded-xl bg-white px-4 py-3"
+      className="vz-sweep group flex h-full min-w-0 cursor-pointer flex-col gap-2 rounded-xl bg-white p-4 sm:flex-row sm:items-center sm:gap-3 sm:p-6"
     >
-      <div className="min-w-0 flex-1">
-        {/* Category + title on a single line */}
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0 rounded-full bg-vez-sky/30 px-2.5 py-0.5 text-[11px] text-vez-navy">
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Category + title */}
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="shrink-0 break-words rounded-full bg-vez-sky/30 px-2.5 py-0.5 text-[11px] text-vez-navy">
             {categoryLabel(notice.category)}
           </span>
           <UrgencyBadge urgency={notice.aiUrgency} />
-          <h3 className="min-w-0 flex-1 truncate text-sm text-vez-ink transition-colors group-hover:text-vez-navy">
+          <h3 className="min-w-0 flex-1 break-words text-sm leading-snug text-vez-ink transition-colors group-hover:text-vez-navy line-clamp-2 sm:line-clamp-3 sm:text-[15px]">
             {notice.title}
           </h3>
         </div>
 
         {summary && (
           <p
-            className="mt-1 truncate text-xs leading-relaxed text-vez-mute"
+            className="mt-1 line-clamp-2 break-words text-xs leading-relaxed text-vez-mute sm:line-clamp-3 sm:text-sm"
             lang={summaryIsNepali ? "ne" : undefined}
           >
             {notice.aiSummary && <Sparkles className="mr-1 inline size-3 align-[-1px] text-vez-navy/50" />}
@@ -90,12 +87,12 @@ function NoticeCard({
             <Building2 className="size-3" /> {notice.sourceLabel}
           </span>
           {notice.publishedAt && (
-            <span className="flex items-center gap-1">
+            <span suppressHydrationWarning className="flex items-center gap-1">
               <Calendar className="size-3" /> {formatDate(notice.publishedAt)}
             </span>
           )}
           {typeof notice.views === "number" && (
-            <span className="flex items-center gap-1">
+            <span suppressHydrationWarning className="flex items-center gap-1">
               <Eye className="size-3" /> {notice.views.toLocaleString()}
             </span>
           )}
@@ -335,24 +332,24 @@ function NoticesPageContent() {
       <Header />
 
       {/* Responsive workspace - natural scroll on mobile, fixed-height on desktop */}
-      <div className="mx-auto flex w-full max-w-[1480px] flex-1 flex-col gap-4 px-4 py-4 sm:px-6 sm:py-5 md:px-8 lg:px-12">
+      <div className="mx-auto flex w-full max-w-[1480px] flex-1 flex-col gap-4 sm:gap-6 px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
 
-        {/* Top bar - stacks vertically on mobile (375px), horizontal on desktop */}
-        <div className="flex shrink-0 flex-col gap-4 md:flex-row md:flex-wrap md:items-center md:justify-between">
+        {/* Top bar - stacks vertically on mobile, horizontal on sm+ */}
+        <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex size-10 sm:size-11 shrink-0 items-center justify-center rounded-full bg-vez-navy">
               <FileText className="size-4 text-white" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-[17px] sm:text-lg tracking-[-0.02em] text-vez-ink truncate">Public notices</h1>
-              <p className="text-xs text-vez-mute truncate">
+              <h1 className="text-lg sm:text-xl lg:text-2xl tracking-[-0.02em] text-vez-ink truncate break-words">Public notices</h1>
+              <p suppressHydrationWarning className="text-xs sm:text-sm text-vez-mute truncate break-words">
                 {totalCount.toLocaleString()} notices &amp; news · {sources.length} portals
               </p>
             </div>
           </div>
 
-          {/* Search - full width on mobile, auto on desktop, 44px touch target */}
-          <div className="relative w-full md:w-auto md:max-w-md md:flex-1">
+          {/* Search - full width on mobile, auto on sm+ */}
+          <div className="relative w-full sm:w-auto sm:max-w-md sm:flex-1">
             <Search className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-vez-mute pointer-events-none" />
             <input
               placeholder="Search title, keyword, organisation…"
@@ -442,8 +439,8 @@ function NoticesPageContent() {
         </div>
 
         {/* Refine bar — source + sort, wraps on mobile, 44px touch targets */}
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <div className="relative flex-1 sm:flex-none min-w-[140px]">
+        <div className="flex shrink-0 flex-col flex-wrap items-center gap-3 sm:flex-row sm:gap-4">
+          <div className="relative w-full sm:w-auto sm:flex-none sm:min-w-[160px] flex-1 min-w-0">
             <Building2 className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-vez-mute" />
             <select
               value={selectedSourceId}
@@ -459,7 +456,7 @@ function NoticesPageContent() {
             <ChevronRight className="pointer-events-none absolute right-3 top-1/2 size-3.5 -translate-y-1/2 rotate-90 text-vez-mute" />
           </div>
 
-          <div className="relative flex-1 sm:flex-none min-w-[140px]">
+          <div className="relative w-full sm:w-auto sm:flex-none sm:min-w-[160px] flex-1 min-w-0">
             <Filter className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-vez-mute" />
             <select
               value={sortBy}
@@ -484,11 +481,11 @@ function NoticesPageContent() {
         </div>
 
         {/* Panels - the feed grows with its content; the page itself scrolls */}
-        <div className="flex flex-1 flex-col gap-4 pb-5 md:flex-row">
+        <div className="flex flex-1 flex-col gap-4 pb-5 md:flex-row sm:gap-6">
           {/* ── Notice feed — full-width card, no internal scroll container */}
           <div className="flex w-full min-w-0 flex-1 flex-col overflow-visible rounded-[20px] bg-vez-surface">
-            <div className="flex shrink-0 items-center justify-between border-b border-vez-line px-5 py-3.5">
-              <p className="text-sm text-vez-ink">
+            <div className="flex shrink-0 flex-col items-center justify-between gap-2 border-b border-vez-line p-4 sm:flex-row sm:px-6 sm:py-4">
+              <p suppressHydrationWarning className="text-sm text-vez-ink">
                 {total.toLocaleString()} notice{total !== 1 ? "s" : ""}
                 {searchQuery && <span className="text-vez-mute"> matching &ldquo;{searchQuery}&rdquo;</span>}
                 {selectedCategory !== "all" && (
@@ -511,7 +508,7 @@ function NoticesPageContent() {
               </span>
             </div>
 
-            <div ref={feedRef} className="flex-1 space-y-2 overflow-visible p-3 sm:p-4">
+            <div ref={feedRef} className="flex-1 space-y-2 overflow-visible p-4 sm:p-6">
               {loading ? (
                 <div className="flex h-full items-center justify-center text-vez-mute">
                   <Loader2 className="size-5 animate-spin" />

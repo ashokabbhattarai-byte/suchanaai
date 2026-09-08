@@ -193,7 +193,7 @@ export default function AdminSourcesPage() {
         </div>
 
         {/* Info Banner */}
-        <div className="mb-6 flex items-start gap-3 rounded-[16px] bg-vez-sky/25 p-5">
+        <div className="mb-6 flex items-start gap-3 rounded-[16px] bg-vez-sky/25 p-4 sm:p-5">
           <Info className="mt-0.5 size-5 shrink-0 text-vez-navy" />
           <p className="text-sm text-vez-ink/80">
             More sources can be added here. Each source will be scraped on schedule and notices will be automatically classified and indexed.
@@ -202,7 +202,7 @@ export default function AdminSourcesPage() {
 
         {/* Add/Edit Form */}
         {showForm && (
-          <div className="mb-6 rounded-[20px] bg-white p-6 md:p-8">
+          <div className="mb-6 rounded-[20px] bg-white p-4 sm:p-6 md:p-8 w-full overflow-hidden">
             <div className="mb-6 flex items-center justify-between">
               <h2 className="text-lg text-vez-ink">{editingId ? "Edit source" : "Add new source"}</h2>
               <button
@@ -214,7 +214,7 @@ export default function AdminSourcesPage() {
               </button>
             </div>
             <div className="space-y-5">
-              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                 <div>
                   <label className="mb-2 block text-sm text-vez-mute">Source name *</label>
                   <input
@@ -283,10 +283,10 @@ export default function AdminSourcesPage() {
           </div>
         )}
 
-        {/* Sources Table */}
-        <div className="overflow-hidden rounded-[20px] bg-white">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+        {/* Sources Table - responsive, cards on mobile */}
+        <div className="overflow-hidden rounded-[20px] bg-white p-4 sm:p-6">
+          <div className="hidden md:block overflow-x-auto rounded-lg border border-vez-line">
+            <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-vez-line text-left">
                   <th className="p-5 font-normal text-vez-mute">Source</th>
@@ -381,6 +381,33 @@ export default function AdminSourcesPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+          {/* Mobile cards */}
+          <div className="grid gap-3 md:hidden mt-4">
+            {sources.map((source) => (
+              <div key={source.id} className="rounded-2xl border border-vez-line/50 bg-vez-surface/50 p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-vez-ink">{source.name}</p>
+                    <p className="truncate text-xs text-vez-mute">{source.url}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-vez-sky/30 px-2.5 py-0.5 text-xs text-vez-navy">{source.category}</span>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-vez-mute">
+                  <span>{source.frequency}</span>
+                  <span>·</span>
+                  <button onClick={() => toggleSource(source.id)} className="flex items-center gap-1">
+                    {source.status === "active" ? <><ToggleRight className="size-4 text-vez-navy" /><span className="text-vez-navy">Active</span></> : <><ToggleLeft className="size-4 text-vez-mute" /><span>Inactive</span></>}
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-vez-mute">{source.lastScraped ? new Date(source.lastScraped).toLocaleString() : "Never"}</p>
+                <div className="mt-3 flex items-center gap-2">
+                  <button onClick={() => triggerScrape(source.id)} disabled={scrapingId === source.id || source.status === "inactive"} className="flex flex-1 items-center justify-center gap-1 rounded-full border border-vez-line bg-white px-3 py-2 text-xs disabled:opacity-50">{scrapingId === source.id ? <><Loader2 className="size-3 animate-spin" /> Scraping…</> : <><Play className="size-3" /> Scrape</>}</button>
+                  <button onClick={() => startEdit(source)} className="flex size-10 items-center justify-center rounded-full bg-white border border-vez-line text-vez-mute"><Edit className="size-3.5" /></button>
+                  <button onClick={() => setDeleteConfirm(source.id)} className="flex size-10 items-center justify-center rounded-full bg-red-50 text-red-600"><Trash2 className="size-3.5" /></button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </AdminLayout>

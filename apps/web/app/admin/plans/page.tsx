@@ -102,7 +102,7 @@ function PlanEditor({ plan, onSaved }: { plan: AdminPlan; onSaved: () => void })
   const isFree = draft.tier === "FREE"
 
   return (
-    <div className="rounded-[20px] border border-vez-line bg-white p-6">
+    <div className="rounded-[20px] border border-vez-line bg-white p-4 sm:p-6 w-full overflow-hidden">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <span className="rounded-full bg-vez-navy px-2.5 py-1 text-[11px] font-medium text-white">
@@ -120,7 +120,7 @@ function PlanEditor({ plan, onSaved }: { plan: AdminPlan; onSaved: () => void })
         </label>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
         <div>
           <label className="mb-1 block text-xs font-medium text-vez-mute">Name</label>
           <input value={draft.name} onChange={(e) => set("name", e.target.value)} className={inputClass} />
@@ -135,7 +135,7 @@ function PlanEditor({ plan, onSaved }: { plan: AdminPlan; onSaved: () => void })
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
         <div>
           <label className="mb-1 block text-xs font-medium text-vez-mute">
             Price (cents / month)
@@ -182,7 +182,7 @@ function PlanEditor({ plan, onSaved }: { plan: AdminPlan; onSaved: () => void })
 
       <div className="mt-5 border-t border-vez-line pt-5">
         <p className="mb-3 text-xs font-medium text-vez-ink">Limits enforced by the API</p>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           <LimitField
             label="Documents"
             value={draft.maxDocuments}
@@ -279,12 +279,12 @@ function UserUsageDrawer({ userId, onClose }: { userId: string; onClose: () => v
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
       <div
-        className="h-full w-full max-w-lg overflow-y-auto bg-white p-6 shadow-2xl"
+        className="h-full w-full max-w-lg overflow-y-auto bg-white p-4 sm:p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-5 flex items-start justify-between">
-          <h3 className="text-lg text-vez-ink">Usage detail</h3>
-          <button onClick={onClose} className="rounded-full p-1.5 text-vez-mute hover:bg-vez-surface">
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <h3 className="text-base sm:text-lg text-vez-ink">Usage detail</h3>
+          <button onClick={onClose} className="rounded-full p-1.5 text-vez-mute hover:bg-vez-surface shrink-0">
             <X className="size-4" />
           </button>
         </div>
@@ -441,18 +441,18 @@ function AdminPlansPageContent() {
           <div className="mb-4 mt-10 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <UsersIcon className="size-4 text-vez-navy" />
-              <h2 className="text-base text-vez-ink">
+              <h2 className="text-sm sm:text-base text-vez-ink">
                 Member usage <span className="text-sm text-vez-mute">({rows.length})</span>
               </h2>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="relative">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-full sm:w-64">
                 <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-vez-mute" />
                 <input
                   placeholder="Search name or email…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className={`${inputClass} w-64 pl-9`}
+                  className={`${inputClass} w-full sm:w-64 pl-9`}
                 />
               </div>
               <button
@@ -464,8 +464,8 @@ function AdminPlansPageContent() {
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-[20px] border border-vez-line bg-white">
-            <table className="w-full text-left text-xs">
+          <div className="hidden md:block overflow-x-auto rounded-[20px] border border-vez-line bg-white">
+            <table className="w-full min-w-[640px] text-left text-xs">
               <thead>
                 <tr className="border-b border-vez-line text-vez-mute">
                   <th className="px-4 py-3 font-medium">Member</th>
@@ -519,6 +519,31 @@ function AdminPlansPageContent() {
                 ))}
               </tbody>
             </table>
+          </div>
+          {/* Mobile card list */}
+          <div className="grid gap-3 md:hidden">
+            {filtered.map((row) => (
+              <div key={row.id} className="rounded-2xl border border-vez-line/50 bg-white p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <button onClick={() => setDrawerUserId(row.id)} className="text-sm font-medium text-vez-ink underline-offset-2 hover:underline">{row.name}</button>
+                    <p className="truncate text-xs text-vez-mute">{row.email}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-vez-sky/25 px-2.5 py-0.5 text-xs text-vez-navy">{row.tier}</span>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                  <span className="rounded-full bg-vez-surface px-2.5 py-1 text-vez-mute">AI: <span className="text-vez-ink">{row.usage.aiQuestions}</span></span>
+                  <span className="rounded-full bg-vez-surface px-2.5 py-1 text-vez-mute">Docs: <span className="text-vez-ink">{row.usage.documents}</span></span>
+                  <span className="rounded-full bg-vez-surface px-2.5 py-1 text-vez-mute">Alerts: <span className="text-vez-ink">{row.usage.alertRules}</span></span>
+                  <span className="rounded-full bg-vez-surface px-2.5 py-1 text-vez-mute">WA: <span className="text-vez-ink">{row.usage.whatsappNotifications}</span></span>
+                </div>
+                <select value={row.tier} disabled={busyUser === row.id} onChange={(e) => void changePlan(row.id, e.target.value as PlanTier)} className="mt-3 h-9 w-full rounded-full border border-vez-line bg-white px-3 text-sm text-vez-ink">
+                  <option value="FREE">Free</option>
+                  <option value="PRO">Pro</option>
+                  <option value="MAX">Max</option>
+                </select>
+              </div>
+            ))}
           </div>
         </>
       )}

@@ -123,7 +123,7 @@ export default function AdminSystemPage() {
           <div className="max-w-5xl space-y-5">
             {/* Overall banner */}
             <div
-              className={`flex flex-wrap items-center gap-3 rounded-[20px] border px-6 py-5 ${
+              className={`flex flex-wrap items-center gap-3 rounded-[20px] border p-4 sm:px-6 sm:py-5 ${
                 status.overall === "ok"
                   ? "border-green-200 bg-green-50"
                   : status.overall === "down"
@@ -149,8 +149,8 @@ export default function AdminSystemPage() {
 
             {/* Dependencies */}
             <section className="overflow-hidden rounded-[20px] border border-vez-line bg-white">
-              <div className="border-b border-vez-line px-6 py-4">
-                <h2 className="text-base font-medium text-vez-ink">Services</h2>
+              <div className="border-b border-vez-line p-4 sm:px-6 sm:py-4">
+                <h2 className="text-sm sm:text-base font-medium text-vez-ink">Services</h2>
                 <p className="mt-0.5 text-xs text-vez-mute">
                   Each row is checked live — nothing here is cached or assumed.
                 </p>
@@ -160,7 +160,7 @@ export default function AdminSystemPage() {
                 return (
                   <div
                     key={c.id}
-                    className={`flex flex-wrap items-center gap-x-4 gap-y-1 px-6 py-4 ${
+                    className={`flex flex-wrap items-center gap-x-4 gap-y-1 p-4 sm:px-6 sm:py-4 ${
                       i > 0 ? "border-t border-vez-line" : ""
                     }`}
                   >
@@ -178,8 +178,8 @@ export default function AdminSystemPage() {
               })}
             </section>
 
-            {/* Content counts — real rows in the database */}
-            <section className="grid grid-cols-2 gap-4 md:grid-cols-5">
+            {/* Content counts — responsive grid */}
+            <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-6">
               {[
                 { icon: FileText, label: "Notices", value: status.counts.notices },
                 { icon: Database, label: "Documents", value: status.counts.documents },
@@ -187,7 +187,7 @@ export default function AdminSystemPage() {
                 { icon: Globe, label: "Sources", value: status.counts.sources },
                 { icon: Bell, label: "Alert rules", value: status.counts.alertRules },
               ].map((c) => (
-                <div key={c.label} className="rounded-[16px] border border-vez-line bg-white p-5">
+                <div key={c.label} className="rounded-[16px] border border-vez-line bg-white p-4 sm:p-5">
                   <c.icon className="size-4 text-vez-navy" />
                   <p className="mt-3 text-2xl tabular-nums text-vez-ink">
                     {c.value.toLocaleString()}

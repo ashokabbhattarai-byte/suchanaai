@@ -366,9 +366,9 @@ export default function AdminUsersPage() {
             </div>
           ) : (
             <>
-              {/* Desktop table - hidden on mobile */}
-              <div className="hidden md:block overflow-x-auto -mx-2">
-                <table className="w-full min-w-[720px] text-sm">
+              {/* Desktop table - hidden on mobile, card list on mobile */}
+              <div className="hidden md:block overflow-x-auto rounded-lg border border-vez-line -mx-2 md:mx-0">
+                <table className="w-full min-w-[640px] text-sm">
                   <thead>
                     <tr className="border-b border-vez-line text-left">
                       <th className="pb-3 font-normal text-vez-mute">User</th>
@@ -548,11 +548,11 @@ export default function AdminUsersPage() {
               </div>
 
               {totalPages > 1 && (
-                <div className="mt-6 flex items-center justify-between text-sm">
+                <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-sm">
                   <p className="text-vez-mute">
                     Page {meta.page} of {totalPages} · {total.toLocaleString()} total
                   </p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => setPage((p) => Math.max(1, p - 1))}
                       disabled={page <= 1}
@@ -590,7 +590,7 @@ export default function AdminUsersPage() {
                 <X className="size-4" />
               </button>
             </div>
-            <form onSubmit={handleCreate} className="p-6 space-y-4">
+            <form onSubmit={handleCreate} className="p-4 sm:p-6 space-y-4">
               <p className="text-xs text-vez-mute">
                 Creates a placeholder account. When the person signs in with Google using the same email, it will be linked automatically. Admin role is also granted automatically if the email is in the ADMIN_EMAILS allowlist.
               </p>
@@ -615,7 +615,7 @@ export default function AdminUsersPage() {
                   required
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                 <div>
                   <label className="mb-1 block text-xs text-vez-mute">Role</label>
                   <select
@@ -640,18 +640,18 @@ export default function AdminUsersPage() {
                 </div>
               </div>
               {createError && <p className="text-xs text-red-600">{createError}</p>}
-              <div className="flex gap-3 pt-2">
+              <div className="flex flex-wrap gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowCreate(false)}
-                  className="flex-1 rounded-full border border-vez-line bg-white px-5 py-2.5 text-sm text-vez-ink hover:bg-vez-surface"
+                  className="flex-1 min-w-[120px] rounded-full border border-vez-line bg-white px-5 py-2.5 text-sm text-vez-ink hover:bg-vez-surface"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={creating}
-                  className="flex-1 flex items-center justify-center gap-2 rounded-full bg-vez-navy px-5 py-2.5 text-sm text-white disabled:opacity-50"
+                  className="flex-1 min-w-[120px] flex items-center justify-center gap-2 rounded-full bg-vez-navy px-5 py-2.5 text-sm text-white disabled:opacity-50"
                 >
                   {creating ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
                   Create user
@@ -675,7 +675,7 @@ export default function AdminUsersPage() {
                 <X className="size-4" />
               </button>
             </div>
-            <form onSubmit={handleEdit} className="p-6 space-y-4">
+            <form onSubmit={handleEdit} className="p-4 sm:p-6 space-y-4">
               <div>
                 <label className="mb-1 block text-xs text-vez-mute">Name</label>
                 <input
@@ -696,7 +696,7 @@ export default function AdminUsersPage() {
                 />
                 <p className="mt-1 text-xs text-vez-mute">Changing email may affect admin privileges if ADMIN_EMAILS is configured.</p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                 <div>
                   <label className="mb-1 block text-xs text-vez-mute">Role</label>
                   <select
@@ -756,7 +756,7 @@ export default function AdminUsersPage() {
       {/* Delete confirmation */}
       {deleting && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => setDeleting(null)}>
-          <div className="w-full max-w-sm bg-white rounded-[20px] shadow-xl p-6" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-sm bg-white rounded-[20px] shadow-xl p-4 sm:p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex size-10 items-center justify-center rounded-full bg-red-50 text-red-600 mx-auto">
               <Trash2 className="size-5" />
             </div>

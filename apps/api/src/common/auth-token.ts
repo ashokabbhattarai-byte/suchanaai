@@ -16,7 +16,11 @@ function rawCookies(req: Request): Record<string, string> {
   for (const pair of header.split(';')) {
     const idx = pair.indexOf('=');
     if (idx === -1) continue;
-    out[pair.slice(0, idx).trim()] = decodeURIComponent(pair.slice(idx + 1).trim());
+    try {
+      out[pair.slice(0, idx).trim()] = decodeURIComponent(pair.slice(idx + 1).trim());
+    } catch {
+      out[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
+    }
   }
   return out;
 }

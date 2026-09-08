@@ -138,7 +138,7 @@ export function SolutionSection() {
   }, [])
 
   return (
-    <section ref={sectionRef} className="relative py-12 md:py-20 lg:py-24 px-6 md:px-8 lg:px-12 bg-background overflow-hidden">
+    <section ref={sectionRef} className="relative py-8 sm:py-12 md:py-20 lg:py-24 px-4 sm:px-6 md:px-8 lg:px-8 bg-background overflow-hidden">
       {/* Technical grid */}
       <div className="absolute inset-0 pointer-events-none opacity-[0.02]">
         <svg width="100%" height="100%">
@@ -151,9 +151,9 @@ export function SolutionSection() {
         </svg>
       </div>
 
-      <div className="relative max-w-[1280px] mx-auto">
+      <div className="relative max-w-7xl mx-auto">
         {/* Tactical header */}
-        <div ref={headingRef} className="mb-14 border-l-2 border-indigo-500 pl-5 relative">
+        <div ref={headingRef} className="mb-10 sm:mb-14 border-l-2 border-indigo-500 pl-4 sm:pl-5 relative min-w-0">
           <div className="absolute -left-[2px] top-0 w-4 h-px bg-indigo-500" />
           <div className="absolute -left-[2px] bottom-0 w-4 h-px bg-indigo-500" />
 
@@ -167,7 +167,7 @@ export function SolutionSection() {
             </span>
           </div>
 
-          <h2 className="text-3xl md:text-5xl font-bold text-foreground mb-5 leading-tight uppercase tracking-tight">
+          <h2 className="text-2xl sm:text-3xl md:text-5xl font-bold text-foreground mb-3 sm:mb-5 leading-tight uppercase tracking-tight break-words">
             One platform that fixes{" "}
             <span className="text-indigo-400">all four problems.</span>
           </h2>
@@ -189,7 +189,7 @@ export function SolutionSection() {
             const isLast = i === solutions.length - 1
 
             return (
-              <div key={s.number} className="flex gap-5 md:gap-8">
+              <div key={s.number} className="flex gap-3 sm:gap-5 md:gap-8 min-w-0">
                 {/* Timeline column */}
                 <div className="flex flex-col items-center shrink-0">
                   {/* Tactical node */}
@@ -230,7 +230,7 @@ export function SolutionSection() {
                 {/* Tactical card */}
                 <div
                   ref={(el) => { stepsRef.current[i] = el }}
-                  className={`flex-1 group bg-card backdrop-blur-xl p-6 md:p-7 hover:bg-card transition-all duration-300 ${!isLast ? "mb-6" : ""} relative`}
+                  className={`flex-1 min-w-0 group bg-card backdrop-blur-xl p-4 sm:p-6 md:p-7 hover:bg-card transition-all duration-300 ${!isLast ? "mb-4 sm:mb-6" : ""} relative`}
                 >
                   {/* Tactical border */}
                   <div className="absolute inset-0 border border-border pointer-events-none" />

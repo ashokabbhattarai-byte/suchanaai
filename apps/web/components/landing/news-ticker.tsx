@@ -66,24 +66,24 @@ export function NewsTicker({ headlines }: { headlines?: ScrapedItem[] }) {
 
   return (
     <div
-      className={`fixed top-20 left-0 right-0 z-40 transition-all duration-300 ${
+      className={`fixed left-0 right-0 z-40 transition-all duration-300 top-[calc(4rem+env(safe-area-inset-top))] sm:top-20 ${
         hidden ? "-translate-y-full opacity-0 pointer-events-none" : "translate-y-0 opacity-100"
       }`}
     >
-      <div className="mx-auto max-w-[1480px] px-6 pt-1.5 md:px-8 lg:px-12">
-        <div className="flex items-center gap-3 rounded-full bg-white/40 backdrop-blur-xl border border-white/60 px-4 py-1.5 shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
-          <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-vez-navy/8 px-2.5 py-1">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-1 sm:pt-1.5">
+        <div className="flex items-center gap-1.5 sm:gap-3 rounded-full bg-white/70 sm:bg-white/40 backdrop-blur-xl border border-white/60 px-2.5 sm:px-4 py-1.5 sm:py-1.5 shadow-[0_2px_12px_rgba(0,0,0,0.06)] min-w-0">
+          <span className="flex shrink-0 items-center gap-1 sm:gap-1.5 rounded-full bg-vez-navy/8 px-2 sm:px-2.5 py-1">
             <span className="size-1.5 rounded-full bg-vez-navy animate-pulse" />
-            <span className="text-[11px] font-medium tracking-wider uppercase text-vez-navy/70">Live</span>
+            <span className="text-[10px] sm:text-[11px] font-medium tracking-wider uppercase text-vez-navy/70">Live</span>
           </span>
-          <span className="h-3.5 w-px bg-vez-ink/10" />
+          <span className="hidden sm:block h-3.5 w-px bg-vez-ink/10" />
           <div className="min-w-0 flex-1 overflow-hidden">
             <Link
               href={`/notices/${generateSlug(items[current].title, items[current].id)}`}
-              className="block truncate text-[13px] text-vez-ink/75 transition-colors hover:text-vez-navy"
+              className="block truncate text-[11px] sm:text-[13px] leading-[1.3] sm:leading-normal text-vez-ink/80 transition-colors hover:text-vez-navy"
             >
               <span
-                className={`inline-block transition-all duration-300 ease-out ${
+                className={`inline-block transition-all duration-300 ease-out truncate max-w-full ${
                   animating
                     ? "opacity-0 -translate-y-1.5 blur-[2px]"
                     : "opacity-100 translate-y-0 blur-0"
@@ -95,9 +95,10 @@ export function NewsTicker({ headlines }: { headlines?: ScrapedItem[] }) {
           </div>
           <Link
             href="/notices"
-            className="hidden shrink-0 rounded-full bg-vez-navy/8 px-3 py-1 text-[11px] font-medium text-vez-navy/70 transition-colors hover:bg-vez-navy hover:text-white md:block"
+            className="flex shrink-0 rounded-full bg-vez-navy px-2.5 sm:px-3 py-1 text-[10px] sm:text-[11px] font-medium text-white sm:bg-vez-navy/8 sm:text-vez-navy/70 transition-colors hover:bg-vez-navy hover:text-white items-center min-h-[28px] sm:min-h-0"
           >
-            All notices
+            <span className="sm:hidden">View</span>
+            <span className="hidden sm:inline">All notices</span>
           </Link>
         </div>
       </div>

@@ -74,16 +74,16 @@ export function ConfirmDialogProvider({ children }: { children: React.ReactNode 
               </AlertDialogDescription>
             )}
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => settle(false)}>
+          <AlertDialogFooter className="gap-2 sm:gap-3">
+            <AlertDialogCancel onClick={() => settle(false)} className="min-h-[44px] sm:min-h-0 w-full sm:w-auto">
               {options?.cancelLabel ?? "Cancel"}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => settle(true)}
               className={
-                options?.danger
+                (options?.danger
                   ? "bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600"
-                  : "bg-vez-navy text-white hover:opacity-90"
+                  : "bg-vez-navy text-white hover:opacity-90") + " min-h-[44px] sm:min-h-0 w-full sm:w-auto"
               }
             >
               {options?.confirmLabel ?? "Continue"}

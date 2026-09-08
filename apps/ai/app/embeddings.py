@@ -1,3 +1,4 @@
+import threading
 import time
 from typing import Callable, Optional
 
@@ -9,28 +10,32 @@ logger = get_logger(__name__)
 _model: Optional[object] = None
 _sparse_model: Optional[object] = None
 _sparse_unavailable = False
+_model_lock = threading.Lock()
 
 
 def _load_model():
     global _model
     if _model is None:
-        from sentence_transformers import SentenceTransformer
+        with _model_lock:
+            if _model is None:
+                from sentence_transformers import SentenceTransformer
 
-        logger.info("Loading embedding model '%s'...", config.EMBEDDING_MODEL)
-        _model = SentenceTransformer(config.EMBEDDING_MODEL)
-        # sentence-transformers >=5 renamed get_sentence_embedding_dimension.
-        get_dim = getattr(
-            _model, "get_embedding_dimension", None
-        ) or _model.get_sentence_embedding_dimension
-        dim = get_dim()
-        logger.info("Embedding model loaded (dimension=%d)", dim)
-        if dim != config.EMBEDDING_DIM:
-            logger.warning(
-                "EMBEDDING_DIM=%d does not match model dimension %d; "
-                "update EMBEDDING_DIM and recreate the Qdrant collection",
-                config.EMBEDDING_DIM,
-                dim,
-            )
+                logger.info("Loading embedding model '%s'...", config.EMBEDDING_MODEL)
+                _model = SentenceTransformer(config.EMBEDDING_MODEL)
+                # sentence-transformers >=5 renamed get_sentence_embedding_dimension.
+                get_dim = getattr(
+                    _model, "get_embedding_dimension", None
+                ) or _model.get_sentence_embedding_dimension
+                dim = get_dim()
+                logger.info("Embedding model loaded (dimension=%d)", dim)
+                if dim != config.EMBEDDING_DIM:
+                    logger.warning(
+                        "EMBEDDING_DIM=%d does not match model dimension %d; "
+                        "update EMBEDDING_DIM and recreate the Qdrant collection",
+                        config.EMBEDDING_DIM,
+                        dim,
+                    )
+                return _model
     return _model
 
 

@@ -28,10 +28,12 @@ const CpuArchitecture = ({
 }: CpuArchitectureSvgProps) => {
   return (
     <svg
-      className={cn("text-muted", className)}
+      className={cn("text-muted w-full h-auto max-w-full", className)}
       width={width}
       height={height}
       viewBox="0 0 200 100"
+      preserveAspectRatio="xMidYMid meet"
+      style={{ aspectRatio: "2 / 1" }}
     >
       <g
         stroke="currentColor"

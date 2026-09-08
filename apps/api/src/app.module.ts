@@ -1,6 +1,8 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { HttpModule } from '@nestjs/axios';
 import { AuthModule } from './modules/auth.module';
 import { UsersModule } from './modules/users.module';
@@ -33,6 +35,7 @@ import { AdminSystemController } from './controllers/admin-system.controller';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 20 }]),
     // AdminAiHealthController proxies to the AI service for live LLM probes.
     HttpModule.register({ timeout: 45000 }),
     LoggerModule,
@@ -66,7 +69,7 @@ import { AdminSystemController } from './controllers/admin-system.controller';
     AdminUsersController,
     AdminSystemController,
   ],
-  providers: [AiProvidersService],
+  providers: [AiProvidersService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

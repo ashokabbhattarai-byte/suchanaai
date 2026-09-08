@@ -43,7 +43,7 @@ function Dropdown({ label, children, solid }: { label: string; children: React.R
       <button
         onClick={() => setOpen(!open)}
         className={cn(
-          "flex items-center gap-1 whitespace-nowrap rounded-full px-4 py-1.5 text-base transition-colors",
+          "flex items-center gap-1 sm:gap-1.5 whitespace-nowrap rounded-full px-3 sm:px-4 py-1.5 text-sm sm:text-base font-poppins tracking-tight leading-none transition-colors min-h-[44px] sm:min-h-0",
           "text-vez-ink hover:bg-white/60"
         )}
       >
@@ -52,7 +52,7 @@ function Dropdown({ label, children, solid }: { label: string; children: React.R
       </button>
       {open && (
         <div className={cn(
-          "absolute top-full left-0 mt-2 min-w-[160px] rounded-xl border p-1.5 shadow-lg backdrop-blur-xl",
+          "absolute top-full left-0 mt-2 min-w-[160px] max-w-[95vw] rounded-xl sm:rounded-2xl border p-1.5 shadow-lg backdrop-blur-xl",
           solid ? "bg-white/90 border-white/60" : "bg-white/80 border-white/40"
         )}>
           {children}
@@ -108,23 +108,24 @@ export function Header() {
             : "bg-transparent"
         )}
       >
-        <div className="mx-auto flex h-20 max-w-[1480px] items-center justify-between gap-2 px-4 sm:px-6 md:px-8 lg:px-12">
+        <div className="mx-auto flex h-16 sm:h-20 max-w-[1480px] flex-wrap items-center justify-between gap-2 sm:gap-4 lg:gap-6 px-4 sm:px-6 md:px-8 lg:px-12">
           {/* Brand - responsive sizing to prevent overflow on 375px */}
-          <Link href="/" className="shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vez-navy focus-visible:ring-offset-2 rounded-lg">
+          <Link href="/" className="shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vez-navy focus-visible:ring-offset-2 rounded-lg min-h-[44px] flex items-center">
             <Image
               src={logo}
               alt="Suchana AI"
               width={220}
               height={220}
-              className="h-12 w-auto sm:h-14 md:h-16 lg:h-[72px] max-w-[140px] sm:max-w-none object-contain"
+              className="h-9 sm:h-12 md:h-14 lg:h-16 xl:h-[68px] w-auto max-w-[120px] sm:max-w-[140px] lg:max-w-none object-contain"
               priority
             />
+            <span className="sr-only text-lg sm:text-xl font-poppins tracking-tight">Suchana AI</span>
           </Link>
 
-          {/* Frosted pill nav */}
+          {/* Frosted pill nav - hidden on mobile, wraps on tablet */}
           <nav
             className={cn(
-              "hidden lg:flex items-center gap-1 rounded-full p-2 backdrop-blur-md border transition-all duration-300",
+              "hidden lg:flex flex-wrap items-center gap-2 sm:gap-4 rounded-full p-1.5 sm:p-2 backdrop-blur-md border transition-all duration-300 font-poppins tracking-tight",
               solid ? "bg-white/40 border-white/50" : "bg-white/10 border-white/20"
             )}
           >
@@ -146,7 +147,7 @@ export function Header() {
                 key={link.tKey}
                 href={link.href}
                 className={cn(
-                  "whitespace-nowrap rounded-full px-4 py-1.5 text-base transition-colors",
+                  "whitespace-nowrap rounded-full px-3 sm:px-4 py-1.5 text-sm sm:text-base font-poppins tracking-tight leading-none transition-colors min-h-[44px] sm:min-h-0 flex items-center",
                   isActive(link.href, false)
                     ? "bg-vez-navy text-white"
                     : "text-vez-ink hover:bg-white/60"
@@ -164,7 +165,7 @@ export function Header() {
                   href={href}
                   onClick={(e) => handleNavClick(e, href, link.anchor)}
                   className={cn(
-                    "whitespace-nowrap rounded-full px-4 py-1.5 text-base transition-colors",
+                    "whitespace-nowrap rounded-full px-3 sm:px-4 py-1.5 text-sm sm:text-base font-poppins tracking-tight leading-none transition-colors min-h-[44px] sm:min-h-0 flex items-center",
                     isActive(href, link.anchor)
                       ? "bg-vez-navy text-white"
                       : "text-vez-ink hover:bg-white/60"
@@ -177,11 +178,11 @@ export function Header() {
           </nav>
 
           {/* Right actions */}
-          <div className="hidden lg:flex items-center gap-2">
+          <div className="hidden lg:flex items-center gap-2 sm:gap-4">
             <Link
               href="/contact"
               className={cn(
-                "flex items-center gap-1.5 rounded-full px-5 py-2 text-base font-medium transition-all",
+                "flex items-center gap-1.5 rounded-full px-4 sm:px-5 py-2 text-sm sm:text-base font-medium font-poppins tracking-tight transition-all min-h-[44px] sm:min-h-0",
                 pathname === "/contact"
                   ? "bg-vez-navy text-white"
                   : "bg-vez-navy/10 text-vez-navy border border-vez-navy/10 hover:bg-vez-navy hover:text-white hover:border-vez-navy"
@@ -193,7 +194,7 @@ export function Header() {
 
             <button
               onClick={() => setLanguage(language === "en" ? "ne" : "en")}
-              className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-base text-vez-ink transition-colors hover:bg-white/60"
+              className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm sm:text-base font-poppins tracking-tight text-vez-ink transition-colors hover:bg-white/60 min-h-[44px] sm:min-h-0"
             >
               <Globe className="size-4" />
               {language === "en" ? "EN" : "ने"}
@@ -229,7 +230,7 @@ export function Header() {
 
                 <Link
                   href="/dashboard"
-                  className="flex items-center gap-1.5 rounded-full bg-vez-navy px-6 py-3 text-base text-white transition-opacity hover:opacity-90"
+                  className="flex items-center gap-1.5 rounded-full bg-vez-navy px-4 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base font-poppins tracking-tight text-white transition-opacity hover:opacity-90 min-h-[44px]"
                 >
                   <LayoutDashboard className="size-4" />
                   {t("nav.dashboard")}
@@ -251,7 +252,7 @@ export function Header() {
             ) : (
               <Link
                 href="/login"
-                className="flex items-center gap-1.5 rounded-full bg-vez-navy px-6 py-3 text-base text-white transition-opacity hover:opacity-90"
+                className="flex items-center gap-1.5 rounded-full bg-vez-navy px-4 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base font-poppins tracking-tight text-white transition-opacity hover:opacity-90 min-h-[44px]"
               >
                 {t("nav.signin")}
                 <ArrowUpRight className="size-4" />

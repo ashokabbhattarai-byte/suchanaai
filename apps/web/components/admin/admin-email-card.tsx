@@ -147,8 +147,8 @@ export function AdminEmailCard() {
   }
 
   return (
-    <div className="rounded-[20px] bg-white p-6 md:p-8">
-      <div className="flex items-center justify-between">
+    <div className="rounded-[20px] bg-white p-4 sm:p-6 md:p-8 w-full overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <div
             className={`flex size-11 items-center justify-center rounded-full ${
@@ -209,7 +209,7 @@ export function AdminEmailCard() {
 
       {error && <div className="mt-4 rounded-[14px] bg-red-50 px-4 py-2 text-xs text-red-600">{error}</div>}
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
         <div>
           <label className="mb-2 block text-sm text-vez-mute">SMTP host</label>
           <input

@@ -25,7 +25,11 @@ export function Reveal({ children, className, delay = 0, as = "div" }: RevealPro
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      gsap.set(el, { clearProps: "all", opacity: 1, y: 0, filter: "blur(0px)" })
+      el.classList.add("is-visible")
+      return
+    }
 
     const tween = gsap.to(el, {
       opacity: 1,
@@ -36,12 +40,22 @@ export function Reveal({ children, className, delay = 0, as = "div" }: RevealPro
       ease: "power3.out",
       scrollTrigger: {
         trigger: el,
-        start: "top 88%",
+        start: "top 95%",
         once: true,
       },
     })
 
+    // Fallback: if ScrollTrigger never fires (mobile viewport already past, JS error, etc), force visible after 1.4s
+    const fallback = window.setTimeout(() => {
+      if (el && getComputedStyle(el).opacity === "0") {
+        gsap.set(el, { opacity: 1, y: 0, filter: "blur(0px)" })
+        el.classList.add("is-visible")
+        tween.scrollTrigger?.kill()
+      }
+    }, 1400 + delay)
+
     return () => {
+      window.clearTimeout(fallback)
       tween.scrollTrigger?.kill()
       tween.kill()
     }

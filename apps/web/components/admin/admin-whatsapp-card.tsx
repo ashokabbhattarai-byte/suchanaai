@@ -83,8 +83,8 @@ export function AdminWhatsappCard() {
   const connected = status?.state === "open"
 
   return (
-    <div className="rounded-[20px] bg-white p-6 md:p-8">
-      <div className="flex items-center justify-between">
+    <div className="rounded-[20px] bg-white p-4 sm:p-6 md:p-8 w-full overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <div className={`flex size-11 items-center justify-center rounded-full ${connected ? "bg-vez-navy text-white" : "bg-vez-surface text-vez-mute"}`}>
             <Phone className="size-5" />

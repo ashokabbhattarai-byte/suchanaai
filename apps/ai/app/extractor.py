@@ -400,16 +400,31 @@ def _extract_qr_codes(path: Path) -> list[dict]:
     except ImportError:
         return []
 
-    try:
-        images = convert_from_path(str(path), dpi=_QR_RENDER_DPI)
-    except Exception as e:
-        logger.debug("QR scan: could not render %s: %s", path.name, e)
-        return []
-
     detector = cv2.QRCodeDetector()
     results: list[dict] = []
 
-    for page_num, pil_img in enumerate(images, start=1):
+    # Batch render to avoid OOM on large PDFs (500-page doc at 200 DPI ~5 GiB if all resident)
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(str(path))
+        total_pages = len(reader.pages)
+    except Exception:
+        total_pages = 200  # fallback cap
+    total_pages = min(total_pages, 200)  # hard cap for QR scan
+    batch_size = 5
+    all_images: list = []
+    for start in range(1, total_pages + 1, batch_size):
+        end = min(start + batch_size - 1, total_pages)
+        try:
+            batch = convert_from_path(str(path), dpi=_QR_RENDER_DPI, first_page=start, last_page=end)
+            all_images.extend(batch)
+        except Exception as e:
+            logger.debug("QR scan: could not render pages %d-%d of %s: %s", start, end, path.name, e)
+            continue
+        if len(results) >= _MAX_QR_CODES:
+            break
+
+    for page_num, pil_img in enumerate(all_images, start=1):
         if len(results) >= _MAX_QR_CODES:
             break
         try:

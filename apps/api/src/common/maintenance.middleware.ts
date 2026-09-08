@@ -6,6 +6,9 @@ import { SettingsService } from '../services/settings.service';
 // rejected webhook only a limited number of times, and a subscription state
 // lost that way is worse than the maintenance window itself.
 const ALLOWED_PREFIXES = ['/admin', '/health', '/auth', '/public', '/webhooks', '/billing', '/plans'];
+function isAllowedPath(path: string): boolean {
+  return ALLOWED_PREFIXES.some((p) => path === p || path.startsWith(p + '/') || path.startsWith(p + '?'));
+}
 
 /**
  * Maintenance-mode gate. When `maintenance.enabled` is on, everything except
@@ -28,7 +31,8 @@ export class MaintenanceMiddleware implements NestMiddleware {
     // NOTE: `req.path` is unreliable here — an earlier app-level middleware
     // rewrites `req.url` to "/", so the untouched originalUrl is used.
     const path = req.originalUrl.split('?')[0];
-    if (ALLOWED_PREFIXES.some((p) => path.startsWith(p))) {
+    // Exact segment match to avoid /admin matching /admin-fake
+    if (isAllowedPath(path)) {
       return next();
     }
 

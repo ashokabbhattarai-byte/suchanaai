@@ -11,6 +11,7 @@ Provides a hardened AsyncClient that:
 import asyncio
 import ipaddress
 import logging
+import re
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Private/internal IP ranges that must never be accessed
 _BLOCKED_NETWORKS = [
+    ipaddress.ip_network("0.0.0.0/8"),  # "this" network / software (SSRF bypass via 0.0.0.0)
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
@@ -94,15 +96,115 @@ def _sniff_image_mime(data: bytes) -> Optional[str]:
     return None
 
 
-def _is_blocked_ip(host: str) -> bool:
-    """Check if hostname resolves to a blocked IP address."""
+def _decode_ip(host: str):
+    """Decode obfuscated IP literals (hex/octal/decimal/dword) to an ip_address object.
+
+    Handles bypass encodings such as:
+    - Dword decimal: 2130706433 -> 127.0.0.1
+    - Dword hex: 0x7f000001 -> 127.0.0.1
+    - Dword octal: 017700000001 -> 127.0.0.1
+    - Per-octet hex/octal: 0x7f.0.0.1, 0177.0.0.1, 0x7f.1 etc.
+    Returns ip_address on success, None if host is not an IP literal in any encoding.
+    """
+    h = host.strip()
+    # Direct parse
     try:
-        # Try parsing as IP literal first
-        ip = ipaddress.ip_address(host)
-        return any(ip in net for net in _BLOCKED_NETWORKS) or host in _METADATA_IPS
+        return ipaddress.ip_address(h)
     except ValueError:
+        pass
+
+    # Single-integer dword forms (no dots)
+    if re.fullmatch(r"0[xX][0-9a-fA-F]+", h):
+        try:
+            val = int(h, 16)
+            if 0 <= val <= 0xFFFFFFFF:
+                return ipaddress.IPv4Address(val)
+        except ValueError:
+            pass
+        return None
+    if re.fullmatch(r"0[0-7]+", h) and h != "0":
+        # Octal dword (e.g. 017700000001)
+        try:
+            val = int(h, 8)
+            if 0 <= val <= 0xFFFFFFFF:
+                return ipaddress.IPv4Address(val)
+        except ValueError:
+            pass
+        # fall through to decimal check
+    if re.fullmatch(r"[0-9]+", h):
+        try:
+            val = int(h, 10)
+            if 0 <= val <= 0xFFFFFFFF:
+                return ipaddress.IPv4Address(val)
+        except ValueError:
+            pass
+        return None
+
+    # Dotted forms with per-octet encodings
+    if "." in h:
+        parts = h.split(".")
+        if 2 <= len(parts) <= 4:
+            try:
+                decoded: list[str] = []
+                for p in parts:
+                    if not p:
+                        return None
+                    if re.fullmatch(r"0[xX][0-9a-fA-F]+", p):
+                        decoded.append(str(int(p, 16)))
+                    elif re.fullmatch(r"0[0-7]+", p) and p != "0" and all(c in "01234567" for c in p):
+                        decoded.append(str(int(p, 8)))
+                    elif re.fullmatch(r"[0-9]+", p):
+                        # Bare leading-zero: treat as octal if valid octal digits, else decimal
+                        if p.startswith("0") and len(p) > 1 and all(c in "01234567" for c in p):
+                            # Ambiguous, try octal first
+                            try:
+                                decoded.append(str(int(p, 8)))
+                                continue
+                            except ValueError:
+                                pass
+                        decoded.append(str(int(p, 10)))
+                    else:
+                        return None
+                if len(decoded) == 4:
+                    for d in decoded:
+                        if not 0 <= int(d) <= 255:
+                            return None
+                    return ipaddress.ip_address(".".join(decoded))
+                # For 2/3-part shorthand (e.g., 127.1 -> 127.0.0.1) reconstruct via integer math
+                # Only handle if it looks like obfuscated shorthand; otherwise ignore
+                if len(decoded) in (2, 3):
+                    # Convert to integer then to IPv4
+                    # inet_aton style: a.b.c.d where missing octets are derived from last part
+                    nums = [int(d) for d in decoded]
+                    if len(nums) == 2:
+                        # a.b where b is 24-bit
+                        if not (0 <= nums[0] <= 255 and 0 <= nums[1] <= 0xFFFFFF):
+                            return None
+                        val = (nums[0] << 24) | nums[1]
+                    elif len(nums) == 3:
+                        if not (0 <= nums[0] <= 255 and 0 <= nums[1] <= 255 and 0 <= nums[2] <= 0xFFFF):
+                            return None
+                        val = (nums[0] << 24) | (nums[1] << 16) | nums[2]
+                    else:
+                        return None
+                    return ipaddress.IPv4Address(val)
+            except ValueError:
+                return None
+    return None
+
+
+def _is_blocked_ip(host: str) -> bool:
+    """Check if hostname is a blocked IP literal, including obfuscated encodings."""
+    host = host.strip()
+    if host in _METADATA_IPS:
+        return True
+    ip = _decode_ip(host)
+    if ip is None:
         # Hostname — we'll check after DNS resolution in _validate_response
         return False
+    if str(ip) in _METADATA_IPS:
+        return True
+    return any(ip in net for net in _BLOCKED_NETWORKS)
 
 
 def _validate_url(url: str) -> tuple[bool, Optional[str]]:
@@ -136,12 +238,14 @@ async def _host_resolves_to_blocked(host: str) -> tuple[bool, Optional[str]]:
     following redirects means an external host can hand us an internal one.
     Resolution failures are not treated as blocking — the request will fail on
     its own if the host genuinely doesn't resolve.
+    Handles obfuscated IP literals so encoded bypasses don't slip through DNS.
     """
-    try:
-        ipaddress.ip_address(host)
-        return False, None  # literal IP, already covered by _is_blocked_ip
-    except ValueError:
-        pass
+    ip = _decode_ip(host)
+    if ip is not None:
+        # Encoded or plain IP literal — no DNS needed; check directly
+        if any(ip in net for net in _BLOCKED_NETWORKS) or str(ip) in _METADATA_IPS:
+            return True, f"{host} (decoded as {ip}) resolves to blocked address {ip}"
+        return False, None  # literal public IP, already covered by _is_blocked_ip
 
     try:
         loop = asyncio.get_running_loop()

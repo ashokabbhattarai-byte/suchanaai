@@ -123,7 +123,7 @@ export default function DemoPage() {
         <section className="py-20 px-4">
           <div
             ref={metricsRef}
-            className="grid grid-cols-3 gap-4 max-w-3xl mx-auto"
+            className="grid grid-cols-3 gap-3 sm:gap-4 max-w-3xl mx-auto px-4 sm:px-0"
           >
             {metrics.map((metric, index) => (
               <div

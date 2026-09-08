@@ -12,5 +12,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
-  return NextResponse.redirect(`${API_URL}/documents/${id}/download`)
+  const uuidRe = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+  if (!uuidRe.test(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 })
+  const encoded = encodeURIComponent(id)
+  return NextResponse.redirect(`${API_URL}/documents/${encoded}/download`)
 }

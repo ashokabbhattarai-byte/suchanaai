@@ -23,7 +23,7 @@ async function json<T>(res: Response): Promise<T> {
 
 export async function getLandingData(limit = 6): Promise<LandingData | null> {
   try {
-    const [noticesRes, countsRes, sourcesRes] = await Promise.all([
+    const results = await Promise.allSettled([
       fetch(`${API_URL}/notices?page=1&limit=${limit}&sortBy=publishedAt&sortOrder=desc`, {
         next: { revalidate: 60 },
       }),
@@ -31,15 +31,38 @@ export async function getLandingData(limit = 6): Promise<LandingData | null> {
       fetch(`${API_URL}/notices/meta/sources`, { next: { revalidate: 60 } }),
     ])
 
-    const [notices, categoryCounts, sources] = await Promise.all([
-      json<{ data: ScrapedItem[]; meta: { total: number } }>(noticesRes),
-      json<Record<string, number>>(countsRes),
-      json<PublicNoticeSource[]>(sourcesRes),
-    ])
+    const [noticesRes, countsRes, sourcesRes] = results
+
+    let notices: { data: ScrapedItem[]; meta: { total: number } } | null = null
+    let categoryCounts: Record<string, number> = {}
+    let sources: PublicNoticeSource[] = []
+
+    if (noticesRes.status === "fulfilled" && noticesRes.value.ok) {
+      try {
+        notices = await json<{ data: ScrapedItem[]; meta: { total: number } }>(noticesRes.value)
+      } catch {
+        // leave notices as null — partial success still renders other sections
+      }
+    }
+    if (countsRes.status === "fulfilled" && countsRes.value.ok) {
+      try {
+        categoryCounts = await json<Record<string, number>>(countsRes.value)
+      } catch {}
+    }
+    if (sourcesRes.status === "fulfilled" && sourcesRes.value.ok) {
+      try {
+        sources = await json<PublicNoticeSource[]>(sourcesRes.value)
+      } catch {}
+    }
+
+    // If all three failed (backend unreachable), let caller fall back to static defaults
+    if (!notices && Object.keys(categoryCounts).length === 0 && sources.length === 0) {
+      return null
+    }
 
     return {
-      latest: notices.data,
-      totalNotices: notices.meta.total,
+      latest: notices?.data ?? [],
+      totalNotices: notices?.meta.total ?? 0,
       categoryCounts,
       sources,
       sourceCount: sources.length,

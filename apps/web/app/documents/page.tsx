@@ -133,8 +133,8 @@ function Markdown({ content }: { content: string }) {
           <blockquote className="mb-2 border-l-2 border-vez-sky pl-3 text-vez-mute last:mb-0">{children}</blockquote>
         ),
         table: ({ children }) => (
-          <div className="mb-3 -mx-1 overflow-x-auto last:mb-0">
-            <table className="w-full border-collapse text-[13px]">{children}</table>
+          <div className="mb-3 -mx-4 overflow-x-auto last:mb-0 sm:mx-0">
+            <table className="w-full min-w-[600px] border-collapse text-[13px]">{children}</table>
           </div>
         ),
         th: ({ children }) => <th className="whitespace-nowrap border border-vez-line/60 bg-vez-sky/10 px-3 py-2 text-left font-semibold">{children}</th>,
@@ -193,14 +193,14 @@ function DocCard({ doc, progress, toggleBusy, canManage, onToggleEmbed, onDelete
   const stageLabel = progress?.stage ? stageLabels[progress.stage] ?? "Processing" : "Queued"
 
   return (
-    <div className="rounded-2xl border border-vez-line/50 bg-white p-4 shadow-sm transition-all hover:border-vez-sky/50 hover:shadow-md sm:p-5">
+    <div className="flex h-full min-w-0 flex-col rounded-2xl border border-vez-line/50 bg-white p-4 shadow-sm transition-all hover:border-vez-sky/50 hover:shadow-md sm:p-6">
       <div className="mb-3 flex items-start gap-3 sm:gap-4">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-vez-sky/20 sm:size-11">
           <FileText className="size-5 text-vez-navy" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="line-clamp-2 text-[15px] font-medium leading-snug text-vez-ink">{doc.title}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="line-clamp-2 min-w-0 flex-1 break-words text-[15px] font-medium leading-snug text-vez-ink sm:line-clamp-3">{doc.title}</p>
             {doc.isSystem && (
               <span className="shrink-0 rounded-md bg-vez-navy/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-vez-navy">
                 System
@@ -250,12 +250,12 @@ function DocCard({ doc, progress, toggleBusy, canManage, onToggleEmbed, onDelete
           </div>
         </div>
       ) : (
-        <div className="mb-3 flex items-center justify-between gap-3 rounded-xl bg-vez-surface/70 px-3.5 py-2.5">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-vez-ink">
+        <div className="mb-3 flex flex-col gap-3 rounded-xl bg-vez-surface/70 p-3 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-3">
+          <div className="min-w-0 flex-1">
+            <p className="break-words text-sm font-medium text-vez-ink">
               {isIndexed ? "Ready" : isFailed ? "Couldn't be prepared" : "Not ready yet"}
             </p>
-            <p className="truncate text-xs text-vez-mute">
+            <p className="break-words text-xs text-vez-mute line-clamp-2">
               {isIndexed
                 ? "You can ask questions about this"
                 : isFailed
@@ -269,10 +269,10 @@ function DocCard({ doc, progress, toggleBusy, canManage, onToggleEmbed, onDelete
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-2 border-t border-vez-line/40 pt-3">
-        <div className="flex items-center gap-1">
+      <div className="flex flex-col gap-2 border-t border-vez-line/40 pt-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <div className="flex flex-wrap items-center gap-1">
           <button
-            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-vez-navy transition-colors hover:bg-vez-sky/15 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex min-h-[44px] items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-vez-navy transition-colors hover:bg-vez-sky/15 disabled:cursor-not-allowed disabled:opacity-40"
             onClick={onAsk}
             disabled={!isIndexed}
           >
@@ -282,7 +282,7 @@ function DocCard({ doc, progress, toggleBusy, canManage, onToggleEmbed, onDelete
             href={`/api/files/document/${doc.id}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-vez-mute transition-colors hover:bg-vez-surface hover:text-vez-ink"
+            className="flex min-h-[44px] items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-vez-mute transition-colors hover:bg-vez-surface hover:text-vez-ink"
             title="Download original file"
           >
             <Download className="size-4" /> <span className="hidden sm:inline">Download</span>
@@ -767,7 +767,7 @@ export default function RagPage() {
       </div>
 
       {/* Doc list */}
-      <div className="flex-1 space-y-3 overflow-y-auto p-4 sm:p-5">
+      <div className="flex-1 space-y-3 overflow-y-auto p-4 sm:p-6">
         {docsLoading ? (
           <div className="flex flex-col items-center justify-center py-16 text-vez-mute">
             <Loader2 className="mb-3 size-7 animate-spin" />
@@ -995,7 +995,7 @@ export default function RagPage() {
     <div className="flex h-dvh flex-col overflow-hidden bg-white font-poppins">
       <Header />
 
-      <div className="mx-auto flex w-full max-w-[1480px] min-h-0 flex-1 flex-col gap-3 px-3 py-3 sm:gap-5 sm:px-6 sm:py-6 md:px-8 lg:px-12">
+      <div className="mx-auto flex w-full max-w-[1480px] min-h-0 flex-1 flex-col gap-3 px-4 py-3 sm:gap-5 sm:px-6 sm:py-6 lg:px-8">
 
         {/* Top bar */}
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 sm:gap-4">
@@ -1004,8 +1004,8 @@ export default function RagPage() {
               <FileText className="size-5 text-white" />
             </div>
             <div className="min-w-0">
-              <h1 className="truncate text-lg font-semibold tracking-tight text-vez-ink sm:text-xl">My documents</h1>
-              <p className="mt-0.5 truncate text-xs text-vez-mute sm:text-sm">
+              <h1 className="break-words text-lg font-semibold tracking-tight text-vez-ink sm:text-xl lg:text-2xl">My documents</h1>
+              <p className="mt-0.5 break-words text-xs text-vez-mute sm:text-sm">
                 {embeddedCount === 0
                   ? "Upload a document to start asking questions"
                   : `${embeddedCount} ${embeddedCount === 1 ? "document" : "documents"} ready to search`}

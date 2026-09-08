@@ -32,20 +32,20 @@ export function ErrorState({ error, title, message, onRetry, className, compact 
     <div
       role="alert"
       className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border bg-muted/30 px-6 text-center",
-        compact ? "py-8" : "py-16",
+        "flex flex-col items-center justify-center gap-3 sm:gap-4 rounded-xl sm:rounded-2xl border border-dashed border-vez-line bg-muted/30 px-4 sm:px-6 text-center font-poppins tracking-tight shadow-sm",
+        compact ? "py-6 sm:py-8" : "py-8 sm:py-12 lg:py-16",
         className,
       )}
     >
-      <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10">
-        <Icon className="size-5 text-destructive" />
+      <div className="flex size-10 sm:size-12 items-center justify-center rounded-full bg-destructive/10">
+        <Icon className="size-4 sm:size-5 text-destructive" />
       </div>
-      <div className="space-y-1">
-        <p className="text-sm font-medium text-foreground">{heading}</p>
-        <p className="max-w-sm text-sm text-muted-foreground">{body}</p>
+      <div className="space-y-1 max-w-sm px-2 sm:px-0">
+        <p className="text-sm sm:text-base font-medium font-poppins tracking-tight text-foreground leading-tight">{heading}</p>
+        <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">{body}</p>
       </div>
       {onRetry && (
-        <Button size="sm" variant="outline" onClick={onRetry} className="mt-1 gap-1.5">
+        <Button size="sm" variant="outline" onClick={onRetry} className="mt-1 gap-1.5 min-h-[44px] sm:min-h-0">
           <RefreshCw className="size-3.5" /> Try again
         </Button>
       )}

@@ -362,7 +362,7 @@ function AdminNoticesPageContent() {
           <div className="mb-6 rounded-[14px] bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
         )}
 
-        <div className="rounded-[20px] bg-white p-6">
+        <div className="rounded-[20px] bg-white p-4 sm:p-6 overflow-hidden">
           <div className="mb-5 flex flex-wrap items-center gap-3">
             <div className="relative max-w-sm flex-1">
               <Search className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-vez-mute" />
@@ -398,7 +398,7 @@ function AdminNoticesPageContent() {
           </div>
 
           {showFilters && (
-            <div className="mb-6 grid grid-cols-1 gap-4 rounded-[14px] bg-vez-surface px-5 py-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-6 rounded-[14px] bg-vez-surface p-4 sm:p-5">
               <div>
                 <label className="mb-1 block text-xs text-vez-mute">Category</label>
                 <select
@@ -465,76 +465,96 @@ function AdminNoticesPageContent() {
           ) : items.length === 0 ? (
             <p className="py-16 text-center text-sm text-vez-mute">No notices match these filters.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-vez-line text-left">
-                    <th className="pb-3 font-normal text-vez-mute">Title</th>
-                    <th className="pb-3 font-normal text-vez-mute">Category</th>
-                    <th className="pb-3 font-normal text-vez-mute">Source</th>
-                    <th className="pb-3 font-normal text-vez-mute">Published</th>
-                    <th className="pb-3 font-normal text-vez-mute">Scraped</th>
-                    <th className="pb-3 font-normal text-vez-mute">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item) => (
-                    <tr key={item.id} className="border-b border-vez-line/50 transition-colors hover:bg-vez-surface/60">
-                      <td className="max-w-[320px] py-3.5 pr-4 text-vez-ink">
-                        <span className="line-clamp-2">{item.title}</span>
-                      </td>
-                      <td className="py-3.5 pr-4">
-                        <span className="rounded-full bg-vez-sky/30 px-3 py-1 text-xs capitalize text-vez-navy">
-                          {item.category.toLowerCase()}
-                        </span>
-                      </td>
-                      <td className="max-w-[160px] truncate py-3.5 pr-4 text-vez-mute">{sourceName(item)}</td>
-                      <td className="whitespace-nowrap py-3.5 pr-4 text-vez-mute">
-                        {item.publishedAt ? new Date(item.publishedAt).toLocaleDateString() : "—"}
-                      </td>
-                      <td className="whitespace-nowrap py-3.5 pr-4 text-vez-mute">
-                        {new Date(item.scrapedAt).toLocaleDateString()}
-                      </td>
-                      <td className="py-3.5">
-                        <div className="flex items-center gap-1">
-                          <a
-                            href={item.sourceUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex size-8 items-center justify-center rounded-full text-vez-mute transition-colors hover:bg-vez-surface hover:text-vez-navy"
-                            aria-label="Open original source"
-                          >
-                            <ExternalLink className="size-3.5" />
-                          </a>
-                          <button
-                            onClick={() => openEditor(item)}
-                            className="flex size-8 items-center justify-center rounded-full text-vez-mute transition-colors hover:bg-vez-sky/20 hover:text-vez-sky"
-                            aria-label="Edit category & tags"
-                          >
-                            <Edit className="size-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(item.id)}
-                            className="flex size-8 items-center justify-center rounded-full text-vez-mute transition-colors hover:bg-red-50 hover:text-red-600"
-                            aria-label="Delete notice"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </div>
-                      </td>
+            <>
+              <div className="hidden md:block overflow-x-auto rounded-lg border border-vez-line">
+                <table className="w-full min-w-[640px] text-sm">
+                  <thead>
+                    <tr className="border-b border-vez-line text-left">
+                      <th className="pb-3 font-normal text-vez-mute">Title</th>
+                      <th className="pb-3 font-normal text-vez-mute">Category</th>
+                      <th className="pb-3 font-normal text-vez-mute">Source</th>
+                      <th className="pb-3 font-normal text-vez-mute">Published</th>
+                      <th className="pb-3 font-normal text-vez-mute">Scraped</th>
+                      <th className="pb-3 font-normal text-vez-mute">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => (
+                      <tr key={item.id} className="border-b border-vez-line/50 transition-colors hover:bg-vez-surface/60">
+                        <td className="max-w-[320px] py-3.5 pr-4 text-vez-ink">
+                          <span className="line-clamp-2">{item.title}</span>
+                        </td>
+                        <td className="py-3.5 pr-4">
+                          <span className="rounded-full bg-vez-sky/30 px-3 py-1 text-xs capitalize text-vez-navy">
+                            {item.category.toLowerCase()}
+                          </span>
+                        </td>
+                        <td className="max-w-[160px] truncate py-3.5 pr-4 text-vez-mute">{sourceName(item)}</td>
+                        <td className="whitespace-nowrap py-3.5 pr-4 text-vez-mute">
+                          {item.publishedAt ? new Date(item.publishedAt).toLocaleDateString() : "—"}
+                        </td>
+                        <td className="whitespace-nowrap py-3.5 pr-4 text-vez-mute">
+                          {new Date(item.scrapedAt).toLocaleDateString()}
+                        </td>
+                        <td className="py-3.5">
+                          <div className="flex items-center gap-1">
+                            <a
+                              href={item.sourceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex size-8 items-center justify-center rounded-full text-vez-mute transition-colors hover:bg-vez-surface hover:text-vez-navy"
+                              aria-label="Open original source"
+                            >
+                              <ExternalLink className="size-3.5" />
+                            </a>
+                            <button
+                              onClick={() => openEditor(item)}
+                              className="flex size-8 items-center justify-center rounded-full text-vez-mute transition-colors hover:bg-vez-sky/20 hover:text-vez-sky"
+                              aria-label="Edit category & tags"
+                            >
+                              <Edit className="size-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(item.id)}
+                              className="flex size-8 items-center justify-center rounded-full text-vez-mute transition-colors hover:bg-red-50 hover:text-red-600"
+                              aria-label="Delete notice"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* Mobile card list */}
+              <div className="grid gap-3 md:hidden">
+                {items.map((item) => (
+                  <div key={item.id} className="rounded-2xl border border-vez-line/50 bg-vez-surface/50 p-4">
+                    <p className="line-clamp-2 text-sm font-medium text-vez-ink">{item.title}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-vez-sky/30 px-2.5 py-0.5 text-xs capitalize text-vez-navy">{item.category.toLowerCase()}</span>
+                      <span className="truncate text-xs text-vez-mute">{sourceName(item)}</span>
+                    </div>
+                    <p className="mt-2 text-xs text-vez-mute">{item.publishedAt ? new Date(item.publishedAt).toLocaleDateString() : "—"} · scraped {new Date(item.scrapedAt).toLocaleDateString()}</p>
+                    <div className="mt-3 flex items-center gap-2">
+                      <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" className="flex flex-1 items-center justify-center gap-1 rounded-full border border-vez-line bg-white px-3 py-2 text-xs"><ExternalLink className="size-3" /> View</a>
+                      <button onClick={() => openEditor(item)} className="flex flex-1 items-center justify-center gap-1 rounded-full border border-vez-line bg-white px-3 py-2 text-xs"><Edit className="size-3" /> Edit</button>
+                      <button onClick={() => handleDelete(item.id)} className="flex size-10 items-center justify-center rounded-full bg-red-50 text-red-600"><Trash2 className="size-4" /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
 
           {totalPages > 1 && (
-            <div className="mt-5 flex items-center justify-between text-sm">
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-sm">
               <p className="text-vez-mute">
                 Page {page} of {totalPages}
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page <= 1}
@@ -567,10 +587,10 @@ function AdminNoticesPageContent() {
                 </button>
               </div>
 
-              <div className="p-6 space-y-5">
+              <div className="p-4 sm:p-6 space-y-5">
                 <div>
                   <label className="mb-1 block text-xs text-vez-mute">Title</label>
-                  <p className="text-sm text-vez-ink line-clamp-2">{editingItem.title}</p>
+                  <p className="text-sm text-vez-ink line-clamp-2 break-words">{editingItem.title}</p>
                 </div>
 
                 <div>

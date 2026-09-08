@@ -47,17 +47,19 @@ function MetricCard({ icon: Icon, label, value, spark, trend, trendUp }: {
   spark: number[]; trend: string; trendUp: boolean
 }) {
   return (
-    <div className="cmd-card rounded-[20px] bg-white p-5">
-      <div className="mb-4 flex items-start justify-between">
-        <div className="flex size-9 items-center justify-center rounded-full bg-vez-sky/30">
+    <div className="cmd-card rounded-[20px] bg-white p-4 sm:p-6">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-vez-sky/30">
           <Icon className="size-4 text-vez-navy" />
         </div>
-        <MiniSparkline data={spark} />
+        <div className="w-full h-[20px] sm:h-[20px] shrink-0 sm:w-auto">
+          <MiniSparkline data={spark} />
+        </div>
       </div>
-      <p className="mb-1.5 text-3xl leading-none tracking-[-0.02em] text-vez-ink tabular-nums">{value}</p>
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-vez-mute">{label}</span>
-        <span className={`flex items-center gap-0.5 text-[10px] ${trendUp ? "text-vez-navy" : "text-vez-mute"}`}>
+      <p className="mb-1.5 break-words text-2xl sm:text-3xl leading-none tracking-[-0.02em] text-vez-ink tabular-nums">{value}</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs sm:text-sm text-vez-mute">{label}</span>
+        <span className={`flex items-center gap-0.5 text-[10px] sm:text-xs ${trendUp ? "text-vez-navy" : "text-vez-mute"}`}>
           <TrendingUp className="size-3" /> {trend}
         </span>
       </div>
@@ -150,8 +152,8 @@ export default function AdminDashboard() {
           </button>
         </div>
 
-        {/* System health strip */}
-        <div className="cmd-card mb-6 flex items-center gap-4 overflow-x-auto rounded-[16px] bg-white px-5 py-3.5">
+        {/* System health strip - wraps on mobile, scrolls if needed */}
+        <div className="cmd-card mb-6 flex flex-wrap items-center gap-3 sm:gap-4 overflow-x-auto rounded-[16px] border border-vez-line bg-white p-4 sm:p-5">
           <div className="flex shrink-0 items-center gap-2">
             <Activity className="size-4 text-vez-navy" />
             <span className="text-xs text-vez-ink">System status</span>
@@ -175,8 +177,8 @@ export default function AdminDashboard() {
         </div>
 
         <div ref={gridRef} className="space-y-6">
-          {/* Metric cards */}
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {/* Metric cards - responsive grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             {metrics.map((m) => (
               <MetricCard key={m.label} {...m} />
             ))}
@@ -201,10 +203,10 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* Main content row */}
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+          {/* Main content row - stacks on mobile */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 sm:gap-6">
             {/* Live log - 3 cols */}
-            <div className="cmd-card rounded-[20px] bg-white p-6 lg:col-span-3">
+            <div className="cmd-card rounded-[20px] bg-white p-4 sm:p-6 lg:col-span-3 w-full overflow-hidden">
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="flex items-center gap-2 text-base text-vez-ink">
                   <Zap className="size-4 text-vez-navy" /> Live system log
@@ -246,7 +248,7 @@ export default function AdminDashboard() {
             {/* Right - 2 cols */}
             <div className="space-y-6 lg:col-span-2">
               {/* Source status */}
-              <div className="cmd-card rounded-[20px] bg-white p-6">
+              <div className="cmd-card rounded-[20px] bg-white p-4 sm:p-6 w-full overflow-hidden">
                 <div className="mb-4 flex items-center justify-between">
                   <h3 className="flex items-center gap-2 text-base text-vez-ink">
                     <Link2 className="size-4 text-vez-navy" /> Scraping sources
@@ -270,11 +272,11 @@ export default function AdminDashboard() {
               </div>
 
               {/* Quick actions */}
-              <div className="cmd-card rounded-[20px] bg-vez-surface p-6">
+              <div className="cmd-card rounded-[20px] bg-vez-surface p-4 sm:p-6">
                 <h3 className="mb-4 flex items-center gap-2 text-base text-vez-ink">
                   <BarChart3 className="size-4 text-vez-navy" /> Quick actions
                 </h3>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3 sm:gap-4">
                   {[
                     { href: "/admin/notices", label: "Notices", icon: FileText },
                     { href: "/admin/users", label: "Users", icon: Users },
@@ -301,9 +303,9 @@ export default function AdminDashboard() {
           </div>
 
           {/* Recent users row */}
-          <div className="cmd-card rounded-[20px] bg-white p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-base text-vez-ink">
+          <div className="cmd-card rounded-[20px] bg-white p-4 sm:p-6">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="flex items-center gap-2 text-sm sm:text-base text-vez-ink">
                 <UserCheck className="size-4 text-vez-navy" /> Recent users
               </h3>
               <Link
@@ -313,7 +315,7 @@ export default function AdminDashboard() {
                 All users <ArrowRight className="size-3" />
               </Link>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
               {recentUsers.map((u) => (
                 <div key={u.id} className="flex items-center gap-3 rounded-[14px] bg-vez-surface px-4 py-3 transition-colors hover:bg-vez-sky/15">
                   <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-vez-sky">

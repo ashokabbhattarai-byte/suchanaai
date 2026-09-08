@@ -79,7 +79,9 @@ export class NoticesService {
     const sortBy = filters.sortBy ?? 'publishedAt';
     const sortOrder = filters.sortOrder ?? 'desc';
 
-    const cacheKey = `list:${JSON.stringify({ ...filters, page, limit })}`;
+    // Stable cache key: sort keys and include explicit undefined handling to avoid collisions
+    const stableKey = JSON.stringify({ ...filters, page, limit, sortBy, sortOrder }, (k, v) => (v === undefined ? '__undef__' : v), 2);
+    const cacheKey = `list:${stableKey}`;
     return this.listCache.remember(cacheKey, async () => {
       const publishedAtFilter: Prisma.DateTimeFilter = {};
       if (filters.dateFrom) publishedAtFilter.gte = new Date(filters.dateFrom);

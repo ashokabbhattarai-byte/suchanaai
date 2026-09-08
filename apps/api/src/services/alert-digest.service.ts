@@ -55,6 +55,7 @@ export class AlertDigestService {
       where: { userId, status: 'PENDING' },
       include: { scrapedItem: true, alertRule: true },
       orderBy: { sentAt: 'asc' },
+      take: 500, // bound DB load; buildDigestMessage slices 15 for display
     });
     // Nothing queued — don't touch lastDigestSentAt, so a digest fires as
     // soon as something actually matches rather than waiting a full cycle.

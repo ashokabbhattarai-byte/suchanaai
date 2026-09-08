@@ -409,7 +409,7 @@ export default function AdminSettingsPage() {
             </p>
           )}
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {view?.groups.filter((g) => g.id !== AI_GROUP).map((g) => {
               const shown = filteredGroups.some((fg) => fg.id === g.id)
               const totalInGroup = view.settings.filter((s) => s.group === g.id).length
@@ -514,7 +514,7 @@ export default function AdminSettingsPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                     {g.fields.map((field) => {
                       // Wide controls get their own full-width card instead of
                       // being squeezed into a half-width column.
@@ -530,7 +530,7 @@ export default function AdminSettingsPage() {
                       return (
                         <div
                           key={field.key}
-                          className={`rounded-[16px] border p-5 transition-colors ${wide ? "md:col-span-2" : ""} ${
+                          className={`rounded-[16px] border p-4 sm:p-6 transition-colors ${wide ? "md:col-span-2" : ""} ${
                             isDirty(field.key) ? "border-amber-300 bg-amber-50/40" : "border-vez-line bg-white"
                           }`}
                         >

@@ -41,9 +41,9 @@ export function CopyButton({ text, className }: { text: string; className?: stri
       aria-label={copied ? "Copied" : "Copy answer"}
       title={copied ? "Copied" : "Copy answer"}
       className={cn(
-        "inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground",
+        "inline-flex items-center gap-1 rounded-md px-2 sm:px-1.5 py-1.5 sm:py-1 text-[10px] sm:text-xs text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 justify-center font-poppins tracking-tight",
         className,
-      )}
+       )}
     >
       {copied ? <Check className="size-3 text-emerald-600" /> : <Copy className="size-3" />}
       {copied ? "Copied" : "Copy"}

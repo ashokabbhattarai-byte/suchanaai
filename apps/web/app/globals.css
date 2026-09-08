@@ -514,3 +514,98 @@
     animation: none;
   }
 }
+
+/* ── Responsive Design System — Breakpoints & Utilities ── */
+/* Breakpoints: sm:640, md:768, lg:1024, xl:1280 (Tailwind defaults) */
+/* This file confirms the project uses Tailwind's default breakpoints.
+   All responsive utilities below rely on these. */
+
+@layer utilities {
+  /* Responsive spacing scale */
+  .gap-responsive {
+    @apply gap-3 sm:gap-4 lg:gap-6;
+  }
+  .p-responsive {
+    @apply p-4 sm:p-6 lg:p-8;
+  }
+  .px-responsive {
+    @apply px-4 sm:px-6 lg:px-8;
+  }
+  .py-responsive {
+    @apply py-4 sm:py-6 lg:py-8;
+  }
+
+  /* Responsive typography */
+  .text-responsive {
+    @apply text-sm sm:text-base font-poppins tracking-tight leading-relaxed;
+  }
+  .heading-responsive {
+    @apply text-lg sm:text-xl lg:text-2xl font-poppins tracking-tight leading-tight;
+  }
+
+  /* Touch targets — 44px minimum on mobile, auto on sm+ */
+  .touch-target {
+    @apply min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0;
+  }
+  .touch-target-icon {
+    @apply size-11 sm:size-9 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0;
+  }
+
+  /* Card consistency */
+  .card-consistent {
+    @apply rounded-xl sm:rounded-2xl border border-vez-line bg-card shadow-sm hover:shadow-md transition-shadow;
+  }
+
+  /* Responsive containers */
+  .container-responsive {
+    @apply w-full max-w-[100vw] overflow-x-clip px-4 sm:px-6 lg:px-8;
+  }
+
+  /* Responsive dialogs/sheets */
+  .dialog-responsive {
+    @apply w-full max-w-[95vw] sm:max-w-lg mx-4 sm:mx-auto max-h-[90vh] overflow-y-auto;
+  }
+
+  /* Responsive inputs */
+  .input-responsive {
+    @apply h-9 sm:h-10 text-sm sm:text-base px-3 sm:px-4;
+  }
+
+  /* Responsive buttons — replaces fixed h-10 w-40 */
+  .btn-responsive {
+    @apply h-9 sm:h-10 px-4 sm:px-6 text-sm sm:text-base;
+  }
+}
+
+/* ── Table responsiveness ── */
+@layer components {
+  .table-responsive {
+    @apply w-full overflow-x-auto -mx-4 sm:mx-0;
+  }
+  .table-responsive table {
+    @apply min-w-[600px] sm:min-w-0 w-full;
+  }
+  /* Ensure tables scroll on mobile without breaking layout */
+  .table-wrapper {
+    @apply overflow-x-auto scrollbar-thin;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ── Responsive aspect ratios for mockups/demos ── */
+.mockup-responsive {
+  @apply w-full aspect-[4/3] sm:aspect-[16/10] lg:aspect-[16/9] max-h-[320px] sm:max-h-[380px] lg:max-h-[420px] overflow-hidden;
+}
+
+/* ── Focus & touch improvements ── */
+@media (pointer: coarse) {
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* But allow inline text links to remain compact */
+  p a, span a, .text-link {
+    min-height: auto;
+    min-width: auto;
+  }
+}

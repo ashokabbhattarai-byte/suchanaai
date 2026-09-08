@@ -119,7 +119,14 @@ def ensure_collection() -> None:
             "indexed documents must be re-uploaded",
             config.QDRANT_COLLECTION,
         )
-        client.delete_collection(config.QDRANT_COLLECTION)
+        try:
+            client.delete_collection(config.QDRANT_COLLECTION)
+        except Exception as e:
+            # Race: another worker may have already deleted it
+            if "not found" in str(e).lower() or "doesn't exist" in str(e).lower():
+                logger.info("Collection '%s' already deleted by concurrent worker", config.QDRANT_COLLECTION)
+            else:
+                raise
 
     logger.info(
         "Creating Qdrant collection '%s' (dense=%d cosine, sparse=%s)",
@@ -134,21 +141,37 @@ def ensure_collection() -> None:
                 index=SparseIndexParams(), modifier=Modifier.IDF
             )
         }
-    client.create_collection(
-        collection_name=config.QDRANT_COLLECTION,
-        vectors_config={
-            DENSE_VECTOR: VectorParams(
-                size=config.EMBEDDING_DIM, distance=Distance.COSINE
-            )
-        },
-        sparse_vectors_config=sparse_config,
-    )
+    try:
+        client.create_collection(
+            collection_name=config.QDRANT_COLLECTION,
+            vectors_config={
+                DENSE_VECTOR: VectorParams(
+                    size=config.EMBEDDING_DIM, distance=Distance.COSINE
+                )
+            },
+            sparse_vectors_config=sparse_config,
+        )
+    except Exception as e:
+        # Race: another worker created it between our check and create.
+        # qdrant-client raises UnexpectedResponse / AlreadyExists
+        msg = str(e).lower()
+        if "already exists" in msg or "already exist" in msg or "exists" in msg and "collection" in msg:
+            logger.info("Collection '%s' already created by concurrent worker", config.QDRANT_COLLECTION)
+            return
+        raise
     # Keyword index so per-document filtering stays fast as the corpus grows.
-    client.create_payload_index(
-        collection_name=config.QDRANT_COLLECTION,
-        field_name="doc_id",
-        field_schema=PayloadSchemaType.KEYWORD,
-    )
+    try:
+        client.create_payload_index(
+            collection_name=config.QDRANT_COLLECTION,
+            field_name="doc_id",
+            field_schema=PayloadSchemaType.KEYWORD,
+        )
+    except Exception as e:
+        msg = str(e).lower()
+        if "already exists" in msg or "already exist" in msg:
+            logger.debug("Payload index already exists for '%s'", config.QDRANT_COLLECTION)
+        else:
+            logger.warning("Failed to create payload index for '%s': %s", config.QDRANT_COLLECTION, e)
 
 
 def index_document(

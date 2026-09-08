@@ -272,8 +272,8 @@ function FormattedContent({ text }: { text: string }) {
     if (block.type === "table" && block.rows) {
       const [header, ...body] = block.rows
       rendered.push(
-        <div key={idx} className="my-6 overflow-x-auto rounded-[14px] border border-vez-line">
-          <table className="w-full min-w-[480px] border-collapse text-sm">
+        <div key={idx} className="my-6 -mx-4 overflow-x-auto rounded-[14px] border border-vez-line sm:mx-0">
+          <table className="w-full min-w-[600px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-vez-line bg-vez-surface/60">
                 {header.map((cell, c) => (
@@ -413,7 +413,7 @@ function AttachmentSection({
         {attachments.map((att) => (
           <div key={att.id ?? att.url} className="overflow-hidden rounded-[16px] border border-vez-line bg-white">
             {/* File header with download */}
-            <div className="flex items-center gap-4 border-b border-vez-line bg-vez-surface/50 px-5 py-4">
+            <div className="flex flex-col gap-3 border-b border-vez-line bg-vez-surface/50 p-4 sm:flex-row sm:items-center sm:gap-4 sm:px-5 sm:py-4">
               <div className="flex size-11 shrink-0 items-center justify-center rounded-[12px] bg-vez-sky/30">
                 {attachmentKind(att.url) === "image" ? (
                   <FileImage className="size-5 text-vez-navy" />
@@ -422,10 +422,10 @@ function AttachmentSection({
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-vez-ink">
+                <p className="break-words text-sm font-medium text-vez-ink line-clamp-2 sm:line-clamp-1">
                   {att.label || attachmentLabel(att.url)}
                 </p>
-                <p className="text-xs text-vez-mute">
+                <p className="break-words text-xs text-vez-mute">
                   {att.sizeBytes ? `${(att.sizeBytes / 1024).toFixed(0)} KB` : ""}
                   {att.sizeBytes && att.mimeType ? " · " : ""}
                   {att.mimeType || ""}
@@ -436,7 +436,7 @@ function AttachmentSection({
                 target="_blank"
                 rel="noopener noreferrer"
                 download={att.label || attachmentLabel(att.url)}
-                className="flex items-center gap-2 rounded-full bg-vez-navy px-4 py-2 text-xs text-white transition-opacity hover:opacity-90"
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-vez-navy px-4 py-2.5 text-xs text-white transition-opacity hover:opacity-90 sm:w-auto"
               >
                 <Download className="size-3.5" /> Download
               </a>
@@ -444,30 +444,32 @@ function AttachmentSection({
 
             {/* Inline image preview for images */}
             {attachmentKind(att.url) === "image" && (
-              <div className="flex justify-center bg-gray-50 p-4">
+              <div className="flex justify-center bg-gray-50 p-4 sm:p-6">
                 <img
                   src={attachmentFileUrl(att)}
                   alt={att.label || "Attachment preview"}
-                  className="max-h-[500px] rounded-lg object-contain"
+                  className="max-h-[500px] w-full rounded-lg object-contain"
                 />
               </div>
             )}
 
             {/* Inline PDF viewer */}
             {attachmentKind(att.url) === "file" && (att.mimeType?.includes("pdf") || att.url?.toLowerCase().endsWith(".pdf")) && (
-              <div className="border-b border-vez-line bg-gray-50 p-4">
-                <iframe
-                  src={attachmentFileUrl(att)}
-                  title={att.label || "PDF Document"}
-                  className="h-[600px] w-full rounded-lg border border-vez-line"
-                />
+              <div className="border-b border-vez-line bg-gray-50 p-4 sm:p-6">
+                <div className="-mx-4 overflow-x-auto sm:mx-0">
+                  <iframe
+                    src={attachmentFileUrl(att)}
+                    title={att.label || "PDF Document"}
+                    className="h-[400px] w-full min-w-[600px] rounded-lg border border-vez-line sm:h-[600px]"
+                  />
+                </div>
               </div>
             )}
 
             {/* Extracted content for non-image files */}
             {attachmentKind(att.url) === "file" && hasExtractedContent && (
-              <div className="px-5 py-4">
-                <div className="mb-3 flex items-center justify-between">
+              <div className="p-4 sm:p-6">
+                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-2">
                     <Sparkles className="size-4 text-vez-navy" />
                     <span className="text-sm font-medium text-vez-navy">Extracted Content</span>
@@ -647,7 +649,7 @@ export default function NoticeDetailClient() {
         .finally(() => setExtracting(false))
     }, 5000)
     return () => clearTimeout(timer)
-  }, [notice?.id])
+  }, [notice, noticeId, notice?.id, notice?.contentText, notice?.attachments, notice?.attachmentUrl])
 
   // Set active notice in global context for floating chatbot
   useEffect(() => {
@@ -661,7 +663,7 @@ export default function NoticeDetailClient() {
       sourceLabel: notice.sourceLabel,
     })
     return () => setActiveNotice(null)
-  }, [notice?.id, notice?.contentText, notice?.aiSummary])
+  }, [notice, notice?.id, notice?.title, notice?.contentText, notice?.aiSummary, notice?.keyFacts, notice?.sourceLabel, setActiveNotice])
 
   async function handleShare() {
     try {
@@ -747,9 +749,9 @@ export default function NoticeDetailClient() {
 
       {/* ── Sticky Date Banner ── */}
       {(deadline || notice.publishedAt) && (
-        <div className="sticky top-0 z-40 border-b border-vez-line bg-white/95 backdrop-blur-sm shadow-sm">
-          <div className="mx-auto flex max-w-[1480px] items-center justify-between px-6 py-3 md:px-8 lg:px-12">
-            <div className="flex flex-wrap items-center gap-4 md:gap-6">
+        <div suppressHydrationWarning className="sticky top-0 z-40 border-b border-vez-line bg-white/95 backdrop-blur-sm shadow-sm">
+          <div className="mx-auto flex max-w-[1480px] items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4 lg:gap-6">
               {deadline && deadlineInfo && (
                 <div className="flex items-center gap-2.5">
                   <div className={`flex size-9 items-center justify-center rounded-full ${
@@ -764,14 +766,14 @@ export default function NoticeDetailClient() {
                     }`} />
                   </div>
                   <div>
-                    <p className={`text-sm font-medium ${
+                    <p suppressHydrationWarning className={`text-sm font-medium ${
                       deadlineInfo.color === "red" ? "text-red-700" :
                       deadlineInfo.color === "amber" ? "text-amber-700" :
                       deadlineInfo.color === "green" ? "text-emerald-700" : "text-gray-600"
                     }`}>
                       Deadline: {formatDate(deadline)}
                     </p>
-                    <p className={`text-xs ${
+                    <p suppressHydrationWarning className={`text-xs ${
                       deadlineInfo.color === "red" ? "text-red-500" :
                       deadlineInfo.color === "amber" ? "text-amber-500" :
                       deadlineInfo.color === "green" ? "text-emerald-500" : "text-gray-400"
@@ -787,13 +789,13 @@ export default function NoticeDetailClient() {
                     <Calendar className="size-4.5 text-vez-navy" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-vez-ink">Published: {formatDate(notice.publishedAt)}</p>
+                    <p suppressHydrationWarning className="text-sm font-medium text-vez-ink">Published: {formatDate(notice.publishedAt)}</p>
                     <p className="text-xs text-vez-mute">{notice.sourceLabel}</p>
                   </div>
                 </div>
               )}
             </div>
-            <div className="hidden items-center gap-2 text-xs text-vez-mute md:flex">
+            <div suppressHydrationWarning className="hidden items-center gap-2 text-xs text-vez-mute md:flex">
               <Eye className="size-3.5" /> {notice.views.toLocaleString()} views
             </div>
           </div>
@@ -801,8 +803,8 @@ export default function NoticeDetailClient() {
       )}
 
       {/* Page hero / title section */}
-      <section className="border-b border-vez-line bg-vez-surface/50 pt-6 pb-6 md:pt-8 md:pb-8">
-        <div className="mx-auto max-w-[1480px] px-6 md:px-8 lg:px-12">
+      <section className="border-b border-vez-line bg-vez-surface/50 pt-6 pb-6 sm:pt-8 sm:pb-8">
+        <div className="mx-auto max-w-[1480px] px-4 sm:px-6 lg:px-8">
           {/* Breadcrumb */}
           <nav className="mb-3 flex items-center gap-2 text-sm text-vez-mute">
             <Link href="/notices" className="transition-colors hover:text-vez-navy">Notices</Link>
@@ -833,12 +835,12 @@ export default function NoticeDetailClient() {
           </div>
 
           {/* Title */}
-          <h1 className="max-w-4xl text-2xl leading-tight text-vez-ink md:text-3xl lg:text-4xl">
+          <h1 className="max-w-4xl break-words text-xl leading-tight text-vez-ink sm:text-2xl lg:text-3xl xl:text-4xl">
             {notice.title}
           </h1>
 
           {/* Meta */}
-          <div className="mt-3 flex flex-wrap items-center gap-5 text-sm text-vez-mute">
+          <div className="mt-3 flex flex-wrap items-center gap-3 sm:gap-5 text-sm text-vez-mute">
             <span className="flex items-center gap-2">
               <Building2 className="size-4" /> {notice.sourceLabel}
             </span>
@@ -853,7 +855,7 @@ export default function NoticeDetailClient() {
           </div>
 
           {/* Action buttons */}
-          <div className="mt-4 flex flex-wrap items-center gap-3">
+          <div className="mt-4 flex flex-col flex-wrap items-center gap-3 sm:flex-row">
             <button
               onClick={() => setSaved(!saved)}
               className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-sm transition-all ${
@@ -889,11 +891,11 @@ export default function NoticeDetailClient() {
       </section>
 
       {/* Main content area - two columns */}
-      <div className="mx-auto max-w-[1480px] px-6 py-6 md:px-8 md:py-8 lg:px-12 lg:py-10">
-        <div className="grid gap-10 lg:grid-cols-[1fr_380px] lg:gap-16">
+      <div className="mx-auto max-w-[1480px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
 
           {/* ── Left: Main content ── */}
-          <div className="min-w-0 space-y-8">
+          <div className="min-w-0 space-y-6 sm:space-y-8 lg:col-span-2">
             {/* AI Summary — English & Nepali */}
             {(notice.aiSummary || notice.aiSummaryNe) && (
               <section>
@@ -903,17 +905,17 @@ export default function NoticeDetailClient() {
                 </div>
                 <div className="space-y-4">
                   {notice.aiSummary && (
-                    <div className="rounded-[16px] bg-vez-sky/10 p-6 md:p-8">
+                    <div className="rounded-[16px] bg-vez-sky/10 p-4 sm:p-6 lg:p-8">
                       <p className="mb-2 text-xs font-medium uppercase tracking-wide text-vez-navy/60">English</p>
-                      <p className="text-base leading-relaxed text-vez-ink md:text-lg md:leading-relaxed">
+                      <p className="break-words text-sm leading-relaxed text-vez-ink sm:text-base lg:text-lg lg:leading-relaxed">
                         {notice.aiSummary}
                       </p>
                     </div>
                   )}
                   {notice.aiSummaryNe && (
-                    <div className="rounded-[16px] bg-amber-50/60 p-6 md:p-8">
+                    <div className="rounded-[16px] bg-amber-50/60 p-4 sm:p-6 lg:p-8">
                       <p className="mb-2 text-xs font-medium uppercase tracking-wide text-amber-700/60">नेपाली</p>
-                      <p className="text-base leading-relaxed text-vez-ink md:text-lg md:leading-relaxed" lang="ne">
+                      <p className="break-words text-sm leading-relaxed text-vez-ink sm:text-base lg:text-lg lg:leading-relaxed" lang="ne">
                         {notice.aiSummaryNe}
                       </p>
                     </div>
@@ -925,12 +927,12 @@ export default function NoticeDetailClient() {
             {/* Key Facts */}
             {notice.keyFacts && notice.keyFacts.length > 0 && (
               <section>
-                <h2 className="mb-4 text-lg text-vez-ink">Key Facts</h2>
-                <div className="grid gap-3 sm:grid-cols-2">
+                <h2 className="mb-4 text-lg sm:text-xl text-vez-ink">Key Facts</h2>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                   {notice.keyFacts.map((fact, i) => (
-                    <div key={i} className="flex items-start gap-3 rounded-[12px] bg-vez-surface p-4">
+                    <div key={i} className="flex min-w-0 items-start gap-3 rounded-[12px] bg-vez-surface p-4 sm:p-5">
                       <CheckCircle className="mt-0.5 size-5 shrink-0 text-vez-navy" />
-                      <span className="text-sm leading-relaxed text-vez-ink">{fact}</span>
+                      <span className="min-w-0 break-words text-sm leading-relaxed text-vez-ink">{fact}</span>
                     </div>
                   ))}
                 </div>
@@ -940,8 +942,8 @@ export default function NoticeDetailClient() {
             {/* Metadata — non-deadline, non-qrCodes fields (qrCodes gets its own section below) */}
             {notice.metadata && Object.keys(notice.metadata).filter(k => k !== "deadline" && k !== "qrCodes").length > 0 && (
               <section>
-                <h2 className="mb-3 text-lg text-vez-ink">Details</h2>
-                <div className="grid gap-3 sm:grid-cols-2">
+                <h2 className="mb-3 text-lg sm:text-xl text-vez-ink">Details</h2>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                   {Object.entries(notice.metadata)
                     .filter(([k]) => k !== "deadline" && k !== "qrCodes")
                     .map(([key, value]) => (
@@ -963,9 +965,9 @@ export default function NoticeDetailClient() {
                   <QrCode className="size-5 text-vez-navy" />
                   <h2 className="text-lg text-vez-ink">QR Codes</h2>
                 </div>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
                   {notice.metadata.qrCodes.map((qr, i) => (
-                    <div key={i} className="flex flex-col items-center gap-3 rounded-[14px] border border-vez-line bg-white p-4 text-center">
+                    <div key={i} className="flex h-full min-w-0 flex-col items-center gap-3 rounded-[14px] border border-vez-line bg-white p-4 sm:p-6 text-center">
                       {qr.image && (
                         <img
                           src={`data:image/png;base64,${qr.image}`}
@@ -994,8 +996,8 @@ export default function NoticeDetailClient() {
 
             {/* Admin: fix a bad extraction without leaving the page */}
             {isAdmin && (notice.attachments?.length > 0 || notice.attachmentUrl) && (
-              <section className="rounded-[16px] border border-vez-line bg-vez-surface/50 px-5 py-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
+              <section className="rounded-[16px] border border-vez-line bg-vez-surface/50 p-4 sm:p-5">
+                <div className="flex flex-col flex-wrap items-center justify-between gap-3 sm:flex-row">
                   <div>
                     <p className="text-sm font-medium text-vez-ink">Admin: extraction</p>
                     <p className="mt-0.5 text-xs text-vez-mute">
@@ -1044,9 +1046,9 @@ export default function NoticeDetailClient() {
             <section id="full-content-section">
               <div className="mb-5 flex items-center gap-2">
                 <FileText className="size-5 text-vez-navy" />
-                <h2 className="text-lg font-semibold text-vez-ink">Full Content</h2>
+                <h2 className="text-lg sm:text-xl font-semibold text-vez-ink">Full Content</h2>
               </div>
-              <div className="rounded-[20px] border border-vez-line bg-white px-6 py-8 shadow-sm md:px-10 md:py-10 lg:px-12">
+              <div className="rounded-[20px] border border-vez-line bg-white p-4 shadow-sm sm:p-6 lg:p-8 xl:p-10">
                 {notice.contentText ? (
                   <FormattedContent text={notice.contentText} />
                 ) : extracting ? (
@@ -1068,7 +1070,7 @@ export default function NoticeDetailClient() {
                   </p>
                 )}
               </div>
-              <p className="mt-3 flex items-center gap-2 text-xs text-vez-mute">
+              <p suppressHydrationWarning className="mt-3 flex items-center gap-2 text-xs text-vez-mute">
                 <Calendar className="size-3" /> Last updated: {formatDateShort(notice.updatedAt)}
               </p>
             </section>
@@ -1081,9 +1083,9 @@ export default function NoticeDetailClient() {
                   <h2 className="text-lg text-vez-ink">Ask AI about this notice</h2>
                 </div>
 
-                <div className="rounded-[16px] border border-vez-line bg-white p-6">
+                <div className="rounded-[16px] border border-vez-line bg-white p-4 sm:p-6">
                   {qaHistory.length === 0 && (
-                    <div className="mb-4 grid gap-2 sm:grid-cols-2">
+                    <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
                       {SUGGESTED_QUESTIONS.map((q) => (
                         <button
                           key={q}
@@ -1135,19 +1137,19 @@ export default function NoticeDetailClient() {
                     </div>
                   )}
 
-                  <div className="flex gap-2 border-t border-vez-line pt-4">
+                  <div className="flex flex-col gap-2 border-t border-vez-line pt-4 sm:flex-row">
                     <input
                       value={question}
                       onChange={(e) => setQuestion(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleAsk()}
                       placeholder="Ask a question about this notice…"
-                      className="h-11 w-full rounded-full border border-vez-line bg-vez-surface px-5 text-sm text-vez-ink outline-none placeholder:text-vez-mute focus:border-vez-sky focus:bg-white"
+                      className="h-11 min-h-[44px] w-full min-w-0 flex-1 rounded-full border border-vez-line bg-vez-surface px-5 text-[16px] sm:text-sm text-vez-ink outline-none placeholder:text-vez-mute focus:border-vez-sky focus:bg-white"
                       disabled={answering}
                     />
                     <button
                       onClick={() => handleAsk()}
                       disabled={!question.trim() || answering}
-                      className="flex size-11 shrink-0 items-center justify-center rounded-full bg-vez-navy text-white transition-opacity disabled:opacity-40"
+                      className="flex size-11 min-h-[44px] shrink-0 items-center justify-center rounded-full bg-vez-navy text-white transition-opacity disabled:opacity-40"
                     >
                       <Send className="size-4" />
                     </button>
@@ -1158,8 +1160,8 @@ export default function NoticeDetailClient() {
           </div>
 
           {/* ── Right: Sidebar ── */}
-          <aside className="space-y-6">
-            <div className="sticky top-20 space-y-6">
+          <aside className="min-w-0 space-y-6 lg:col-span-1">
+            <div className="sticky top-20 space-y-4 sm:space-y-6">
               {/* Deadline card — high prominence */}
               {deadline && deadlineInfo && (
                 <div className={`rounded-[16px] p-5 ${
@@ -1176,7 +1178,7 @@ export default function NoticeDetailClient() {
                     }`} />
                     <div>
                       <p className="text-xs font-medium uppercase tracking-wide text-vez-mute">Deadline</p>
-                      <p className={`text-base font-semibold ${
+                      <p suppressHydrationWarning className={`text-base font-semibold ${
                         deadlineInfo.color === "red" ? "text-red-700" :
                         deadlineInfo.color === "amber" ? "text-amber-700" :
                         deadlineInfo.color === "green" ? "text-emerald-700" : "text-gray-600"
@@ -1195,9 +1197,9 @@ export default function NoticeDetailClient() {
                 </div>
               )}
 
-              <div className="rounded-[16px] border border-vez-line bg-white p-6">
+              <div className="rounded-[16px] border border-vez-line bg-white p-4 sm:p-6">
                 <h3 className="mb-4 text-sm font-medium text-vez-ink">Notice Details</h3>
-                <dl className="space-y-4">
+                <dl className="space-y-3 sm:space-y-4">
                   {[
                     { label: "Source", value: notice.sourceLabel, icon: Building2 },
                     ...(notice.publishedAt
@@ -1222,9 +1224,9 @@ export default function NoticeDetailClient() {
 
               {/* Tags */}
               {notice.tags && notice.tags.length > 0 && (
-                <div className="rounded-[16px] border border-vez-line bg-white p-6">
+                <div className="rounded-[16px] border border-vez-line bg-white p-4 sm:p-6">
                   <h3 className="mb-3 text-sm font-medium text-vez-ink">Tags</h3>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 sm:gap-3">
                     {notice.tags.map((tag) => (
                       <Link
                         key={tag}
@@ -1239,7 +1241,7 @@ export default function NoticeDetailClient() {
               )}
 
               {/* CTA */}
-              <div className="rounded-[16px] bg-vez-sky/20 p-6">
+              <div className="rounded-[16px] bg-vez-sky/20 p-4 sm:p-6">
                 <h3 className="mb-2 text-sm font-medium text-vez-ink">Never miss similar notices</h3>
                 <p className="mb-4 text-xs text-vez-mute">
                   Get instant alerts when new {categoryLabel(notice.category)} notices are published.
@@ -1258,7 +1260,7 @@ export default function NoticeDetailClient() {
 
       {/* Back link footer */}
       <div className="border-t border-vez-line bg-vez-surface/50">
-        <div className="mx-auto flex max-w-[1480px] items-center justify-between px-6 py-6 md:px-8 lg:px-12">
+        <div className="mx-auto flex max-w-[1480px] flex-col items-center justify-between gap-3 px-4 py-6 sm:flex-row sm:px-6 lg:px-8">
           <Link href="/notices" className="flex items-center gap-2 text-sm text-vez-mute transition-colors hover:text-vez-navy">
             <ArrowLeft className="size-4" /> Back to all notices
           </Link>

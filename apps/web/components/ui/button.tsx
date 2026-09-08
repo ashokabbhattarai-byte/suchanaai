@@ -4,7 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive cursor-pointer",
+  "inline-flex items-center justify-center gap-2 sm:gap-3 whitespace-nowrap rounded-md text-sm font-medium font-poppins tracking-tight leading-none transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive cursor-pointer touch-manipulation min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0",
   {
     variants: {
       variant: {
@@ -23,11 +23,11 @@ const buttonVariants = cva(
           "gradient-primary text-white shadow-lg hover:opacity-90 hover:shadow-xl",
       },
       size: {
-        default: "h-9 px-4 py-2 has-[>svg]:px-3",
-        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
-        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
-        xl: "h-12 rounded-lg px-8 text-base has-[>svg]:px-5",
-        icon: "size-9",
+        default: "h-9 sm:h-10 px-4 sm:px-6 py-2 has-[>svg]:px-3 sm:has-[>svg]:px-4 text-sm sm:text-base",
+        sm: "h-8 sm:h-9 rounded-md gap-1.5 px-3 sm:px-4 has-[>svg]:px-2.5 text-xs sm:text-sm",
+        lg: "h-9 sm:h-10 rounded-md px-4 sm:px-6 has-[>svg]:px-4 text-sm sm:text-base",
+        xl: "h-10 sm:h-12 rounded-lg px-6 sm:px-8 text-sm sm:text-base has-[>svg]:px-5",
+        icon: "size-9 sm:size-10",
       },
     },
     defaultVariants: {

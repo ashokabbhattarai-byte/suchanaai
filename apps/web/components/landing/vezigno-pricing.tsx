@@ -105,20 +105,20 @@ export function VezignoPricing() {
   }, [billing])
 
   return (
-    <section id="pricing" ref={sectionRef} className="bg-white">
-      <div className="mx-auto max-w-[1480px] px-6 py-16 md:px-8 md:py-20 lg:px-12 lg:py-24">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div>
+    <section id="pricing" ref={sectionRef} className="bg-white overflow-hidden">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10 sm:py-16 md:py-20 lg:py-24">
+        <div className="flex flex-col gap-4 sm:gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
             <Reveal>
               <Eyebrow>Pricing</Eyebrow>
             </Reveal>
             <AnimatedHeading
               text="Simple plans for every citizen."
-              className="mt-4 max-w-[18ch] text-[clamp(36px,4.5vw,64px)] font-normal leading-[1.12] tracking-[-0.04em] text-vez-ink"
+              className="mt-3 sm:mt-4 max-w-[18ch] text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-normal leading-[1.12] tracking-[-0.04em] text-vez-ink"
             />
           </div>
-          <Reveal delay={200}>
-            <p className="max-w-sm text-base leading-6 text-vez-mute">
+          <Reveal delay={200} className="min-w-0">
+            <p className="max-w-sm text-sm sm:text-base leading-6 text-vez-mute">
               Public notices stay free forever. Upgrade when you need unlimited AI
               answers, instant alerts, and team workflows.
             </p>
@@ -126,14 +126,14 @@ export function VezignoPricing() {
         </div>
 
         {/* Billing toggle */}
-        <Reveal delay={100} className="mt-10 flex justify-center">
+        <Reveal delay={100} className="mt-8 sm:mt-10 flex justify-center px-4">
           <div className="flex items-center gap-1 rounded-full border border-vez-line bg-vez-surface p-1">
             {(["monthly", "annual"] as Billing[]).map((b) => (
               <button
                 key={b}
                 onClick={() => setBilling(b)}
                 className={cn(
-                  "rounded-full px-5 py-2 text-sm capitalize transition-all",
+                  "rounded-full px-4 sm:px-5 py-2 text-xs sm:text-sm capitalize transition-all",
                   billing === b
                     ? "bg-vez-navy text-white shadow-sm"
                     : "text-vez-mute hover:text-vez-ink"
@@ -141,7 +141,7 @@ export function VezignoPricing() {
               >
                 {b}
                 {b === "annual" && (
-                  <span className={cn("ml-1.5 text-xs", billing === b ? "text-white/70" : "text-vez-navy")}>
+                  <span className={cn("ml-1 sm:ml-1.5 text-[10px] sm:text-xs", billing === b ? "text-white/70" : "text-vez-navy")}>
                     −20%
                   </span>
                 )}
@@ -151,12 +151,12 @@ export function VezignoPricing() {
         </Reveal>
 
         {/* Plan cards */}
-        <StaggerGrid amount={0.5} className="mt-10 grid gap-5 md:grid-cols-3 lg:gap-6">
+        <StaggerGrid amount={0.5} className="mt-8 sm:mt-10 grid gap-4 sm:gap-5 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 lg:gap-6">
           {plans.map((plan) => (
-            <div key={plan.name} className="flex">
+            <div key={plan.name} className="flex min-w-0">
               <article
                 className={cn(
-                  "flex w-full flex-col rounded-3xl p-7 lg:p-8",
+                  "flex w-full min-w-0 flex-col rounded-2xl sm:rounded-3xl p-5 sm:p-7 lg:p-8",
                   plan.highlight
                     ? "relative bg-vez-navy text-white shadow-xl md:-my-3"
                     : "border border-vez-line bg-vez-surface text-vez-ink"
@@ -168,23 +168,23 @@ export function VezignoPricing() {
                   </span>
                 )}
 
-                <h3 className="text-xl font-medium">{plan.name}</h3>
-                <p className={cn("mt-1 text-sm", plan.highlight ? "text-white/60" : "text-vez-mute")}>
+                <h3 className="text-lg sm:text-xl font-medium break-words">{plan.name}</h3>
+                <p className={cn("mt-1 text-xs sm:text-sm", plan.highlight ? "text-white/60" : "text-vez-mute")}>
                   {plan.tagline}
                 </p>
 
-                <div className="vz-price mt-6 flex items-baseline gap-2">
+                <div className="vz-price mt-5 sm:mt-6 flex flex-wrap items-baseline gap-1.5 sm:gap-2 min-w-0">
                   {plan.price ? (
                     <>
-                      <span className="text-[clamp(34px,3vw,44px)] font-normal tracking-[-0.03em]">
+                      <span className="text-3xl sm:text-4xl lg:text-[44px] font-normal tracking-[-0.03em] break-words">
                         {plan.price[billing] === 0 ? "NPR 0" : `NPR ${plan.price[billing]}`}
                       </span>
-                      <span className={cn("text-sm", plan.highlight ? "text-white/60" : "text-vez-mute")}>
+                      <span className={cn("text-xs sm:text-sm", plan.highlight ? "text-white/60" : "text-vez-mute")}>
                         {plan.price[billing] === 0 ? "forever" : "/month"}
                       </span>
                     </>
                   ) : (
-                    <span className="text-[clamp(34px,3vw,44px)] font-normal tracking-[-0.03em]">Custom</span>
+                    <span className="text-3xl sm:text-4xl lg:text-[44px] font-normal tracking-[-0.03em]">Custom</span>
                   )}
                 </div>
                 {plan.highlight && billing === "annual" && (
@@ -208,13 +208,13 @@ export function VezignoPricing() {
                 <Link
                   href={plan.cta.href}
                   className={cn(
-                    "group mt-8 flex items-center justify-center gap-2 rounded-full px-6 py-3 text-base transition-all duration-300",
+                    "group mt-6 sm:mt-8 flex items-center justify-center gap-2 rounded-full px-4 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base transition-all duration-300 min-w-0",
                     plan.highlight
                       ? "bg-white text-vez-ink hover:bg-vez-sky"
                       : "bg-vez-navy text-white hover:opacity-90"
                   )}
                 >
-                  {plan.cta.label}
+                  <span className="truncate">{plan.cta.label}</span>
                   <SwapArrow />
                 </Link>
               </article>

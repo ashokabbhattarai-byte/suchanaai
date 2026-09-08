@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -16,19 +17,19 @@ export class CreateScrapeSourceDto {
   @MaxLength(200)
   name: string;
 
-  @IsUrl({ require_tld: false })
+  @IsUrl({ require_tld: false, protocols: ['http', 'https'], require_protocol: true })
   baseUrl: string;
 
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsUrl({ require_tld: false, protocols: ['http', 'https'], require_protocol: true })
   noticeListUrl?: string;
 
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsUrl({ require_tld: false, protocols: ['http', 'https'], require_protocol: true })
   newsListUrl?: string;
 
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsUrl({ require_tld: false, protocols: ['http', 'https'], require_protocol: true })
   pressReleaseListUrl?: string;
 
   @IsOptional()
@@ -38,6 +39,7 @@ export class CreateScrapeSourceDto {
   @IsOptional()
   @IsString()
   @MaxLength(50)
+  @Matches(/^[a-zA-Z0-9_\-]+$/)
   paginationParam?: string;
 
   @IsOptional()
@@ -58,7 +60,7 @@ export class CreateScrapeSourceDto {
   pollIntervalSeconds?: number;
 
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsUrl({ require_tld: false, protocols: ['http', 'https'], require_protocol: true })
   sitemapUrl?: string | null;
 }
 
@@ -69,19 +71,19 @@ export class UpdateScrapeSourceDto {
   name?: string;
 
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsUrl({ require_tld: false, protocols: ['http', 'https'], require_protocol: true })
   baseUrl?: string;
 
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsUrl({ require_tld: false, protocols: ['http', 'https'], require_protocol: true })
   noticeListUrl?: string;
 
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsUrl({ require_tld: false, protocols: ['http', 'https'], require_protocol: true })
   newsListUrl?: string;
 
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsUrl({ require_tld: false, protocols: ['http', 'https'], require_protocol: true })
   pressReleaseListUrl?: string;
 
   @IsOptional()
@@ -95,6 +97,7 @@ export class UpdateScrapeSourceDto {
   @IsOptional()
   @IsString()
   @MaxLength(50)
+  @Matches(/^[a-zA-Z0-9_\-]+$/)
   paginationParam?: string;
 
   @IsOptional()
@@ -115,16 +118,16 @@ export class UpdateScrapeSourceDto {
   pollIntervalSeconds?: number;
 
   @IsOptional()
-  @IsUrl({ require_tld: false })
+  @IsUrl({ require_tld: false, protocols: ['http', 'https'], require_protocol: true })
   sitemapUrl?: string | null;
 }
 
 export class QuickScrapeDto {
-  @IsUrl({ require_tld: false })
+  @IsUrl({ require_tld: false, protocols: ['http', 'https'], require_protocol: true })
   url: string;
 }
 
 export class DiscoverRoutesDto {
-  @IsUrl({ require_tld: false })
+  @IsUrl({ require_tld: false, protocols: ['http', 'https'], require_protocol: true })
   baseUrl: string;
 }

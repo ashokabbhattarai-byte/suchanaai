@@ -124,8 +124,8 @@ export function AlertTemplateCard() {
   }
 
   return (
-    <div className="rounded-[20px] bg-white p-6 md:p-8">
-      <div className="flex items-center justify-between gap-3">
+    <div className="rounded-[20px] bg-white p-4 sm:p-6 md:p-8 w-full overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <div className="flex size-11 items-center justify-center rounded-full bg-vez-navy text-white">
             <MessageSquareText className="size-5" />
@@ -159,7 +159,7 @@ export function AlertTemplateCard() {
 
       {error && <div className="mt-4 rounded-full bg-red-50 px-4 py-2 text-xs text-red-600">{error}</div>}
 
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* Editor + token reference */}
         <div>
           <label className="mb-1.5 block text-xs font-medium text-vez-ink">Template</label>

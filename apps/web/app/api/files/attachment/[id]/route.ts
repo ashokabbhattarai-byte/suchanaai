@@ -14,6 +14,14 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
-  const { search } = new URL(request.url)
-  return NextResponse.redirect(`${API_URL}/attachments/${id}/file${search}`)
+  const uuidRe = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+  if (!uuidRe.test(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 })
+  const url = new URL(request.url)
+  const mode = url.searchParams.get("mode")
+  if (mode && mode !== "inline" && mode !== "download") {
+    return NextResponse.json({ error: "Invalid mode" }, { status: 400 })
+  }
+  const encoded = encodeURIComponent(id)
+  const search = url.search
+  return NextResponse.redirect(`${API_URL}/attachments/${encoded}/file${search}`)
 }

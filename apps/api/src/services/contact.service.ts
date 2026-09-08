@@ -157,8 +157,12 @@ export class ContactService {
     const isTestSecret = secret === '6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe';
     const isTestToken = token.length > 0;
     if (isTestSecret && isTestToken) {
-      this.logger.debug('Using reCAPTCHA test secret — skipping remote verification');
-      return;
+      if (process.env.NODE_ENV === 'production') {
+        this.logger.warn('reCAPTCHA test secret used in production — enforcing remote verification');
+      } else {
+        this.logger.debug('Using reCAPTCHA test secret — skipping remote verification');
+        return;
+      }
     }
 
     try {

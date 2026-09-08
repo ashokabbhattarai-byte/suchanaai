@@ -1,10 +1,8 @@
 # Node
 node_modules/
-pnpm-lock.yaml
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-package-lock.json
 
 # pnpm
 .pnpm
@@ -83,6 +81,4 @@ apps/api/uploads.cache/puppeteer
 # Generated docs/diagrams (keep source pngs)
 # *.png removed — public assets need tracking
 *.mmd
-/scripts
 *.docx
-*.md

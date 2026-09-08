@@ -239,15 +239,15 @@ export default function AdminAiPage() {
         )}
 
         {loading ? (
-          <div className="flex items-center gap-3 rounded-[20px] border border-vez-line bg-white p-10 text-sm text-vez-mute">
+          <div className="flex items-center gap-3 rounded-[20px] border border-vez-line bg-white p-6 sm:p-10 text-sm text-vez-mute">
             <Loader2 className="size-4 animate-spin text-vez-navy" /> Loading providers…
           </div>
         ) : (
-          <div className="max-w-4xl">
+          <div className="w-full max-w-4xl overflow-hidden">
             <AiTemperatureCard />
 
             {/* Fallback chain summary */}
-            <div className="mb-5 flex flex-wrap items-center gap-2 rounded-[16px] border border-vez-line bg-white px-5 py-4">
+            <div className="mb-5 flex flex-wrap items-center gap-2 rounded-[16px] border border-vez-line bg-white p-4 sm:px-5 sm:py-4 overflow-x-auto">
               <Sparkles className="size-4 shrink-0 text-vez-navy" />
               <span className="text-sm text-vez-ink">Fallback order</span>
               <span className="text-xs text-vez-mute">· tried top to bottom</span>

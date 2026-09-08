@@ -5,6 +5,7 @@ import './common/http/axios-correlation';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 // The compression CJS export is the middleware function itself; `import compression
 // from` would desugar to `.default`, which the package doesn't provide.
@@ -20,7 +21,8 @@ async function bootstrap() {
 
   // rawBody: Stripe signs the exact bytes it sent, so the webhook handler must
   // see the untouched body. Nest keeps `req.rawBody` alongside the parsed one.
-  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true, rawBody: true });
+  app.set('trust proxy', 1);
 
   app.useLogger(new StructuredLogger());
 
@@ -43,8 +45,18 @@ async function bootstrap() {
     const hasCookie = !!req.headers.cookie?.includes('pnm_token');
     if (needsCsrfCheck && hasCookie && !hasBearer) {
       const origin = req.headers.origin || req.headers.referer || '';
-      const allowed = filteredOrigins.some((o) => origin.startsWith(o));
-      if (!allowed && origin) {
+      let allowed = false;
+      if (origin) {
+        try {
+          const originHost = new URL(origin).origin;
+          allowed = filteredOrigins.some((o) => {
+            try { return new URL(o).origin === originHost; } catch { return o === origin; }
+          });
+        } catch {
+          allowed = filteredOrigins.includes(origin);
+        }
+      }
+      if (!allowed) {
         return res.status(403).json({ statusCode: 403, message: 'CSRF check failed: invalid origin', error: 'Forbidden' });
       }
     }
@@ -109,7 +121,7 @@ async function bootstrap() {
   // Graceful shutdown: close DB connections and in-flight work on SIGTERM/SIGINT.
   app.enableShutdownHooks();
 
-  const port = process.env.PORT ?? 5005;
+  const port = Number(process.env.PORT) || 5005;
   await app.listen(port);
   const appLogger = app.get(StructuredLogger);
   appLogger.log(`API listening on http://localhost:${port}`, 'Bootstrap', {

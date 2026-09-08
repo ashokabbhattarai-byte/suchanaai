@@ -6,7 +6,7 @@ import re
 import time
 from pathlib import Path
 from typing import Optional
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 from app import ai_config_sync
 from app import browser_pool
@@ -109,6 +109,14 @@ async def app(scope, receive, send):
     except asyncio.TimeoutError:
         logger.error("Request timed out on %s %s after %ss", method, path, timeout_seconds)
         response = (504, {"error": f"Request timed out after {timeout_seconds}s"})
+    except ValueError as e:
+        # Bounded body / validation errors that should not be 500
+        if "too large" in str(e).lower():
+            logger.warning("Request too large on %s %s: %s", method, path, e)
+            response = (413, {"error": str(e)})
+        else:
+            logger.warning("Bad request on %s %s: %s", method, path, e)
+            response = (400, {"error": str(e)})
     except Exception as e:
         logger.exception("Unhandled error on %s %s", method, path)
         response = (500, {"error": "Internal server error", "detail": str(e)})
@@ -146,6 +154,13 @@ _warmup_state: dict = {"phase": "pending", "error": None}
 async def _run_startup_validation() -> None:
     """Run critical startup validations. Raises RuntimeError on critical failures."""
     logger.info("Running startup validations...")
+
+    # 0. Validate internal secret in production (fail-closed auth)
+    if not config.INTERNAL_SERVICE_SECRET and config.ENVIRONMENT == "production":
+        msg = "INTERNAL_SERVICE_SECRET is empty in production — all internal endpoints will reject requests (fail-closed)"
+        logger.critical(msg)
+        _warmup_state["error"] = msg
+        _warmup_state["phase"] = "degraded"
 
     # 1. Validate embedding model dimension matches config
     try:
@@ -252,8 +267,13 @@ async def _warmup() -> None:
     t0 = time.perf_counter()
     try:
         await _run_startup_validation()
-        _warmup_state["phase"] = "ready"
-        _warmup_state["error"] = None
+        # Preserve INTERNAL_SERVICE_SECRET empty warning in production even if other checks pass
+        if _warmup_state.get("error") and "INTERNAL_SERVICE_SECRET" in str(_warmup_state["error"]):
+            _warmup_state["phase"] = "degraded"
+            logger.critical("Startup validation: %s", _warmup_state["error"])
+        else:
+            _warmup_state["phase"] = "ready"
+            _warmup_state["error"] = None
         logger.info("Warmup complete (%.1fs)", time.perf_counter() - t0)
     except RuntimeError as e:
         _warmup_state["phase"] = "degraded"
@@ -322,9 +342,8 @@ def _is_authorised(scope: dict) -> bool:
     """
     expected = config.INTERNAL_SERVICE_SECRET
     if not expected:
-        # No secret configured means single-machine dev; refusing everything
-        # there would just break local work.
-        return True
+        # Fail closed in production, open only in dev
+        return config.ENVIRONMENT != "production"
     for name, value in scope.get("headers", []):
         if name == b"x-internal-secret":
             return hmac.compare_digest(value.decode("utf-8", "replace"), expected)
@@ -480,7 +499,12 @@ async def _upload_document(scope: dict, receive) -> tuple[int, dict]:
     if not boundary:
         return 400, {"error": "Missing multipart boundary"}
 
-    body = await _read_body(receive)
+    try:
+        body = await _read_body(receive)
+    except ValueError as e:
+        if "too large" in str(e).lower():
+            return 413, {"error": str(e)}
+        return 400, {"error": str(e)}
     parts = _parse_multipart(body, boundary)
 
     file_part = parts.get("file")
@@ -529,6 +553,8 @@ async def _upload_document(scope: dict, receive) -> tuple[int, dict]:
     doc_id_part = parts.get("document_id")
     if doc_id_part and doc_id_part["data"].strip():
         doc_id = doc_id_part["data"].decode("utf-8").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", doc_id):
+            return 400, {"error": "Invalid document_id: must be 8-64 alphanumeric, hyphen, underscore"}
 
     metadata_raw = parts.get("metadata")
     metadata: dict = {}
@@ -546,7 +572,11 @@ async def _upload_document(scope: dict, receive) -> tuple[int, dict]:
     upload_dir = config.ensure_upload_dir()
     ext = Path(filename).suffix
     save_path = upload_dir / f"{doc_id}{ext}"
-    save_path.write_bytes(file_data)
+    try:
+        save_path.resolve().relative_to(upload_dir.resolve())
+    except ValueError:
+        return 400, {"error": "Invalid document_id"}
+    await asyncio.to_thread(save_path.write_bytes, file_data)
 
     logger.info(
         "Upload received: doc_id=%s, filename=%s, size=%d bytes, hash=%s",
@@ -776,7 +806,12 @@ async def _delete_document(doc_id: str) -> tuple[int, dict]:
 
 
 async def _query(receive) -> tuple[int, dict]:
-    body = await _read_body(receive)
+    try:
+        body = await _read_body(receive)
+    except ValueError as e:
+        if "too large" in str(e).lower():
+            return 413, {"error": str(e)}
+        return 400, {"error": str(e)}
     try:
         data = json.loads(body) if body else {}
     except json.JSONDecodeError:
@@ -785,10 +820,18 @@ async def _query(receive) -> tuple[int, dict]:
     question = data.get("question", "").strip()
     if not question:
         return 400, {"error": "Field 'question' is required"}
+    if len(question) > 2000:
+        return 400, {"error": "Field 'question' too long (max 2000 chars)"}
 
     doc_id = data.get("doc_id")
     doc_ids = data.get("doc_ids")  # list of allowed doc_ids for scoped queries
-    top_k = data.get("top_k", 5)
+    if doc_ids is not None and (not isinstance(doc_ids, list) or len(doc_ids) > 100):
+        return 400, {"error": "Field 'doc_ids' must be a list of at most 100 ids"}
+    try:
+        top_k = int(data.get("top_k", 5))
+    except (ValueError, TypeError):
+        return 400, {"error": "Field 'top_k' must be an integer"}
+    top_k = max(1, min(top_k, 20))
     language = data.get("language", "en")
 
     try:
@@ -821,7 +864,12 @@ async def _scrape_source(receive) -> tuple[int, dict]:
     whichever schema (cached or freshly detected) was actually used, for the
     caller to persist for the next run. When `run_id` is given, live status
     messages are recorded and pollable via GET /scrape/progress/{run_id}."""
-    body = await _read_body(receive)
+    try:
+        body = await _read_body(receive)
+    except ValueError as e:
+        if "too large" in str(e).lower():
+            return 413, {"error": str(e)}
+        return 400, {"error": str(e)}
     try:
         data = json.loads(body) if body else {}
     except json.JSONDecodeError:
@@ -834,6 +882,17 @@ async def _scrape_source(receive) -> tuple[int, dict]:
     category_urls = data.get("category_urls") or {}
     if not category_urls:
         return 400, {"error": "Field 'category_urls' must map at least one category to a URL"}
+
+    # SSRF protection
+    for url_to_check in [base_url] + [str(v) for v in category_urls.values() if isinstance(v, str) and v.strip()]:
+        ok, err = secure_http._validate_url(url_to_check)
+        if not ok:
+            return 400, {"error": f"Blocked URL: {err}"}
+        host = urlparse(url_to_check).hostname
+        if host:
+            blocked, reason = await secure_http._host_resolves_to_blocked(host)
+            if blocked:
+                return 400, {"error": f"Blocked URL: {reason}"}
 
     cached_schemas = data.get("cached_schemas") or {}
     known_urls = set(data.get("known_urls") or [])
@@ -911,7 +970,12 @@ async def _scrape_discover(receive) -> tuple[int, dict]:
     of making the admin browse for them, and proves each one by crawling it.
     Returns {base_url, routes: [...], best: {CATEGORY: url}, checked, notes}.
     """
-    body = await _read_body(receive)
+    try:
+        body = await _read_body(receive)
+    except ValueError as e:
+        if "too large" in str(e).lower():
+            return 413, {"error": str(e)}
+        return 400, {"error": str(e)}
     try:
         data = json.loads(body) if body else {}
     except json.JSONDecodeError:
@@ -920,6 +984,16 @@ async def _scrape_discover(receive) -> tuple[int, dict]:
     base_url = (data.get("base_url") or "").strip()
     if not base_url:
         return 400, {"error": "Field 'base_url' is required"}
+
+    # SSRF protection
+    ok, err = secure_http._validate_url(base_url)
+    if not ok:
+        return 400, {"error": f"Blocked URL: {err}"}
+    host = urlparse(base_url).hostname
+    if host:
+        blocked, reason = await secure_http._host_resolves_to_blocked(host)
+        if blocked:
+            return 400, {"error": f"Blocked URL: {reason}"}
 
     run_id = data.get("run_id")
     on_progress = None
@@ -1015,7 +1089,12 @@ async def _scrape_sitemap_detect(receive) -> tuple[int, dict]:
     detection (robots.txt -> /sitemap.xml -> best child sitemap). Returns
     {base_url, sitemap_url, checked_at} — sitemap_url is null when no usable
     article sitemap exists (the caller caches both verdicts forever)."""
-    body = await _read_body(receive)
+    try:
+        body = await _read_body(receive)
+    except ValueError as e:
+        if "too large" in str(e).lower():
+            return 413, {"error": str(e)}
+        return 400, {"error": str(e)}
     try:
         data = json.loads(body) if body else {}
     except json.JSONDecodeError:
@@ -1024,6 +1103,16 @@ async def _scrape_sitemap_detect(receive) -> tuple[int, dict]:
     base_url = (data.get("base_url") or "").strip()
     if not base_url:
         return 400, {"error": "Field 'base_url' is required"}
+
+    # SSRF protection
+    ok, err = secure_http._validate_url(base_url)
+    if not ok:
+        return 400, {"error": f"Blocked URL: {err}"}
+    host = urlparse(base_url).hostname
+    if host:
+        blocked, reason = await secure_http._host_resolves_to_blocked(host)
+        if blocked:
+            return 400, {"error": f"Blocked URL: {reason}"}
 
     try:
         sitemap_url = await scraper.detect_sitemap(base_url)
@@ -1049,7 +1138,12 @@ async def _scrape_listing_check(receive) -> tuple[int, dict]:
     something new actually appears.
     Returns {new_urls, total_seen, checked_at}.
     """
-    body = await _read_body(receive)
+    try:
+        body = await _read_body(receive)
+    except ValueError as e:
+        if "too large" in str(e).lower():
+            return 413, {"error": str(e)}
+        return 400, {"error": str(e)}
     try:
         data = json.loads(body) if body else {}
     except json.JSONDecodeError:
@@ -1062,6 +1156,17 @@ async def _scrape_listing_check(receive) -> tuple[int, dict]:
     category_urls = data.get("category_urls") or {}
     if not category_urls:
         return 400, {"error": "Field 'category_urls' must map at least one category to a URL"}
+
+    # SSRF protection
+    for url_to_check in [base_url] + [str(v) for v in category_urls.values() if isinstance(v, str) and v.strip()]:
+        ok, err = secure_http._validate_url(url_to_check)
+        if not ok:
+            return 400, {"error": f"Blocked URL: {err}"}
+        host = urlparse(url_to_check).hostname
+        if host:
+            blocked, reason = await secure_http._host_resolves_to_blocked(host)
+            if blocked:
+                return 400, {"error": f"Blocked URL: {reason}"}
 
     pagination_data = data.get("pagination") or {}
     pagination = scraper.PaginationConfig(
@@ -1094,7 +1199,12 @@ async def _scrape_check(receive) -> tuple[int, dict]:
     {base_url} to re-detect first). The cheap fast-path: one-to-a-few GETs
     that return only the sitemap's <loc> entries not already known.
     Returns {sitemap_url, checked_at, new_urls, total_locs}."""
-    body = await _read_body(receive)
+    try:
+        body = await _read_body(receive)
+    except ValueError as e:
+        if "too large" in str(e).lower():
+            return 413, {"error": str(e)}
+        return 400, {"error": str(e)}
     try:
         data = json.loads(body) if body else {}
     except json.JSONDecodeError:
@@ -1109,6 +1219,15 @@ async def _scrape_check(receive) -> tuple[int, dict]:
             return 400, {
                 "error": "Field 'sitemap_url' is required (or 'base_url' to detect first)",
             }
+        # SSRF protection for base_url fallback
+        ok, err = secure_http._validate_url(base_url)
+        if not ok:
+            return 400, {"error": f"Blocked URL: {err}"}
+        host = urlparse(base_url).hostname
+        if host:
+            blocked, reason = await secure_http._host_resolves_to_blocked(host)
+            if blocked:
+                return 400, {"error": f"Blocked URL: {reason}"}
         try:
             sitemap_url = await scraper.detect_sitemap(base_url)
         except Exception as e:
@@ -1121,6 +1240,16 @@ async def _scrape_check(receive) -> tuple[int, dict]:
                 "new_urls": [],
                 "total_locs": 0,
             }
+
+    # SSRF protection for sitemap_url
+    ok, err = secure_http._validate_url(sitemap_url)
+    if not ok:
+        return 400, {"error": f"Blocked URL: {err}"}
+    host = urlparse(sitemap_url).hostname
+    if host:
+        blocked, reason = await secure_http._host_resolves_to_blocked(host)
+        if blocked:
+            return 400, {"error": f"Blocked URL: {reason}"}
 
     try:
         new_urls, total_locs = await scraper.check_sitemap(
@@ -1147,7 +1276,12 @@ async def _scrape_sitemap_crawl(receive) -> tuple[int, dict]:
     pipeline unchanged. `auto_finish` (default true) — see
     _scrape_source's docstring; apps/api sends false when this call is the
     listing→sitemap fallback branch of the same run."""
-    body = await _read_body(receive)
+    try:
+        body = await _read_body(receive)
+    except ValueError as e:
+        if "too large" in str(e).lower():
+            return 413, {"error": str(e)}
+        return 400, {"error": str(e)}
     try:
         data = json.loads(body) if body else {}
     except json.JSONDecodeError:
@@ -1159,6 +1293,17 @@ async def _scrape_sitemap_crawl(receive) -> tuple[int, dict]:
         return 400, {"error": "Field 'base_url' is required"}
     if not urls:
         return 400, {"error": "Field 'urls' must contain at least one URL"}
+
+    # SSRF protection
+    for url_to_check in [base_url] + [str(u) for u in urls if isinstance(u, str) and u.strip()]:
+        ok, err = secure_http._validate_url(url_to_check)
+        if not ok:
+            return 400, {"error": f"Blocked URL: {err}"}
+        host = urlparse(url_to_check).hostname
+        if host:
+            blocked, reason = await secure_http._host_resolves_to_blocked(host)
+            if blocked:
+                return 400, {"error": f"Blocked URL: {reason}"}
 
     known_urls = set(data.get("known_urls") or [])
     run_id = data.get("run_id")
@@ -1578,9 +1723,14 @@ async def _notices_delete(receive) -> tuple[int, dict]:
 
 async def _read_body(receive) -> bytes:
     body = b""
+    MAX_BODY = 110 * 1024 * 1024
     while True:
         message = await receive()
-        body += message.get("body", b"")
+        chunk = message.get("body", b"")
+        if chunk:
+            body += chunk
+            if len(body) > MAX_BODY:
+                raise ValueError(f"Request body too large: {len(body)} > {MAX_BODY}")
         if not message.get("more_body", False):
             break
     return body

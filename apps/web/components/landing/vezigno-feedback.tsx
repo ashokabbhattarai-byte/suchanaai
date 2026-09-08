@@ -91,15 +91,15 @@ function initials(name: string) {
 
 function TestimonialCard({ t }: { t: Testimonial }) {
   return (
-    <figure className="vz-sweep vz-glass group flex w-[340px] shrink-0 flex-col justify-between rounded-[20px] p-8 md:w-[420px]">
-      <blockquote className="text-base leading-[1.6] text-vez-ink">&quot;{t.quote}&quot;</blockquote>
-      <figcaption className="mt-6 flex items-center gap-4">
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-vez-sky text-sm font-medium text-vez-navy transition-colors duration-300 group-hover:bg-white">
+    <figure className="vz-sweep vz-glass group flex w-[280px] sm:w-[340px] shrink-0 flex-col justify-between rounded-xl sm:rounded-[20px] p-4 sm:p-6 md:p-8 md:w-[420px] min-w-0">
+      <blockquote className="text-sm sm:text-base leading-[1.6] text-vez-ink break-words">&quot;{t.quote}&quot;</blockquote>
+      <figcaption className="mt-4 sm:mt-6 flex items-center gap-3 sm:gap-4 min-w-0">
+        <span className="flex size-9 sm:size-11 shrink-0 items-center justify-center rounded-full bg-vez-sky text-xs sm:text-sm font-medium text-vez-navy transition-colors duration-300 group-hover:bg-white">
           {initials(t.name)}
         </span>
-        <span>
-          <span className="block text-base text-vez-ink">{t.name}</span>
-          <span className="block text-sm text-vez-mute transition-colors duration-300 group-hover:text-vez-ink/70">{t.role}</span>
+        <span className="min-w-0">
+          <span className="block text-sm sm:text-base text-vez-ink truncate">{t.name}</span>
+          <span className="block text-xs sm:text-sm text-vez-mute transition-colors duration-300 group-hover:text-vez-ink/70 truncate">{t.role}</span>
         </span>
       </figcaption>
     </figure>
@@ -166,18 +166,18 @@ function MarqueeRow({ items, duration = 40 }: { items: Testimonial[]; duration?:
 export function VezignoFeedback() {
   return (
     <section id="feedback" className="overflow-hidden bg-vez-surface">
-      <div className="py-16 md:py-20 lg:py-24">
-        <div className="mx-auto max-w-[1480px] px-6 md:px-8 lg:px-12">
+      <div className="py-10 sm:py-16 md:py-20 lg:py-24">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <Reveal>
             <Eyebrow>Feedback</Eyebrow>
           </Reveal>
           <AnimatedHeading
             text="Trusted by citizens across Nepal."
-            className="mt-4 max-w-[16ch] text-[clamp(36px,4.5vw,64px)] font-normal leading-[1.12] tracking-[-0.04em] text-vez-ink"
+            className="mt-3 sm:mt-4 max-w-[16ch] text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-normal leading-[1.12] tracking-[-0.04em] text-vez-ink"
           />
         </div>
 
-        <div className="mt-12 flex flex-col gap-5 lg:mt-16">
+        <div className="mt-8 sm:mt-12 flex flex-col gap-4 sm:gap-5 lg:mt-16">
           <MarqueeRow items={rowOne} duration={38} />
           <MarqueeRow items={rowTwo} duration={52} />
         </div>

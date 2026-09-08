@@ -12,7 +12,7 @@ services:
         NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST}
 
     ports:
-      - "3535:3535"
+      - "127.0.0.1:3535:3535"
 
     env_file:
       - /opt/config/pnm/web.env
@@ -23,6 +23,17 @@ services:
       HOSTNAME: 0.0.0.0
 
     mem_limit: 300m
+
+    depends_on:
+      api:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3535/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
     restart: unless-stopped
 
@@ -41,13 +52,20 @@ services:
       AI_SERVICE_URL: http://ai:8000
 
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
 
     mem_limit: 350m
 
     depends_on:
       ai:
         condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3001/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
     restart: unless-stopped
 
@@ -64,6 +82,7 @@ services:
       PORT: 8000
       HOSTNAME: 0.0.0.0
       UPLOAD_DIR: /app/data/uploads
+      API_INTERNAL_URL: http://api:3001
 
     ports:
       - "127.0.0.1:8000:8000"

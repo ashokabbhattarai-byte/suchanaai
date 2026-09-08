@@ -57,9 +57,11 @@ export const tokenStore = {
     // without a round-trip to the API. SameSite=Lax keeps it usable for the
     // browser navigation; the API still authorizes via the Authorization
     // header (the cookie is a UX gate, never a security boundary).
+    const siteUrl = typeof window !== "undefined" ? window.location.href : ""
+    const secureFlag = siteUrl.startsWith("https") ? "; Secure" : ""
     document.cookie = `${TOKEN_COOKIE}=${encodeURIComponent(token)}; path=/; max-age=${
       60 * 60 * 24 * SESSION_DAYS
-    }; SameSite=Lax`
+    }; SameSite=Lax${secureFlag}`
   },
   clear: () => {
     if (typeof window === "undefined") return
@@ -341,11 +343,11 @@ export function formatPlanPrice(cents: number, currency: string): string {
 const inFlightGets = new Map<string, { promise: Promise<unknown>; startedAt: number }>()
 const IN_FLIGHT_TTL_MS = 8000
 
-function getPending<T>(path: string): Promise<T> | undefined {
-  const entry = inFlightGets.get(path)
+function getPending<T>(key: string): Promise<T> | undefined {
+  const entry = inFlightGets.get(key)
   if (!entry) return undefined
   if (Date.now() - entry.startedAt > IN_FLIGHT_TTL_MS) {
-    inFlightGets.delete(path)
+    inFlightGets.delete(key)
     return undefined
   }
   return entry.promise as Promise<T>
@@ -358,16 +360,19 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   // must not be handed a shared promise someone else can abort.
   if (method !== "GET" || init.signal) return requestJson<T>(path, init)
 
-  const pending = getPending<T>(path)
+  const token = tokenStore.get() || ""
+  const dedupKey = `${token.slice(0, 8)}:${path}`
+
+  const pending = getPending<T>(dedupKey)
   if (pending) return pending
 
   const startedAt = Date.now()
   const request = requestJson<T>(path, init).finally(() => {
     // Only delete if we are still the owner (prevents deleting a newer retry)
-    const cur = inFlightGets.get(path)
-    if (cur?.startedAt === startedAt) inFlightGets.delete(path)
+    const cur = inFlightGets.get(dedupKey)
+    if (cur?.startedAt === startedAt) inFlightGets.delete(dedupKey)
   })
-  inFlightGets.set(path, { promise: request, startedAt })
+  inFlightGets.set(dedupKey, { promise: request, startedAt })
   return request
 }
 
@@ -512,7 +517,13 @@ export async function uploadDocument(file: File, title: string): Promise<RagDocu
       body: form,
       signal: controller.signal,
     })
-    if (!res.ok) await throwApiError(res)
+    if (!res.ok) {
+      if (res.status === 401 && token && typeof window !== "undefined") {
+        tokenStore.clear()
+        window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT))
+      }
+      await throwApiError(res)
+    }
     return res.json()
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") throw new NetworkError("Upload timed out — the server took too long to respond. Please try again.")

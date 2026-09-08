@@ -157,7 +157,7 @@ export function AlertCTASection() {
   }, [])
 
   return (
-    <section ref={sectionRef} className="relative py-12 md:py-20 lg:py-24 px-6 md:px-8 lg:px-12 overflow-hidden bg-background">
+    <section ref={sectionRef} className="relative py-8 sm:py-12 md:py-20 lg:py-24 px-4 sm:px-6 md:px-8 lg:px-8 overflow-hidden bg-background">
 
       {/* SVG decorative circuit lines - drawn on scroll, full-width */}
       <svg
@@ -232,9 +232,9 @@ export function AlertCTASection() {
 
 
       {/* Content */}
-      <div ref={contentRef} className="relative z-10 max-w-3xl mx-auto text-center">
+      <div ref={contentRef} className="relative z-10 max-w-3xl mx-auto text-center px-2 sm:px-0 min-w-0">
         {/* Tactical bell icon */}
-        <div ref={bellRef} className="size-20 bg-indigo-500/10 border-2 border-indigo-500 flex items-center justify-center mx-auto mb-8 backdrop-blur-xl relative">
+        <div ref={bellRef} className="size-16 sm:size-20 bg-indigo-500/10 border-2 border-indigo-500 flex items-center justify-center mx-auto mb-6 sm:mb-8 backdrop-blur-xl relative">
           {/* Corner brackets */}
           <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-indigo-400" />
           <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-indigo-400" />
@@ -263,7 +263,7 @@ export function AlertCTASection() {
           </span>
         </div>
 
-        <h2 ref={headingRef} className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground mb-5 text-foreground leading-tight uppercase tracking-tight">
+        <h2 ref={headingRef} className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-foreground mb-3 sm:mb-5 leading-tight uppercase tracking-tight break-words">
           Never Miss an Important <span className="text-indigo-400">Notice</span>
         </h2>
 
@@ -274,40 +274,40 @@ export function AlertCTASection() {
           </div>
         </div>
 
-        <p className="text-muted-foreground text-base md:text-lg max-w-2xl mx-auto mb-10 leading-relaxed font-normal">
+        <p className="text-muted-foreground text-sm sm:text-base md:text-lg max-w-2xl mx-auto mb-8 sm:mb-10 leading-relaxed font-normal px-2 sm:px-0">
           Get instant alerts for job vacancies, exam dates, tenders, and government updates - directly to your phone or email.
         </p>
 
         {/* Tactical category badges */}
-        <div className="flex flex-wrap items-center justify-center gap-3 mb-12">
-          <span className="alert-pill flex items-center gap-2 bg-card backdrop-blur-xl border border-border px-4 py-2 text-xs font-mono font-medium text-foreground/80 transition-colors hover:border-indigo-500/40 hover:text-indigo-500 uppercase tracking-wide relative">
+        <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 mb-8 sm:mb-12 px-2">
+          <span className="alert-pill flex items-center gap-1.5 sm:gap-2 bg-card backdrop-blur-xl border border-border px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-mono font-medium text-foreground/80 transition-colors hover:border-indigo-500/40 hover:text-indigo-500 uppercase tracking-wide relative">
             <div className="absolute top-0 left-0 w-1 h-1 bg-indigo-500" />
-            <CheckCircle className="size-3.5 text-indigo-400" /> Job Alerts
+            <CheckCircle className="size-3 sm:size-3.5 text-indigo-400 shrink-0" /> Job Alerts
           </span>
-          <span className="alert-pill flex items-center gap-2 bg-card backdrop-blur-xl border border-border px-4 py-2 text-xs font-mono font-medium text-foreground/80 transition-colors hover:border-indigo-500/40 hover:text-indigo-500 uppercase tracking-wide relative">
+          <span className="alert-pill flex items-center gap-1.5 sm:gap-2 bg-card backdrop-blur-xl border border-border px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-mono font-medium text-foreground/80 transition-colors hover:border-indigo-500/40 hover:text-indigo-500 uppercase tracking-wide relative">
             <div className="absolute top-0 left-0 w-1 h-1 bg-indigo-500" />
-            <CheckCircle className="size-3.5 text-indigo-400" /> Exam Dates
+            <CheckCircle className="size-3 sm:size-3.5 text-indigo-400 shrink-0" /> Exam Dates
           </span>
-          <span className="alert-pill flex items-center gap-2 bg-card backdrop-blur-xl border border-border px-4 py-2 text-xs font-mono font-medium text-foreground/80 transition-colors hover:border-indigo-500/40 hover:text-indigo-500 uppercase tracking-wide relative">
+          <span className="alert-pill flex items-center gap-1.5 sm:gap-2 bg-card backdrop-blur-xl border border-border px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-mono font-medium text-foreground/80 transition-colors hover:border-indigo-500/40 hover:text-indigo-500 uppercase tracking-wide relative">
             <div className="absolute top-0 left-0 w-1 h-1 bg-indigo-500" />
-            <CheckCircle className="size-3.5 text-indigo-400" /> Tender Notices
+            <CheckCircle className="size-3 sm:size-3.5 text-indigo-400 shrink-0" /> Tender Notices
           </span>
-          <span className="alert-pill flex items-center gap-2 bg-card backdrop-blur-xl border border-border px-4 py-2 text-xs font-mono font-medium text-foreground/80 transition-colors hover:border-indigo-500/40 hover:text-indigo-500 uppercase tracking-wide relative">
+          <span className="alert-pill flex items-center gap-1.5 sm:gap-2 bg-card backdrop-blur-xl border border-border px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-mono font-medium text-foreground/80 transition-colors hover:border-indigo-500/40 hover:text-indigo-500 uppercase tracking-wide relative">
             <div className="absolute top-0 left-0 w-1 h-1 bg-indigo-500" />
-            <CheckCircle className="size-3.5 text-indigo-400" /> Policy Updates
+            <CheckCircle className="size-3 sm:size-3.5 text-indigo-400 shrink-0" /> Policy Updates
           </span>
         </div>
 
         {/* Tactical buttons */}
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-          <Link href="/login">
-            <Button size="lg" className="cta-btn gap-2 h-12 px-8 text-xs font-semibold shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 transition-all uppercase tracking-wide bg-indigo-600 hover:bg-indigo-500 border border-indigo-500/30 relative group">
-              <Bell className="size-4 group-hover:rotate-12 transition-transform" /> Set Up Your First Alert
-              <ArrowRight className="size-4 group-hover:translate-x-1 transition-transform" />
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 w-full sm:w-auto px-4 sm:px-0">
+          <Link href="/login" className="w-full sm:w-auto">
+            <Button size="lg" className="cta-btn w-full sm:w-auto gap-2 h-11 sm:h-12 px-6 sm:px-8 text-xs font-semibold shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 transition-all uppercase tracking-wide bg-indigo-600 hover:bg-indigo-500 border border-indigo-500/30 relative group">
+              <Bell className="size-4 group-hover:rotate-12 transition-transform shrink-0" /> Set Up Your First Alert
+              <ArrowRight className="size-4 group-hover:translate-x-1 transition-transform shrink-0" />
             </Button>
           </Link>
-          <Link href="/notices">
-            <Button size="lg" variant="outline" className="cta-btn h-12 px-8 text-xs font-semibold border-border hover:bg-accent hover:border-indigo-500/40 transition-all uppercase tracking-wide bg-transparent">
+          <Link href="/notices" className="w-full sm:w-auto">
+            <Button size="lg" variant="outline" className="cta-btn w-full sm:w-auto h-11 sm:h-12 px-6 sm:px-8 text-xs font-semibold border-border hover:bg-accent hover:border-indigo-500/40 transition-all uppercase tracking-wide bg-transparent">
               Browse Notices
             </Button>
           </Link>

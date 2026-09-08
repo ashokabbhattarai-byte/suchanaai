@@ -157,8 +157,8 @@ export default function DashboardPage() {
         </div>
 
         <div ref={gridRef} className="w-full max-w-full min-w-0 space-y-4 overflow-x-hidden sm:space-y-6">
-          {/* Stats row */}
-          <div className="grid w-full max-w-full min-w-0 grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+          {/* Stats row - responsive: 1 col mobile, 2 on sm, 4 on lg */}
+          <div className="grid w-full max-w-full min-w-0 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             <StatCard
               label="Notices viewed"
               value="47"
@@ -198,7 +198,7 @@ export default function DashboardPage() {
                   {urgentNotices.length} active
                 </span>
               </div>
-              <div className="grid w-full min-w-0 gap-3 sm:grid-cols-2">
+              <div className="grid w-full min-w-0 grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 {urgentNotices.map((n) => (
                   <Link
                     key={n.id}
@@ -365,7 +365,7 @@ export default function DashboardPage() {
                   <BarChart3 className="size-4 shrink-0 text-vez-navy sm:size-5" />
                   <h3 className="text-sm font-medium text-vez-ink sm:text-base">This month</h3>
                 </div>
-                <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                   {[
                     { label: "Searches", value: "23", icon: Search },
                     { label: "Docs read", value: "14", icon: FileText },

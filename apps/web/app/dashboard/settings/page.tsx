@@ -85,7 +85,7 @@ export default function SettingsPage() {
               <User className="size-4 text-vez-navy" /> Profile
             </h2>
             <p className="mt-1 text-sm text-vez-mute">Your account information</p>
-            <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
               {[
                 { label: "Username", value: user.username },
                 { label: "Email", value: user.email },

@@ -44,31 +44,50 @@ def ensure_collection() -> None:
                 logger.debug("Notices collection '%s' already exists", COLLECTION)
                 return
         logger.warning("Recreating notices collection with updated schema")
-        client.delete_collection(COLLECTION)
+        try:
+            client.delete_collection(COLLECTION)
+        except Exception as e:
+            if "not found" in str(e).lower() or "doesn't exist" in str(e).lower():
+                logger.info("Notices collection already deleted by concurrent worker")
+            else:
+                raise
 
     logger.info(
         "Creating Qdrant collection '%s' (dense=%d cosine)",
         COLLECTION,
         config.EMBEDDING_DIM,
     )
-    client.create_collection(
-        collection_name=COLLECTION,
-        vectors_config={
-            DENSE_VECTOR: VectorParams(
-                size=config.EMBEDDING_DIM, distance=Distance.COSINE
+    try:
+        client.create_collection(
+            collection_name=COLLECTION,
+            vectors_config={
+                DENSE_VECTOR: VectorParams(
+                    size=config.EMBEDDING_DIM, distance=Distance.COSINE
+                )
+            },
+        )
+    except Exception as e:
+        msg = str(e).lower()
+        if "already exists" in msg or "already exist" in msg or "exists" in msg and "collection" in msg:
+            logger.info("Collection '%s' already created by concurrent worker", COLLECTION)
+            return
+        raise
+    for field_name, field_schema in (
+        ("notice_id", PayloadSchemaType.KEYWORD),
+        ("category", PayloadSchemaType.KEYWORD),
+    ):
+        try:
+            client.create_payload_index(
+                collection_name=COLLECTION,
+                field_name=field_name,
+                field_schema=field_schema,
             )
-        },
-    )
-    client.create_payload_index(
-        collection_name=COLLECTION,
-        field_name="notice_id",
-        field_schema=PayloadSchemaType.KEYWORD,
-    )
-    client.create_payload_index(
-        collection_name=COLLECTION,
-        field_name="category",
-        field_schema=PayloadSchemaType.KEYWORD,
-    )
+        except Exception as e:
+            msg = str(e).lower()
+            if "already exists" in msg or "already exist" in msg:
+                logger.debug("Payload index '%s' already exists for '%s'", field_name, COLLECTION)
+            else:
+                logger.warning("Failed to create payload index '%s' for '%s': %s", field_name, COLLECTION, e)
 
 
 # The embedding model truncates around 512 tokens, so only the head of the body

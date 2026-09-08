@@ -53,7 +53,7 @@ const ALLOWED_MIME_TYPES = [
  * Default 20 MB covers all current tiers; raise via MAX_UPLOAD_MB env if a
  * plan is configured larger.
  */
-export const MAX_FILE_SIZE_MB = Number(process.env.MAX_UPLOAD_MB ?? 20);
+export const MAX_FILE_SIZE_MB = Number(process.env.MAX_UPLOAD_MB) || 20;
 const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 /**
@@ -61,19 +61,44 @@ const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
  * surface as an opaque 500. Translate it into the same 413 the explicit size
  * check returns, so the UI always shows one clear message.
  */
-@Catch(MulterError)
+@Catch(MulterError, BadRequestException)
 class MulterExceptionFilter implements ExceptionFilter {
-  catch(error: MulterError, host: ArgumentsHost) {
+  catch(error: MulterError | BadRequestException, host: ArgumentsHost) {
     const response = host.switchToHttp().getResponse();
+    if (error instanceof BadRequestException) {
+      const status = error.getStatus();
+      response.status(status).json(error.getResponse());
+      return;
+    }
     const exception =
-      error.code === 'LIMIT_FILE_SIZE'
+      (error as MulterError).code === 'LIMIT_FILE_SIZE'
         ? new PayloadTooLargeException(
             `File is larger than the ${MAX_FILE_SIZE_MB} MB limit.`,
           )
-        : new BadRequestException(`Upload failed: ${error.message}`);
+        : new BadRequestException(`Upload failed: ${(error as Error).message}`);
     const status = (exception as HttpException).getStatus();
     response.status(status).json(exception.getResponse());
   }
+}
+
+function isValidMagic(buffer: Buffer, mime: string): boolean {
+  if (!buffer || buffer.length < 4) return false;
+  if (mime === 'application/pdf') {
+    return buffer.slice(0, 4).toString() === '%PDF';
+  }
+  if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+    return buffer[0] === 0x50 && buffer[1] === 0x4b;
+  }
+  if (mime === 'image/png') {
+    return buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+  }
+  if (mime === 'image/jpeg') {
+    return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  }
+  if (mime === 'text/plain') {
+    return true;
+  }
+  return false;
 }
 
 // Buffered in memory, not written to local disk — DocumentsService.create()
@@ -124,6 +149,10 @@ export class DocumentsController {
       throw new PayloadTooLargeException(
         `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — the limit is ${MAX_FILE_SIZE_MB} MB.`,
       );
+    }
+
+    if (file.buffer && !isValidMagic(file.buffer, file.mimetype)) {
+      throw new BadRequestException('File content does not match declared type');
     }
 
     // Multer's hard cap is the infrastructure ceiling; the plan-aware limit

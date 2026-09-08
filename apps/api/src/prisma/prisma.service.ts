@@ -18,8 +18,8 @@ function withUtcSession(url: string): string {
 }
 
 function withPoolConfig(url: string): string {
-  const poolSize = Number(process.env.DATABASE_POOL_SIZE ?? DEFAULT_POOL_SIZE);
-  const poolTimeoutMs = Number(process.env.DATABASE_POOL_TIMEOUT_MS ?? DEFAULT_POOL_TIMEOUT_MS);
+  const poolSize = Number(process.env.DATABASE_POOL_SIZE) || DEFAULT_POOL_SIZE;
+  const poolTimeoutMs = Number(process.env.DATABASE_POOL_TIMEOUT_MS) || DEFAULT_POOL_TIMEOUT_MS;
   const sep = url.includes('?') ? '&' : '?';
   return `${url}${sep}connection_limit=${poolSize}&pool_timeout=${poolTimeoutMs}&connect_prepared_statements=true&connect_prepared_statement_cache_size=500&connect_timeout=10`;
 }
@@ -30,7 +30,7 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   private readonly logger = new Logger(PrismaService.name);
-  private readonly slowQueryMs = Number(process.env.DB_SLOW_QUERY_MS ?? 500);
+  private readonly slowQueryMs = Number(process.env.DB_SLOW_QUERY_MS) || 500;
   private readonly logQueries =
     (process.env.DB_LOG_QUERIES ?? '').toLowerCase() === 'true';
 

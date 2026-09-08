@@ -82,7 +82,7 @@ export function AiTemperatureCard() {
   if (fields.length === 0) return null
 
   return (
-    <div className="mb-5 rounded-[16px] border border-vez-line bg-white px-5 py-4">
+    <div className="mb-5 w-full overflow-hidden rounded-[16px] border border-vez-line bg-white p-4 sm:p-5">
       <div className="flex flex-wrap items-center gap-2">
         <Thermometer className="size-4 shrink-0 text-vez-navy" />
         <span className="text-sm text-vez-ink">Temperature</span>
@@ -105,36 +105,38 @@ export function AiTemperatureCard() {
         {fields.map((field) => {
           const value = draft[field.key] ?? field.default
           return (
-            <div key={field.key}>
-              <div className="flex items-center gap-3">
-                <label htmlFor={field.key} className="min-w-[190px] text-sm text-vez-ink">
+            <div key={field.key} className="w-full min-w-0">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                <label htmlFor={field.key} className="min-w-0 sm:min-w-[190px] text-sm text-vez-ink shrink-0">
                   {field.label}
                 </label>
-                <input
-                  id={field.key}
-                  type="range"
-                  min={field.min ?? 0}
-                  max={field.max ?? 1}
-                  step={field.step ?? 0.1}
-                  value={value}
-                  onChange={(e) => setDraft((d) => ({ ...d, [field.key]: e.target.value }))}
-                  className="h-1.5 flex-1 cursor-pointer accent-vez-navy"
-                />
-                <span className="w-10 text-right font-mono text-sm text-vez-ink tabular-nums">
-                  {Number(value).toFixed(1)}
-                </span>
-                {field.overridden && (
-                  <button
-                    onClick={() => reset(field.key)}
-                    title={`Revert to default (${field.default})`}
-                    aria-label={`Revert ${field.label} to default`}
-                    className="text-vez-mute transition-colors hover:text-vez-navy"
-                  >
-                    <RotateCcw className="size-3.5" />
-                  </button>
-                )}
+                <div className="flex flex-1 items-center gap-2 min-w-0">
+                  <input
+                    id={field.key}
+                    type="range"
+                    min={field.min ?? 0}
+                    max={field.max ?? 1}
+                    step={field.step ?? 0.1}
+                    value={value}
+                    onChange={(e) => setDraft((d) => ({ ...d, [field.key]: e.target.value }))}
+                    className="h-1.5 flex-1 min-w-0 cursor-pointer accent-vez-navy"
+                  />
+                  <span className="w-10 shrink-0 text-right font-mono text-sm text-vez-ink tabular-nums">
+                    {Number(value).toFixed(1)}
+                  </span>
+                  {field.overridden && (
+                    <button
+                      onClick={() => reset(field.key)}
+                      title={`Revert to default (${field.default})`}
+                      aria-label={`Revert ${field.label} to default`}
+                      className="shrink-0 text-vez-mute transition-colors hover:text-vez-navy"
+                    >
+                      <RotateCcw className="size-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
-              <p className="ml-[202px] mt-1 text-xs leading-relaxed text-vez-mute">{field.description}</p>
+              <p className="mt-1 sm:ml-[202px] text-xs leading-relaxed text-vez-mute break-words">{field.description}</p>
             </div>
           )
         })}

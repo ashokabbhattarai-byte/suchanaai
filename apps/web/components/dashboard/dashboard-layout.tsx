@@ -126,9 +126,21 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <RequireAuth>
-      <div className="flex h-[calc(100vh-5rem)] w-full max-w-full overflow-hidden">
-      {/* Mobile sidebar toggle */}
-      <div className="fixed bottom-4 left-4 z-50 md:hidden">
+      <div className="flex flex-col lg:flex-row h-[calc(100vh-5rem)] w-full max-w-full overflow-hidden">
+      {/* Mobile hamburger - top bar for larger mobile, also floating */}
+      <div className="flex items-center justify-between gap-2 border-b border-vez-line bg-white px-4 py-3 lg:hidden">
+        <button
+          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-vez-navy text-white shadow-sm"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open menu"
+        >
+          <Menu className="size-5" />
+        </button>
+        <span className="text-sm font-medium text-vez-ink">Dashboard</span>
+        <span className="size-10 shrink-0" aria-hidden />
+      </div>
+      {/* Floating hamburger for content scroll */}
+      <div className="fixed bottom-4 left-4 z-50 lg:hidden">
         <button
           className="flex size-12 items-center justify-center rounded-full bg-vez-navy text-white shadow-lg"
           onClick={() => setMobileOpen(true)}
@@ -138,11 +150,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </button>
       </div>
 
-      {/* Mobile sidebar overlay */}
+      {/* Mobile drawer overlay */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
+        <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-vez-navy/40 backdrop-blur-[6px]" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute bottom-0 left-0 top-0 flex w-[min(272px,85vw)] max-w-[85vw] flex-col border-r border-vez-line bg-white">
+          <aside className="absolute bottom-0 left-0 top-0 flex w-[min(272px,85vw)] max-w-[85vw] translate-x-0 flex-col border-r border-vez-line bg-white shadow-xl transition-transform duration-300 lg:translate-x-0">
             <div className="flex items-center justify-end border-b border-vez-line p-2">
               <button
                 className="flex size-9 items-center justify-center rounded-full text-vez-mute hover:bg-vez-surface"
@@ -158,11 +170,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       )}
 
       {/* Desktop sidebar */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-vez-line bg-white md:flex">
+      <aside className="hidden w-full lg:w-64 shrink-0 flex-col border-r border-vez-line bg-white lg:flex">
         <SidebarContent pathname={pathname} />
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-vez-surface/60">
+      <main className="min-w-0 flex-1 w-full overflow-y-auto overflow-x-hidden bg-vez-surface/60">
         <div className="mx-auto w-full max-w-full p-4 sm:p-5 md:p-6 lg:p-8 overflow-x-hidden">
           {children}
         </div>

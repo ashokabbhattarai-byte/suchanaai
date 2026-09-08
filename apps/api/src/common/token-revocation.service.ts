@@ -66,6 +66,8 @@ export class TokenRevocationService {
   }
 
   isRevoked(token: string): boolean | Promise<boolean> {
+    // Opportunistically prune expired entries on every check (not just on revoke)
+    if (this.revoked.size > 100 && Math.random() < 0.05) this.prune(Date.now());
     const hash = this.hash(token!);
     const exp = this.revoked.get(hash);
     if (exp) {

@@ -140,20 +140,20 @@ export function VezignoContact() {
   }
 
   return (
-    <section id="contact" className="bg-white">
-      <div className="mx-auto max-w-[1480px] px-6 py-16 md:px-8 md:py-20 lg:px-12 lg:py-24">
+    <section id="contact" className="bg-white overflow-hidden">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10 sm:py-16 md:py-20 lg:py-24">
         <Reveal>
           <Eyebrow>Contact</Eyebrow>
         </Reveal>
         <AnimatedHeading
           text="Questions, feedback, or partnerships - write to us."
-          className="mt-4 max-w-[18ch] text-[clamp(36px,4.5vw,64px)] font-normal leading-[1.12] tracking-[-0.04em] text-vez-ink"
+          className="mt-3 sm:mt-4 max-w-[18ch] text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-normal leading-[1.12] tracking-[-0.04em] text-vez-ink"
         />
 
-        <div className="mt-12 grid gap-6 lg:mt-16 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="mt-8 sm:mt-12 grid gap-4 sm:gap-6 lg:mt-16 lg:grid-cols-[1.2fr_0.8fr]">
           {/* Form card */}
-          <Reveal>
-            <form onSubmit={onSubmit} noValidate className="vz-glass rounded-[24px] p-8 md:p-10">
+          <Reveal className="min-w-0">
+            <form onSubmit={onSubmit} noValidate className="vz-glass rounded-xl sm:rounded-[24px] p-4 sm:p-6 md:p-8 lg:p-10 min-w-0">
               {/* Honeypot — visually hidden, not display:none so naive bots still fill it */}
               <div className="absolute -left-[9999px] h-0 w-0 overflow-hidden" aria-hidden="true">
                 <label htmlFor="website_hp">Website</label>
@@ -169,9 +169,9 @@ export function VezignoContact() {
                 />
               </div>
 
-              <div className="grid gap-5 sm:grid-cols-2">
-                <div>
-                  <label htmlFor="contact-name" className="mb-2 block text-sm text-vez-mute">
+              <div className="grid gap-4 sm:gap-5 grid-cols-1 sm:grid-cols-2">
+                <div className="min-w-0">
+                  <label htmlFor="contact-name" className="mb-1.5 sm:mb-2 block text-xs sm:text-sm text-vez-mute">
                     Name <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -193,8 +193,8 @@ export function VezignoContact() {
                     </p>
                   )}
                 </div>
-                <div>
-                  <label htmlFor="contact-email" className="mb-2 block text-sm text-vez-mute">
+                <div className="min-w-0">
+                  <label htmlFor="contact-email" className="mb-1.5 sm:mb-2 block text-xs sm:text-sm text-vez-mute">
                     Email <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -218,8 +218,8 @@ export function VezignoContact() {
                 </div>
               </div>
 
-              <div className="mt-5">
-                <label htmlFor="contact-subject" className="mb-2 block text-sm text-vez-mute">
+              <div className="mt-4 sm:mt-5 min-w-0">
+                <label htmlFor="contact-subject" className="mb-1.5 sm:mb-2 block text-xs sm:text-sm text-vez-mute">
                   Subject <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -242,12 +242,12 @@ export function VezignoContact() {
                 )}
               </div>
 
-              <div className="mt-5">
-                <div className="mb-2 flex items-center justify-between">
-                  <label htmlFor="contact-message" className="block text-sm text-vez-mute">
+              <div className="mt-4 sm:mt-5 min-w-0">
+                <div className="mb-1.5 sm:mb-2 flex items-center justify-between gap-2 min-w-0">
+                  <label htmlFor="contact-message" className="block text-xs sm:text-sm text-vez-mute">
                     Message <span className="text-red-500">*</span>
                   </label>
-                  <span className="text-xs text-vez-mute tabular-nums">{form.message.length}/5000</span>
+                  <span className="text-xs text-vez-mute tabular-nums shrink-0">{form.message.length}/5000</span>
                 </div>
                 <textarea
                   id="contact-message"
@@ -335,21 +335,21 @@ export function VezignoContact() {
           </Reveal>
 
           {/* Info cards */}
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-4 sm:gap-6 min-w-0">
             {contactInfo.map((item, i) => {
               const Icon = item.icon
               return (
                 <Reveal key={item.label} delay={i * 80}>
                   <a
                     href={item.href}
-                    className="vz-sweep vz-glass group flex items-center gap-5 rounded-[20px] p-6"
+                    className="vz-sweep vz-glass group flex items-center gap-4 sm:gap-5 rounded-xl sm:rounded-[20px] p-4 sm:p-6 min-w-0"
                   >
-                    <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-white">
-                      <Icon className="size-5 text-vez-navy" />
+                    <div className="flex size-10 sm:size-12 shrink-0 items-center justify-center rounded-full bg-white">
+                      <Icon className="size-4 sm:size-5 text-vez-navy" />
                     </div>
-                    <div>
-                      <p className="text-sm text-vez-mute transition-colors duration-300 group-hover:text-vez-ink/60">{item.label}</p>
-                      <p className="text-base text-vez-ink">{item.value}</p>
+                    <div className="min-w-0">
+                      <p className="text-xs sm:text-sm text-vez-mute transition-colors duration-300 group-hover:text-vez-ink/60">{item.label}</p>
+                      <p className="text-sm sm:text-base text-vez-ink break-all sm:break-normal">{item.value}</p>
                     </div>
                   </a>
                 </Reveal>
@@ -357,13 +357,13 @@ export function VezignoContact() {
             })}
 
             <Reveal delay={240}>
-              <div className="vz-glass rounded-[20px] p-6">
-                <p className="text-sm text-vez-mute">Business hours</p>
-                <div className="mt-3 flex justify-between text-base">
+              <div className="vz-glass rounded-xl sm:rounded-[20px] p-4 sm:p-6 min-w-0">
+                <p className="text-xs sm:text-sm text-vez-mute">Business hours</p>
+                <div className="mt-2 sm:mt-3 flex flex-col min-[360px]:flex-row min-[360px]:justify-between gap-1 min-[360px]:gap-0 text-sm sm:text-base">
                   <span className="text-vez-mute">Sunday – Friday</span>
                   <span className="text-vez-ink">10:00 AM – 6:00 PM</span>
                 </div>
-                <div className="mt-2 flex justify-between text-base">
+                <div className="mt-1 sm:mt-2 flex flex-col min-[360px]:flex-row min-[360px]:justify-between gap-1 min-[360px]:gap-0 text-sm sm:text-base">
                   <span className="text-vez-mute">Saturday</span>
                   <span className="text-vez-ink">Closed</span>
                 </div>
