@@ -1253,7 +1253,7 @@ export default function RagPage() {
   // ─── render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-[calc(100dvh-5rem-env(safe-area-inset-top))] min-h-0 flex-col overflow-hidden overflow-x-hidden bg-white font-poppins">
+    <div className="flex h-dvh min-h-0 flex-col overflow-hidden overflow-x-hidden bg-white font-poppins">
       <Header />
 
       <div className="mx-auto flex w-full max-w-7xl min-w-0 min-h-0 flex-1 flex-col gap-4 overflow-x-hidden px-4 py-4 sm:gap-6 sm:px-6 sm:py-6 lg:px-8">

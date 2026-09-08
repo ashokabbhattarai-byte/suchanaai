@@ -429,6 +429,12 @@ def _is_openrouter(provider: dict) -> bool:
     return urlparse(base_url).netloc == "openrouter.ai"
 
 
+def _is_groq(provider: dict) -> bool:
+    """Host-based check like _is_openrouter — Groq key rotation is per-account."""
+    base_url = provider.get("base_url") or ""
+    return urlparse(base_url).netloc == "api.groq.com"
+
+
 async def _call_provider(provider: dict, messages: list[dict], max_tokens: int, temperature: float) -> str | None:
     kind = provider.get("kind")
     if kind == "GEMINI":
@@ -462,6 +468,7 @@ async def _openrouter_chat_with_fallback(
             continue
         tried.add(model)
         attempt_provider = {**provider, "model": model}
+        before = recent_failure(provider.get("slug"))
         t0 = time.perf_counter()
         result = await _openai_compatible_chat(messages, max_tokens, temperature, attempt_provider)
         dt_ms = (time.perf_counter() - t0) * 1000
@@ -469,8 +476,11 @@ async def _openrouter_chat_with_fallback(
             if dt_ms > 5000:
                 logger.warning("OpenRouter model %s answered but slow: %.0fms", model, dt_ms)
             return result
-        last_failure = recent_failure(provider.get("slug")) or last_failure
-        if last_failure and "Rate limited" in last_failure:
+        after = recent_failure(provider.get("slug"))
+        # Fresh 429 means this call just hit the daily shared quota — remaining free models will also 429
+        is_fresh_rate_limited = after is not None and after != before and "Rate limited" in after
+        last_failure = after or last_failure
+        if is_fresh_rate_limited:
             logger.info(
                 "OpenRouter model %s hit shared daily quota (429) in %.0fms; skipping remaining %d free models and falling through to next provider",
                 model, dt_ms, len(candidates) - len(tried),
@@ -585,10 +595,11 @@ async def _llm_chat(
     if len(providers) == 1:
         return await _call_provider(providers[0], messages, max_tokens, temperature)
 
-    # Cap concurrency: top 4 agents cover vLLM + OpenRouter + Groq + Gemini.
+    # Cap concurrency: top 6 agents cover Ollama + vLLM + OpenRouter(x2) + Groq(x2) + Gemini.
+    # More keys => more hedged agents doubles free-tier quota without extra latency.
     # Bedrock (paid, rarely needed) stays sequential fallback to avoid
     # spending on every request.
-    hedged = [p for p in providers if p.get("kind") != "BEDROCK"][:4]
+    hedged = [p for p in providers if p.get("kind") != "BEDROCK"][:6]
     sequential_tail = [p for p in providers if p not in hedged]
 
     # Fire hedged agents concurrently.
@@ -928,6 +939,35 @@ async def _openai_compatible_chat(
                     provider.get("slug"),
                     _describe_http_failure(response.status_code, response.text),
                 )
+                return None
+            # Groq key rotation: try next GROQ_API_KEYS on 429 instead of retrying same key
+            if _is_groq(provider) and response.status_code == 429:
+                _groq_keys = getattr(config, "GROQ_API_KEYS", []) or []
+                try:
+                    _cur_idx = _groq_keys.index(provider.get("api_key")) if provider.get("api_key") in _groq_keys else -1
+                except ValueError:
+                    _cur_idx = -1
+                for _next_key in _groq_keys[_cur_idx + 1:]:
+                    logger.info("Groq %s rate limited (429), rotating to next key %d/%d", provider.get("slug"), _cur_idx + 2, len(_groq_keys))
+                    _next_headers = {"Content-Type": "application/json", "Authorization": f"Bearer {_next_key}"}
+                    try:
+                        async with httpx.AsyncClient(timeout=timeout) as _client:
+                            _resp = await _client.post(url, headers=_next_headers, json=payload)
+                    except httpx.HTTPError:
+                        continue
+                    if _resp.status_code == 200:
+                        try:
+                            _choice = _resp.json()["choices"][0]
+                            _content = _choice["message"]["content"]
+                        except (ValueError, KeyError, IndexError, TypeError):
+                            continue
+                        if (_content or "").strip():
+                            _clear_failure(provider.get("slug"))
+                            return _clean_answer(_content)
+                    if _resp.status_code == 429:
+                        _note_failure(provider.get("slug"), _describe_http_failure(_resp.status_code, _resp.text))
+                        continue
+                _note_failure(provider.get("slug"), _describe_http_failure(response.status_code, response.text))
                 return None
             await asyncio.sleep(1.0 if is_or else 1.5)
             if is_or:

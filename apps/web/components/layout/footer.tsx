@@ -4,6 +4,7 @@ import Link from "next/link"
 import Image from "next/image"
 import logo from "@/public/images/logo.png"
 import { useEffect, useState } from "react"
+import { usePathname } from "next/navigation"
 import { Github } from "lucide-react"
 import { fetchPublicSettings } from "@/lib/api"
 
@@ -29,6 +30,7 @@ const footerLinks = {
 }
 
 export function Footer() {
+  const pathname = usePathname()
   const [site, setSite] = useState<{ title: string; description: string } | null>(null)
 
   useEffect(() => {
@@ -44,6 +46,11 @@ export function Footer() {
       cancelled = true
     }
   }, [])
+
+  // Documents is a full-height app layout (h-dvh) — never show the global dark
+  // footer there. If the root layout ever renders <Footer /> unconditionally,
+  // this guard keeps the footer from peeking at the bottom of "My documents".
+  if (pathname?.startsWith("/documents")) return null
 
   return (
     <footer className="bg-vez-navy">
