@@ -198,23 +198,22 @@ export class AiProvidersService implements OnModuleInit {
       }
     }
 
-    // 2026-09-09: admin decision — active roster is Bedrock, Ollama, Groq
-    // only. Gemini, OpenCode Zen, and vLLM are removed from BUILT_INS (so a
-    // fresh install never seeds them) and disabled here for existing installs
-    // that already have the rows — disabled rather than deleted, matching
-    // remove()'s own rule that a built-in is retired by disabling it, never
-    // deleted. This supersedes the "vLLM SECOND (-9)" positioning in the
-    // Ollama/vLLM swap migration below; that block still runs for the Ollama
-    // half, its vLLM patches are now moot since this always re-disables it.
+    // 2026-09-09: admin decision — active roster is Bedrock, Ollama, Groq.
+    // Deleted, not disabled: a disabled row still renders (struck through) in
+    // the panel and in the fallback-order chips, and the ask was to remove
+    // them from the UI entirely. Safe to delete because they are gone from
+    // BUILT_INS, so the seeder above cannot bring them back; re-adding one is
+    // the normal "Add provider" flow. This drops each row's stored key with
+    // it, which is the point of retiring a provider.
     const RETIRED_SLUGS = ['gemini', 'opencode', 'vllm-services', 'openrouter'];
-    for (const row of existing) {
-      if (RETIRED_SLUGS.includes(row.slug) && row.enabled) {
-        await this.prisma.aiProvider.update({
-          where: { slug: row.slug },
-          data: { enabled: false },
-        });
-        this.logger.warn(`Disabled retired built-in provider "${row.slug}" per admin cleanup`);
-      }
+    const toRetire = existing.filter((r) => RETIRED_SLUGS.includes(r.slug));
+    if (toRetire.length) {
+      await this.prisma.aiProvider.deleteMany({
+        where: { slug: { in: toRetire.map((r) => r.slug) } },
+      });
+      this.logger.warn(
+        `Removed retired provider(s): ${toRetire.map((r) => r.slug).join(', ')}`,
+      );
     }
 
     // ── FIX 2026-09-08: Ollama TOP (-10), vLLM SECOND (-9) — swap from previous vLLM TOP

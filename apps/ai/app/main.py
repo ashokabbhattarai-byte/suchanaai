@@ -710,7 +710,13 @@ def _ingest_document(
     progress.update(doc_id, "extracting", f"Extracting text from {filename}...")
     try:
         start = time.perf_counter()
-        result = extractor.extract_text(str(save_path), mime_type)
+        result = extractor.extract_text(
+            str(save_path),
+            mime_type,
+            on_progress=lambda done, n: progress.update(
+                doc_id, "extracting", f"Reading page {done}/{n}...", done, n
+            ),
+        )
         metrics.histogram("extraction_latency").observe(time.perf_counter() - start)
         metrics.counter("extractions_total").inc()
     except Exception as e:

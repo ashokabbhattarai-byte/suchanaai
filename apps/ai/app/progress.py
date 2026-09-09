@@ -19,16 +19,19 @@ _progress: dict[str, dict] = {}
 
 STAGES = ("queued", "extracting", "chunking", "embedding", "indexing", "done", "failed")
 
-# Portion of the overall progress bar allotted to each stage.
-# queued is 0-3 so a card waiting for the concurrency slot still looks alive
-# rather than stuck at 0% — the 3% indeterminate bar prevents "Queued 0%"
-# flicker that confused users in the previous batch?ids=... burst.
+# Portion of the overall progress bar allotted to each stage, weighted by how
+# long each actually takes rather than evenly. Extraction owns the largest
+# band because OCR of a scanned PDF dominates every other stage combined —
+# it previously held 3-15%, so a multi-minute OCR looked frozen at 7% while
+# chunking, which takes milliseconds, owned a full 10 points and made the bar
+# leap. Extraction now reports per-page sub-progress inside its band, so a
+# scan advances smoothly and a text PDF simply clears the band quickly.
 _STAGE_BASE = {
-    "queued": (0, 3),
-    "extracting": (3, 15),
-    "chunking": (15, 25),
-    "embedding": (25, 85),
-    "indexing": (85, 100),
+    "queued": (0, 2),
+    "extracting": (2, 45),
+    "chunking": (45, 48),
+    "embedding": (48, 90),
+    "indexing": (90, 100),
 }
 
 
@@ -86,20 +89,11 @@ def update(
             fraction = done / total
             new_percent = round(lo + (hi - lo) * min(fraction, 1.0))
         else:
-            # Indeterminate stages have no total but still need a visible,
-            # non-zero percent so the card never flickers to "Queued 0%"
-            # while OCR is running or while waiting for a concurrency slot.
-            if stage == "queued":
-                new_percent = lo + 2  # 2% — shows queued is alive
-            elif stage == "extracting":
-                new_percent = lo + 4  # 7% within 3-15
-            elif stage == "chunking":
-                new_percent = lo + 4  # 19% within 15-25
-            elif stage in ("embedding", "indexing"):
-                # Should have total; fallback still shows movement
-                new_percent = lo + 2
-            else:
-                new_percent = lo
+            # Indeterminate: no total yet, so sit a little way into the band —
+            # visible movement without claiming progress we can't measure.
+            # Expressed as a fraction of the band so it can never overshoot
+            # `hi`, which a fixed "+4" did once the bands were re-weighted.
+            new_percent = round(lo + (hi - lo) * 0.15)
         # Monotonic percent — retries or out-of-order callbacks must not make
         # the bar jump backwards (32% -> 5%), which reads as a flicker/failure.
         if stage not in ("done", "failed"):

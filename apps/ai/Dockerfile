@@ -69,11 +69,15 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # ---------- Production ----------
 FROM base AS runner
 
-# Memory tuning for a 2 vCPU / ~1 GB box. torch and onnxruntime each size
-# their thread pools to the core count and glibc allocates a per-thread malloc
-# arena, so the defaults cost far more RSS than the extra threads buy here.
-ENV OMP_NUM_THREADS=1 \
-    MKL_NUM_THREADS=1 \
+# Thread/memory tuning for the 2 vCPU / 4 GiB t3.medium this runs on.
+# These were 1 when the target was a ~1 GB box, which left the embedding model
+# using a single core and made encoding take twice as long as the hardware
+# allows. 2 matches the vCPU count; MALLOC_ARENA_MAX still caps the glibc
+# per-thread arenas that made higher counts expensive in RSS.
+# Paired with _EMBED_CONCURRENCY=1 in embeddings.py: one encode using both
+# cores, rather than two encodes contending for them and thrashing.
+ENV OMP_NUM_THREADS=2 \
+    MKL_NUM_THREADS=2 \
     MALLOC_ARENA_MAX=2 \
     TOKENIZERS_PARALLELISM=false
 

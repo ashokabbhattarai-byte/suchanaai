@@ -461,16 +461,20 @@ def _extract_qr_codes(path: Path) -> list[dict]:
     return results
 
 
-def extract_text(file_path: str, mime_type: str) -> dict:
+def extract_text(file_path: str, mime_type: str, on_progress=None) -> dict:
     """Extract text from a document file.
 
     Returns dict with keys: text, is_ocr, page_count
+
+    on_progress(done_pages, total_pages) is called during OCR, which is the
+    slowest stage on a scanned PDF — without it the progress bar sits frozen
+    for the whole run. Optional: every non-OCR path returns too fast to need it.
     """
     path = Path(file_path)
     logger.info("Extracting text from %s (mime=%s)", path.name, mime_type)
 
     if mime_type == "application/pdf":
-        result = _extract_pdf(path)
+        result = _extract_pdf(path, on_progress=on_progress)
     elif mime_type in (
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/msword",
@@ -540,7 +544,7 @@ def _pdftotext(path: Path) -> str:
         return ""
 
 
-def _extract_pdf(path: Path) -> dict:
+def _extract_pdf(path: Path, on_progress=None) -> dict:
     """Score every extractor's output and return the best one."""
     # Geometry-based (tables) and render-based (QR codes) passes are
     # independent of which text extractor wins below, so run them once up
@@ -582,7 +586,7 @@ def _extract_pdf(path: Path) -> dict:
         except Exception:
             pass
         with _OCR_SEMAPHORE:
-            ocr = _ocr_pdf(path, page_count or 1)
+            ocr = _ocr_pdf(path, page_count or 1, on_progress=on_progress)
         if ocr["text"].strip():
             ocr_score = _text_quality(ocr["text"])
             logger.info("OCR scored %.2f vs native %.2f", ocr_score, best[0])
@@ -663,7 +667,7 @@ def _choose_ocr_langs(first_page, pytesseract) -> str:
     return best_lang
 
 
-def _ocr_pdf(path: Path, page_count: int) -> dict:
+def _ocr_pdf(path: Path, page_count: int, on_progress=None) -> dict:
     """OCR a PDF by rendering pages to images and running Tesseract.
 
     Processes pages in small batches to avoid loading hundreds of full-res
@@ -718,6 +722,12 @@ def _ocr_pdf(path: Path, page_count: int) -> dict:
         for img in images:
             text = _ocr_image(img, pytesseract, ocr_langs)
             texts.append(text)
+            if on_progress:
+                try:
+                    on_progress(len(texts), page_count)
+                except Exception:
+                    # Progress is best-effort; never fail an OCR run over it.
+                    logger.exception("OCR on_progress failed at page %d", len(texts))
 
         if end % 20 == 0 or end == page_count:
             logger.info("OCR progress: %d/%d pages", end, page_count)
