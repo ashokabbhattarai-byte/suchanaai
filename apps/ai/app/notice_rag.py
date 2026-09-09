@@ -4,6 +4,7 @@ fallback. The LLM synthesizes an answer from the retrieved context."""
 
 import asyncio
 import random
+from datetime import date
 
 from app import clarify
 from app import config
@@ -37,15 +38,33 @@ Rules:
 - Every notice carries a "Published" date. Use THAT date when the user asks
   when something was posted, and never present a date found inside a summary
   (often a Bikram Sambat date from the notice body) as the publication date.
-- NEVER combine figures from different notices into one total. Death tolls,
-  amounts, quotas and counts belong to the specific incident, scheme or period
-  their notice reports. Adding them together invents a number no notice states.
-- When the notices report different incidents or periods, give each figure
-  separately and say which incident, date and source it comes from. Never
-  present one incident's figure as the answer to a general question.
-- If the question asks for a single figure but the notices cover several
-  distinct events, say so plainly and list what each one reports, rather than
-  choosing one silently.
+- NEVER add figures from different notices together. Death tolls, amounts,
+  quotas and counts belong to the specific incident, scheme or period their
+  notice reports. Summing them invents a number no notice states.
+- Decide first whether the notices describe ONE story or SEVERAL. Same incident
+  in the same place, reported on different dates, is one story. A different
+  incident, district, scheme or period is a different story.
+- ONE story reported across several dates: the notices are updates, and the
+  newest figure REPLACES the older ones. It is not a separate case to list
+  alongside them. Lead with the newest figure and date it — "as of <Published
+  date>, 24 are missing" — then give the earlier figures only as the
+  progression ("up from 12 reported on Sept 2"). Never present a superseded
+  count as if it were still current, and never list the same story's successive
+  counts as though they were separate incidents.
+- SEVERAL stories: give each figure separately, say which incident, date and
+  source it comes from, and never present one incident's figure as the answer
+  to a general question. If the question asks for a single figure but the
+  notices cover several distinct events, say so plainly and list what each one
+  reports rather than choosing one silently.
+- Each notice's Published line says how it sits in time relative to the most
+  recent notice you were given. Use that to decide what supersedes what — do
+  not rely on the order the notices appear in.
+- When the question names a specific date, answer for THAT date rather than for
+  now. Use the newest notice published on or before it, plus any later notice
+  that explicitly reports that date, and say which date your figure describes.
+  A figure from a later date is not the answer for the date asked about. If
+  nothing covers the date, say so and give the nearest date you do have instead
+  of silently substituting another date's figure.
 - The context is ordered — [1] is the best match for the question. For
   "latest"/"recent" questions it is ordered newest first, so answer from the
   top of the list and give each notice's published date.
@@ -74,6 +93,10 @@ async def search_and_answer(
     top_k: int = 5,
     recency_intent: bool = False,
     skip_clarification: bool = False,
+    as_of: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    window_relaxed: bool = False,
 ) -> dict:
     """Hybrid notice search: use PG keyword results if provided, otherwise
     fall back to Qdrant semantic search. Then generate an LLM answer.
@@ -87,6 +110,12 @@ async def search_and_answer(
     skip_clarification: set when the user has already been asked to
                 disambiguate and chose to see everything anyway — suppresses
                 the ambiguity gate so the same question can't loop.
+    as_of: the date the question pinned itself to (YYYY-MM-DD). The answer is
+                dated to this, not to now — "how many were missing on Sept 2"
+                must not be answered with Sept 5's count.
+    date_from/date_to: ISO bounds the semantic leg filters on.
+    window_relaxed: the API already found its date window empty and dropped it,
+                so filtering here would only re-discard what it kept.
     """
     logger.info(
         "Notice search (pg_results=%d, category=%s, top_k=%d): %.80s",
@@ -115,7 +144,14 @@ async def search_and_answer(
     keyword_hits = list(pg_results or [])
     # Off the event loop: the dense leg encodes the question and calls Qdrant,
     # both blocking, and this worker serves /health from the same loop.
-    semantic_hits = await asyncio.to_thread(_semantic_search, question, category, top_k)
+    semantic_hits = await asyncio.to_thread(
+        _semantic_search,
+        question,
+        category,
+        top_k,
+        None if window_relaxed else date_from,
+        None if window_relaxed else date_to,
+    )
     sources = _fuse(keyword_hits, semantic_hits, top_k)
     logger.info(
         "Retrieval: %d keyword + %d semantic → %d fused",
@@ -132,7 +168,10 @@ async def search_and_answer(
             "model_used": _model_name(),
         }
 
-    if recency_intent:
+    # A date-pinned question wants the newest notice inside its window first,
+    # for the same reason "latest" does: that is the one stating the figure
+    # that still stands.
+    if recency_intent or as_of:
         sources = _by_published_desc(sources)
 
     # "How many are dead?" matches flood, earthquake and road-accident
@@ -140,7 +179,11 @@ async def search_and_answer(
     # top hit picks one at random; the gate asks which one instead. Its
     # options come from `sources`, so every choice offered is one the corpus
     # can actually answer.
-    if not skip_clarification and clarify.looks_underspecified(question):
+    #
+    # A named date is itself a disambiguator, so it skips the gate: being asked
+    # "which flood?" after already saying "on Sept 2" is a worse experience
+    # than answering from the notices that date selects.
+    if not skip_clarification and not as_of and clarify.looks_underspecified(question):
         clarification = await clarify.assess(question, sources, language)
         if clarification:
             return {
@@ -154,11 +197,17 @@ async def search_and_answer(
     # way to answer "latest"/"when" questions and will quote whatever date it
     # finds inside a summary — typically the Bikram Sambat date printed in the
     # notice body, which is not the publication date.
+    # The newest date present, so each entry can state its own age relative to
+    # it. Without that the model has to rank raw dates itself to work out which
+    # figure supersedes which, and it does that unreliably.
+    dated = [d for d in (_published_label(s) for s in sources) if d != "unknown"]
+    newest = max(dated) if dated else ""
+
     context = "\n\n".join(
         f"[{i+1}] Title: \"{s.get('title', 'Untitled')}\"\n"
         f"Category: {s.get('category', 'NOTICE')}\n"
         f"Source: {s.get('sourceLabel', '')}\n"
-        f"Published: {_published_label(s)}\n"
+        f"Published: {_published_label(s)}{_age_marker(s, newest) if newest else ''}\n"
         f"{_source_body(s, budget)}"
         for i, (s, budget) in enumerate(_with_budgets(sources))
     )
@@ -168,9 +217,24 @@ async def search_and_answer(
     if language == "ne":
         lang_instruction = "\nRespond in Nepali (Devanagari script)."
 
+    # Stated as an instruction rather than left in the question text, which the
+    # model reads as one detail among many and drops once the context is long.
+    as_of_note = ""
+    if as_of:
+        as_of_note = (
+            f"\n\nThis question is about the situation on {as_of}. Answer for that "
+            f"date and say so. If the only notices covering it were published later, "
+            f"use them but make clear which date the figure describes."
+        )
+        if window_relaxed:
+            as_of_note += (
+                f" No notice was published around {as_of}; the context below is the "
+                f"nearest available. Say that plainly rather than dating these to {as_of}."
+            )
+
     messages = [
         {"role": "system", "content": f"{_NOTICES_SYSTEM_PROMPT}{lang_instruction}\n\nFor this answer: {style}"},
-        {"role": "user", "content": f"Context (notices found):\n{context}\n\nQuestion: {question}"},
+        {"role": "user", "content": f"Context (notices found):\n{context}{as_of_note}\n\nQuestion: {question}"},
     ]
 
     # Budget covers reasoning tokens too — a reasoning model spends most of
@@ -200,23 +264,52 @@ def _source_payload(sources: list[dict]) -> list[dict]:
     ]
 
 
-def _semantic_search(question: str, category: str | None, top_k: int) -> list[dict]:
+def _semantic_search(
+    question: str,
+    category: str | None,
+    top_k: int,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[dict]:
     """Dense-vector leg. Over-fetches, then applies an absolute floor and a
     margin relative to the best hit.
 
     The floor matters: the codebase's own note on E5 scores puts *irrelevant*
     hits at ~0.76-0.78, so the 0.75 this used to hardcode admitted results it
     already knew to be noise — and the model then dutifully summarised them as
-    though they answered the question."""
+    though they answered the question.
+
+    The date window is applied here rather than as a Qdrant filter: notices
+    indexed before the window feature shipped carry no range-filterable date
+    field, so a server-side filter would silently drop most of the corpus.
+    """
+    windowed = bool(date_from or date_to)
     raw = notice_store.search(
         query_text=question,
         # Over-fetch so the margin gate has a real distribution to cut
         # against rather than just the top_k it was going to return anyway.
-        top_k=max(top_k * 3, 15),
+        # A window discards most of what comes back, so it needs more to start.
+        top_k=max(top_k * 8, 40) if windowed else max(top_k * 3, 15),
         category=category,
     )
     if not raw:
         return []
+
+    if windowed:
+        in_window = [r for r in raw if _within(r.get("published_at"), date_from, date_to)]
+        logger.info(
+            "Semantic leg: %d/%d inside window %s..%s",
+            len(in_window),
+            len(raw),
+            date_from or "-",
+            date_to or "-",
+        )
+        # An empty window is not an empty corpus. Answering "nothing found" when
+        # the subject exists just outside the window is the worse failure, so
+        # fall through to the unfiltered hits and let the dates in the context
+        # tell the model what it is actually looking at.
+        if in_window:
+            raw = in_window
 
     best = max(r["score"] for r in raw)
     floor = max(config.NOTICE_SCORE_THRESHOLD, best - config.NOTICE_SCORE_MARGIN)
@@ -344,6 +437,41 @@ def _published_label(source: dict) -> str:
     if not raw:
         return "unknown"
     return str(raw)[:10]
+
+
+def _within(published: str | None, date_from: str | None, date_to: str | None) -> bool:
+    """Is this notice inside the window? ISO dates compare correctly as strings.
+
+    Undated notices are out: a window filters on dates, and one we cannot place
+    in time must not be offered as the answer for a date the user named.
+    """
+    if not published:
+        return False
+    day = str(published)[:10]
+    if date_from and day < str(date_from)[:10]:
+        return False
+    if date_to and day > str(date_to)[:10]:
+        return False
+    return True
+
+
+def _age_marker(source: dict, newest: str) -> str:
+    """How this notice sits in time relative to the newest one in the context.
+
+    The model cannot rank dates reliably by reading them, and the context is
+    not always in date order — so the relationship that decides which figure
+    supersedes which is stated outright rather than left to be inferred.
+    """
+    day = _published_label(source)
+    if day == "unknown":
+        return " (date unknown)"
+    if day == newest:
+        return " (most recent here)"
+    try:
+        delta = (date.fromisoformat(newest) - date.fromisoformat(day)).days
+    except ValueError:
+        return ""
+    return f" ({delta} day{'s' if delta != 1 else ''} older than the most recent here)"
 
 
 def _by_published_desc(sources: list[dict]) -> list[dict]:

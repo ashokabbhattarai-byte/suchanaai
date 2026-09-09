@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { AlertCircle, ArrowRight, Sparkles } from "lucide-react"
+import { AlertCircle, ArrowRight, LogIn, Sparkles } from "lucide-react"
 import type { QuotaDenial } from "@/lib/api"
 
 /** Copy per quota kind — what ran out, and what upgrading actually buys. */
@@ -30,7 +30,18 @@ const KIND_COPY: Record<QuotaDenial["kind"], { title: string; hint: string }> = 
     title: "Instant alerts are a paid feature",
     hint: "Free plans receive a daily digest instead.",
   },
+  anonymous_ai_questions: {
+    title: "You've used your free questions for today",
+    hint: "Signing in is free and comes with a much larger monthly allowance.",
+  },
 }
+
+/**
+ * The signed-out limit is not a plan limit — the visitor has no plan, and no
+ * amount of money fixes it. Sending them to /pricing would be a dead end, so
+ * this kind gets a sign-in CTA instead.
+ */
+const SIGN_IN_KINDS = new Set<QuotaDenial["kind"]>(["anonymous_ai_questions"])
 
 /**
  * Shown wherever a 402 surfaces. Deliberately explains the *specific* limit
@@ -50,6 +61,7 @@ export function UpgradePrompt({
     title: "Plan limit reached",
     hint: "Upgrade for a bigger allowance.",
   }
+  const signIn = SIGN_IN_KINDS.has(quota.kind)
 
   return (
     <div
@@ -72,13 +84,21 @@ export function UpgradePrompt({
 
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             <Link
-              href="/pricing"
+              href={signIn ? "/login" : "/pricing"}
               className="inline-flex items-center gap-1.5 rounded-full bg-amber-900 px-3.5 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
             >
-              <Sparkles className="size-3" />
-              View plans
+              {signIn ? <LogIn className="size-3" /> : <Sparkles className="size-3" />}
+              {signIn ? "Sign in — free" : "View plans"}
               <ArrowRight className="size-3" />
             </Link>
+            {signIn && (
+              <Link
+                href="/signup"
+                className="rounded-full px-3 py-1.5 text-xs text-amber-800 transition-colors hover:bg-amber-100"
+              >
+                Create account
+              </Link>
+            )}
             {onDismiss && (
               <button
                 onClick={onDismiss}

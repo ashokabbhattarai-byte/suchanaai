@@ -981,6 +981,15 @@ export class NoticesService {
     if (pgResults.length === 0 && pageCategory && !intent.category) {
       pgResults = await this.keywordSearch(intent, undefined);
     }
+    // Same reasoning for the date window: nothing published in the window is
+    // worth saying, but only against the notices that do exist. Dropping the
+    // window here lets the model answer "the nearest I have is from Aug 28"
+    // instead of the corpus looking empty on that subject.
+    const windowEmpty =
+      pgResults.length === 0 && Boolean(intent.dateFrom || intent.dateTo);
+    if (windowEmpty) {
+      pgResults = await this.keywordSearch(intent, effectiveCategory, true);
+    }
 
     // Step 2: Pass to AI service for hybrid search + LLM answer generation
     try {
@@ -1008,6 +1017,18 @@ export class NoticesService {
             // The AI service orders its own Qdrant fallback by similarity,
             // which is the wrong axis for "latest"/"recent" questions.
             recency_intent: intent.wantsLatest,
+            // The date the answer must be dated to, and the window retrieval
+            // may look in. The semantic leg filters on these; the model is told
+            // the as-of date so a later notice's figure is never presented as
+            // the answer for the date that was asked about.
+            as_of: intent.asOf ?? null,
+            date_from: intent.dateFrom?.toISOString() ?? null,
+            date_to: intent.dateTo?.toISOString() ?? null,
+            // A window that matched nothing was dropped above; say so, or the
+            // AI would filter the semantic leg by a window we already know is
+            // empty and answer "nothing found" against a corpus that has the
+            // subject.
+            window_relaxed: windowEmpty,
             // Set once the user has answered (or dismissed) a clarifying
             // question, so re-asking the same thing can't loop on it.
             skip_clarification: skipClarification,
@@ -1061,7 +1082,11 @@ export class NoticesService {
    * term and ranking the candidates in-process is what makes the answer
    * correspond to the question.
    */
-  private async keywordSearch(intent: SearchIntent, category?: ScrapedItemCategory) {
+  private async keywordSearch(
+    intent: SearchIntent,
+    category?: ScrapedItemCategory,
+    ignoreWindow = false,
+  ) {
     const select = {
       id: true,
       title: true,
@@ -1071,13 +1096,23 @@ export class NoticesService {
       sourceUrl: true,
       publishedAt: true,
     } as const;
-    const where: Prisma.ScrapedItemWhereInput = category ? { category } : {};
+
+    const from = ignoreWindow ? undefined : intent.dateFrom;
+    const to = ignoreWindow ? undefined : intent.dateTo;
+    const hasWindow = Boolean(from || to);
+    const where: Prisma.ScrapedItemWhereInput = {
+      ...(category ? { category } : {}),
+      ...(hasWindow
+        ? { publishedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
+        : {}),
+    };
 
     // "Latest tender notices" is *entirely* intent + category once those are
     // parsed out — there is no content word left to match. The honest reading
-    // is "the newest ones", not "nothing found".
+    // is "the newest ones", not "nothing found". A bare date window ("notices
+    // from last week") reads the same way.
     if (intent.terms.length === 0) {
-      if (!intent.wantsLatest && !category) return [];
+      if (!intent.wantsLatest && !category && !hasWindow) return [];
       return this.prisma.scrapedItem.findMany({
         where,
         select,
@@ -1121,10 +1156,13 @@ export class NoticesService {
     const ranked = scored.some((s) => s.score > 0) ? scored.filter((s) => s.score > 0) : scored;
 
     const time = (r: (typeof ranked)[number]) => r.row.publishedAt?.getTime() ?? 0;
+    // "Latest X" asks for a date ordering over the matching set, and so does a
+    // question pinned to a date — there the newest notice inside the window is
+    // the one that states the current figure. Everything else wants the best
+    // match first.
+    const byDate = intent.wantsLatest || Boolean(intent.asOf);
     ranked.sort((a, b) =>
-      // "Latest X" asks for a date ordering over the matching set; every
-      // other question wants the best match first.
-      intent.wantsLatest ? time(b) - time(a) || b.score - a.score : b.score - a.score || time(b) - time(a),
+      byDate ? time(b) - time(a) || b.score - a.score : b.score - a.score || time(b) - time(a),
     );
 
     return ranked.slice(0, 10).map((s) => s.row);
@@ -1193,13 +1231,158 @@ export interface SearchIntent {
   wantsLatest: boolean;
   /** Category named by the question itself, if any. */
   category?: ScrapedItemCategory;
+  /**
+   * The single date the question asked about ("on Sept 2"), as YYYY-MM-DD.
+   * Distinct from the window: it is what the answer must be dated *to*, while
+   * the window is merely what retrieval is allowed to see.
+   */
+  asOf?: string;
+  /** Retrieval window derived from the question. Inclusive on both ends. */
+  dateFrom?: Date;
+  dateTo?: Date;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// A notice describing what happened on the 2nd is routinely published on the
+// 3rd or 4th, so a question about the 2nd has to be allowed to see them.
+const REPORTING_LAG_DAYS = 3;
+
+// How far back a point-in-time question looks for the same story's earlier
+// updates, so the answer can give the progression and not just one figure.
+const AS_OF_LOOKBACK_DAYS = 30;
+
+const MONTHS: Record<string, number> = {
+  jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3,
+  may: 4, jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7, sep: 8, sept: 8,
+  september: 8, oct: 9, october: 9, nov: 10, november: 10, dec: 11, december: 11,
+};
+
+// Matches ISO (2025-09-02), "sept 2" / "september 2, 2025", and "2 september".
+// The bare-word alternatives deliberately over-match ("flood 2" fits the
+// shape); parseDateToken rejects them by looking the month name up.
+const DATE_TOKEN = String.raw`(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|[a-z]{3,9}\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?|\d{1,2}(?:st|nd|rd|th)?\s+[a-z]{3,9}\.?(?:,?\s+\d{4})?)`;
+
+function utcDay(year: number, month: number, day: number): Date | null {
+  const d = new Date(Date.UTC(year, month, day));
+  // Date.UTC rolls overflow forward (Feb 30 becomes Mar 2), which would turn a
+  // typo into a confidently wrong date filter.
+  if (d.getUTCMonth() !== month || d.getUTCDate() !== day) return null;
+  return d;
+}
+
+const endOfDay = (d: Date) => new Date(d.getTime() + DAY_MS - 1);
+const daysBefore = (d: Date, n: number) => new Date(d.getTime() - n * DAY_MS);
+const startOfUtcDay = (d: Date) =>
+  new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+
+/** One date expression to UTC midnight of the day it names, or null. */
+function parseDateToken(token: string, now: Date): Date | null {
+  const t = token.trim().toLowerCase();
+
+  const iso = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(t);
+  if (iso) return utcDay(+iso[1], +iso[2] - 1, +iso[3]);
+
+  let month: number | undefined;
+  let day: number;
+  let year: string | undefined;
+
+  const monthFirst = /^([a-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?$/.exec(t);
+  const dayFirst = /^(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3,9})\.?(?:,?\s+(\d{4}))?$/.exec(t);
+  if (monthFirst) {
+    [month, day, year] = [MONTHS[monthFirst[1]], +monthFirst[2], monthFirst[3]];
+  } else if (dayFirst) {
+    [month, day, year] = [MONTHS[dayFirst[2]], +dayFirst[1], dayFirst[3]];
+  } else {
+    return null;
+  }
+  if (month === undefined) return null;
+
+  if (year) return utcDay(+year, month, day);
+
+  // No year given: the most recent occurrence that isn't in the future. A
+  // question asked in January about "December 20" means last December.
+  const candidate = utcDay(now.getUTCFullYear(), month, day);
+  if (!candidate) return null;
+  if (candidate.getTime() > now.getTime() + REPORTING_LAG_DAYS * DAY_MS) {
+    return utcDay(now.getUTCFullYear() - 1, month, day);
+  }
+  return candidate;
+}
+
+/**
+ * A point-in-time question: everything up to the named date so the earlier
+ * updates of the same story are visible, plus a lag forward so the notice that
+ * actually reports that day is not excluded for being filed a day late.
+ */
+function asOfWindow(day: Date): Pick<SearchIntent, 'asOf' | 'dateFrom' | 'dateTo'> {
+  return {
+    asOf: day.toISOString().slice(0, 10),
+    dateFrom: daysBefore(day, AS_OF_LOOKBACK_DAYS),
+    dateTo: endOfDay(new Date(day.getTime() + REPORTING_LAG_DAYS * DAY_MS)),
+  };
+}
+
+/**
+ * The date window a question asks retrieval to look in.
+ *
+ * Only *explicit* dates produce a window. Vague recency ("latest", "current")
+ * stays with `wantsLatest`, which reorders results — turning it into a filter
+ * would answer "nothing found" whenever the newest notice predates the window.
+ */
+export function parseTemporalWindow(
+  question: string,
+  now: Date = new Date(),
+): Pick<SearchIntent, 'asOf' | 'dateFrom' | 'dateTo'> {
+  const q = question.toLowerCase();
+
+  const between = new RegExp(`between\\s+(${DATE_TOKEN})\\s+and\\s+(${DATE_TOKEN})`).exec(q);
+  if (between) {
+    const a = parseDateToken(between[1], now);
+    const b = parseDateToken(between[2], now);
+    if (a && b) {
+      const [lo, hi] = a <= b ? [a, b] : [b, a];
+      return { dateFrom: lo, dateTo: endOfDay(hi) };
+    }
+  }
+
+  const since = new RegExp(`(?:since|after|from)\\s+(${DATE_TOKEN})`).exec(q);
+  if (since) {
+    const d = parseDateToken(since[1], now);
+    if (d) return { dateFrom: d };
+  }
+
+  const before = new RegExp(`(?:before|until|till|up to)\\s+(${DATE_TOKEN})`).exec(q);
+  if (before) {
+    const d = parseDateToken(before[1], now);
+    if (d) return { dateTo: endOfDay(d) };
+  }
+
+  if (/\byesterday\b/.test(q)) return asOfWindow(daysBefore(startOfUtcDay(now), 1));
+  if (/\btoday\b/.test(q)) return asOfWindow(startOfUtcDay(now));
+
+  const lastNDays = /\b(?:last|past|previous)\s+(\d{1,2})\s+days?\b/.exec(q);
+  if (lastNDays) return { dateFrom: daysBefore(now, +lastNDays[1]) };
+  if (/\b(?:last|past|previous)\s+week\b/.test(q)) return { dateFrom: daysBefore(now, 7) };
+  if (/\b(?:last|past|previous)\s+month\b/.test(q)) return { dateFrom: daysBefore(now, 30) };
+
+  // A bare date anywhere in the question ("how many died sept 2"). Safe to
+  // scan without a preposition because the month name is validated.
+  const bare = new RegExp(DATE_TOKEN, 'g');
+  for (const match of q.matchAll(bare)) {
+    const d = parseDateToken(match[0], now);
+    if (d) return asOfWindow(d);
+  }
+
+  return {};
 }
 
 /** Words that carry no retrieval signal in a notice corpus (every row is a "notice"). */
 const SEARCH_STOP_WORDS = new Set([
   'a', 'about', 'all', 'am', 'an', 'and', 'announcement', 'announcements', 'any', 'are', 'as',
   'at', 'be', 'been', 'by', 'can', 'do', 'does', 'find', 'for', 'from', 'get', 'give', 'has',
-  'have', 'i', 'in', 'is', 'it', 'list', 'me', 'my', 'notice', 'notices', 'of', 'on', 'or',
+  'have', 'how', 'i', 'in', 'is', 'it', 'list', 'many', 'me', 'much', 'my', 'notice',
+  'notices', 'of', 'on', 'or',
   'please', 'search', 'show', 'some', 'suchana', 'tell', 'that', 'the', 'there', 'these',
   'this', 'to', 'update', 'updates', 'was', 'were', 'what', 'when', 'where', 'which', 'who',
   'with', 'you', 'your',
@@ -1255,17 +1438,28 @@ export function parseSearchIntent(question: string): SearchIntent {
 
   const wantsLatest = words.some((w) => RECENCY_WORDS.has(w));
   const category = words.map((w) => CATEGORY_WORDS[w]).find(Boolean);
+  const temporal = parseTemporalWindow(question);
+
+  // Month names and day numbers are already expressed as the window; leaving
+  // them as keyword terms matches every notice that happens to print the word
+  // "September" and drowns the ones the window actually selected.
+  const dateWords = new Set(
+    temporal.asOf || temporal.dateFrom || temporal.dateTo
+      ? Object.keys(MONTHS).concat('yesterday', 'today')
+      : [],
+  );
 
   const terms = words.filter(
     (w) =>
       w.length > 2 &&
       !SEARCH_STOP_WORDS.has(w) &&
       !RECENCY_WORDS.has(w) &&
+      !dateWords.has(w) &&
       // Already expressed as a category filter — matching the literal word
       // "tender" against titles would then rank English-titled notices above
       // the Nepali ones that make up most of the corpus.
       !(category && CATEGORY_WORDS[w] === category),
   );
 
-  return { terms: Array.from(new Set(terms)), wantsLatest, category };
+  return { terms: Array.from(new Set(terms)), wantsLatest, category, ...temporal };
 }

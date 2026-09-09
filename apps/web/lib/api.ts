@@ -108,6 +108,9 @@ export type QuotaKind =
   | "whatsapp_notifications"
   | "upload_size"
   | "instant_alerts"
+  // Signed-out visitor spent their free daily chats. Fixed by signing in, not
+  // by paying — the prompt shows a sign-in CTA rather than the price page.
+  | "anonymous_ai_questions"
 
 export interface QuotaDenial {
   kind: QuotaKind
@@ -1401,6 +1404,18 @@ export async function searchNotices(
     method: "POST",
     body: JSON.stringify({ question, category, language, skipClarification }),
   })
+}
+
+/** Free chatbot questions left today. `anonymous: false` once signed in. */
+export interface ChatAllowance {
+  anonymous: boolean
+  used: number
+  limit: number | null
+  remaining: number | null
+}
+
+export async function fetchChatAllowance(): Promise<ChatAllowance> {
+  return apiFetch("/notices/meta/chat-allowance")
 }
 
 export async function fetchNoticeCategoryCounts(): Promise<Record<string, number>> {

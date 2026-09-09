@@ -1,13 +1,14 @@
 "use client"
 
 import React, { useState, useRef, useEffect, useCallback } from "react"
+import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { MessageCircle, X, Send, Bot, User, Sparkles, ExternalLink, FileText, Maximize2, Minimize2, HelpCircle, RotateCcw } from "lucide-react"
 import { ChatMarkdown } from "@/components/chat/chat-markdown"
 import { Button } from "@/components/ui/button"
 import { CopyButton } from "@/components/ui/copy-button"
 import { cn } from "@/lib/utils"
-import { searchNotices, askNoticeQuestion, isQuotaError, NoticeSearchResponse, type QuotaDenial } from "@/lib/api"
+import { searchNotices, askNoticeQuestion, isQuotaError, fetchChatAllowance, NoticeSearchResponse, type ChatAllowance, type QuotaDenial } from "@/lib/api"
 import { useNoticeContext } from "@/lib/notice-context"
 import { useChatStore, type ChatMessage as Message } from "@/lib/chat-store"
 import { UpgradePrompt } from "@/components/billing/upgrade-prompt"
@@ -63,6 +64,7 @@ export function FloatingChat() {
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [quota, setQuota] = useState<QuotaDenial | null>(null)
+  const [allowance, setAllowance] = useState<ChatAllowance | null>(null)
   const chatRef = useRef<HTMLDivElement>(null)
   const messagesEnd = useRef<HTMLDivElement>(null)
   const fabRef = useRef<HTMLButtonElement>(null)
@@ -73,6 +75,20 @@ export function FloatingChat() {
   const [size, setSize] = useState<ChatSize | null>(null)
   const [isDesktop, setIsDesktop] = useState(false)
   const resizingRef = useRef<{ startX: number; startY: number; startSize: ChatSize } | null>(null)
+
+  // Free-question count for signed-out visitors, refreshed after each message
+  // so the hint counts down as they are spent. Best-effort: the wall is
+  // enforced server-side, this only warns before they hit it.
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    fetchChatAllowance()
+      .then((a) => !cancelled && setAllowance(a))
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [open, messages.length])
 
   // Resizing is a floating-card-only affordance — track the sm: breakpoint
   // so drag/maximize never applies to the mobile bottom sheet.
@@ -513,6 +529,20 @@ export function FloatingChat() {
                 <UpgradePrompt quota={quota} compact onDismiss={() => setQuota(null)} />
               </div>
             )}
+            {/* Only once it is nearly spent — a counter shown from the first
+                question reads as a paywall on a product they haven't tried. */}
+            {!quota &&
+              allowance?.anonymous &&
+              allowance.remaining !== null &&
+              allowance.remaining <= 3 && (
+                <p className="mb-2 text-center text-[11px] text-vez-mute">
+                  {allowance.remaining} free question{allowance.remaining === 1 ? "" : "s"} left
+                  today ·{" "}
+                  <Link href="/login" className="underline hover:text-vez-ink">
+                    Sign in for more
+                  </Link>
+                </p>
+              )}
             <form onSubmit={(e) => { e.preventDefault(); handleSend() }} className="flex items-center gap-2">
               <input
                 type="text"

@@ -1790,6 +1790,11 @@ async def _notices_search(receive) -> tuple[int, dict]:
             top_k=top_k,
             recency_intent=bool(data.get("recency_intent")),
             skip_clarification=bool(data.get("skip_clarification")),
+            # Temporal scope parsed by the API from the question text.
+            as_of=data.get("as_of") or None,
+            date_from=data.get("date_from") or None,
+            date_to=data.get("date_to") or None,
+            window_relaxed=bool(data.get("window_relaxed")),
         )
         return 200, result
     except Exception as e:

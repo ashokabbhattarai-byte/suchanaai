@@ -1,4 +1,5 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { PlanTier, UsageMetric } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PlansService } from './plans.service';
@@ -11,7 +12,10 @@ export type QuotaKind =
   | 'alert_rules'
   | 'whatsapp_notifications'
   | 'upload_size'
-  | 'instant_alerts';
+  | 'instant_alerts'
+  // Signed-out visitor spent their free chats. Not a plan limit — the fix is
+  // to sign in, not to pay — so the UI shows a sign-in CTA, not a price page.
+  | 'anonymous_ai_questions';
 
 export interface QuotaDenial {
   kind: QuotaKind;
@@ -104,6 +108,90 @@ export class QuotaService {
 
   recordAiQuestion(userId: string, context?: Record<string, unknown>) {
     return this.usage.record(userId, UsageMetric.AI_QUESTION, 1, context);
+  }
+
+  // ── Signed-out visitors ────────────────────────────────────────────────
+  // A taste of the assistant without an account, then a sign-in wall. Counted
+  // per client per UTC day: a lifetime cap would permanently lock out everyone
+  // behind a shared office or campus NAT, who look like one client here.
+
+  private get anonDailyLimit(): number {
+    const raw = Number(process.env.ANON_AI_QUESTIONS_PER_DAY ?? 5);
+    return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 5;
+  }
+
+  /** Midnight UTC today — the bucket an anonymous counter belongs to. */
+  private currentAnonDay(): Date {
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  }
+
+  /**
+   * Salted SHA-256 of the caller's IP. Salted so the table can't be brute-forced
+   * back to an address list — the IPv4 space is small enough to enumerate
+   * against an unsalted hash in minutes.
+   */
+  hashClient(ip: string | undefined): string {
+    const salt =
+      process.env.ANON_QUOTA_SALT || process.env.JWT_SECRET || 'pnm-anon-quota';
+    return createHash('sha256').update(`${salt}:${ip ?? 'unknown'}`).digest('hex');
+  }
+
+  /**
+   * Assert a signed-out visitor still has free chats today.
+   *
+   * Read-only: the increment is a separate call made only once the answer
+   * actually came back, matching the "assert, then record" rule above — a
+   * failed request must not spend a visitor's small allowance.
+   */
+  async assertAnonymousCanAskAi(clientHash: string): Promise<void> {
+    const limit = this.anonDailyLimit;
+    if (limit === 0) {
+      this.deny({
+        kind: 'anonymous_ai_questions',
+        limit: 0,
+        used: 0,
+        tier: PlanTier.FREE,
+        message: 'Sign in to use the assistant.',
+      });
+    }
+
+    const row = await this.prisma.anonAiUsage.findUnique({
+      where: { clientHash_day: { clientHash, day: this.currentAnonDay() } },
+      select: { count: true },
+    });
+    const used = row?.count ?? 0;
+    if (used >= limit) {
+      this.deny({
+        kind: 'anonymous_ai_questions',
+        limit,
+        used,
+        tier: PlanTier.FREE,
+        message: `You've used your ${limit} free question${limit === 1 ? '' : 's'} for today. Sign in to keep asking — it's free.`,
+      });
+    }
+  }
+
+  /**
+   * Spend one free chat. The upsert is atomic, so two questions racing from the
+   * same client both count instead of one overwriting the other's read.
+   */
+  async recordAnonymousAiQuestion(clientHash: string): Promise<void> {
+    const day = this.currentAnonDay();
+    await this.prisma.anonAiUsage.upsert({
+      where: { clientHash_day: { clientHash, day } },
+      create: { clientHash, day, count: 1 },
+      update: { count: { increment: 1 } },
+    });
+  }
+
+  /** Free chats left today, for the banner the UI shows before the wall. */
+  async anonymousRemaining(clientHash: string): Promise<{ used: number; limit: number }> {
+    const row = await this.prisma.anonAiUsage.findUnique({
+      where: { clientHash_day: { clientHash, day: this.currentAnonDay() } },
+      select: { count: true },
+    });
+    return { used: row?.count ?? 0, limit: this.anonDailyLimit };
   }
 
   /**
