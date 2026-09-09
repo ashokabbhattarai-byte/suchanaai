@@ -1,12 +1,33 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
-import { AlertRule } from '@prisma/client';
+import { AlertNotificationStatus, AlertRule } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AlertMatchingService } from './alert-matching.service';
 import { CreateAlertRuleDto } from '../dto/create-alert-rule.dto';
 import { UpdateAlertRuleDto } from '../dto/update-alert-rule.dto';
 
+/** One entry of the in-app alert feed behind the header bell. */
+export interface AlertFeedEntry {
+  id: string;
+  status: AlertNotificationStatus;
+  channels: string[];
+  matchedAt: Date;
+  readAt: Date | null;
+  ruleName: string;
+  notice: {
+    id: string;
+    title: string;
+    category: string;
+    sourceLabel: string;
+    publishedAt: Date | null;
+  };
+}
+
 @Injectable()
 export class AlertsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly matching: AlertMatchingService,
+  ) {}
 
   findAllForUser(userId: string): Promise<AlertRule[]> {
     return this.prisma.alertRule.findMany({
@@ -15,9 +36,9 @@ export class AlertsService {
     });
   }
 
-  create(userId: string, dto: CreateAlertRuleDto): Promise<AlertRule> {
+  async create(userId: string, dto: CreateAlertRuleDto): Promise<AlertRule> {
     this.assertHasPrimaryDimension({ categories: dto.categories, tags: dto.tags });
-    return this.prisma.alertRule.create({
+    const rule = await this.prisma.alertRule.create({
       data: {
         userId,
         name: dto.name,
@@ -32,6 +53,54 @@ export class AlertsService {
         deadlineWithinDays: dto.deadlineWithinDays ?? null,
       },
     });
+
+    // Match the new rule against notices that already exist, in the
+    // background — otherwise it reads "0 matches" until the next scrape run
+    // happens to find something, which looks broken. Queued only, never
+    // sent instantly: see AlertMatchingService.backfillRule.
+    void this.matching.backfillRule(rule.id);
+
+    return rule;
+  }
+
+  /** Recent matches for the header bell / dashboard feed, newest first. */
+  async feedForUser(userId: string, limit = 20): Promise<{ entries: AlertFeedEntry[]; unread: number }> {
+    const take = Math.min(Math.max(1, limit), 50);
+    const [rows, unread] = await Promise.all([
+      this.prisma.alertNotification.findMany({
+        where: { userId },
+        include: {
+          alertRule: { select: { name: true } },
+          scrapedItem: {
+            select: { id: true, title: true, category: true, sourceLabel: true, publishedAt: true },
+          },
+        },
+        orderBy: { sentAt: 'desc' },
+        take,
+      }),
+      this.prisma.alertNotification.count({ where: { userId, readAt: null } }),
+    ]);
+
+    return {
+      unread,
+      entries: rows.map((row) => ({
+        id: row.id,
+        status: row.status,
+        channels: row.channels,
+        matchedAt: row.sentAt,
+        readAt: row.readAt,
+        ruleName: row.alertRule.name,
+        notice: row.scrapedItem,
+      })),
+    };
+  }
+
+  async markFeedRead(userId: string): Promise<{ read: number }> {
+    const { count } = await this.prisma.alertNotification.updateMany({
+      where: { userId, readAt: null },
+      data: { readAt: new Date() },
+    });
+    return { read: count };
   }
 
   async update(userId: string, id: string, dto: UpdateAlertRuleDto): Promise<AlertRule> {
@@ -46,7 +115,7 @@ export class AlertsService {
       tags: dto.tags !== undefined ? dto.tags : rule.tags,
     });
 
-    return this.prisma.alertRule.update({
+    const updated = await this.prisma.alertRule.update({
       where: { id: rule.id },
       data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
@@ -61,6 +130,29 @@ export class AlertsService {
         ...(dto.deadlineWithinDays !== undefined ? { deadlineWithinDays: dto.deadlineWithinDays } : {}),
       },
     });
+
+    // Widening a rule (or switching it back on) should show its effect right
+    // away. Already-matched notices are deduped by the notification's unique
+    // constraint, so re-running this is safe and never double-counts.
+    if (updated.enabled && this.touchesFilters(dto)) {
+      void this.matching.backfillRule(updated.id);
+    }
+
+    return updated;
+  }
+
+  /** True when the PATCH could change which notices the rule matches. */
+  private touchesFilters(dto: UpdateAlertRuleDto): boolean {
+    return (
+      dto.enabled !== undefined ||
+      dto.categories !== undefined ||
+      dto.tags !== undefined ||
+      dto.keywords !== undefined ||
+      dto.excludeKeywords !== undefined ||
+      dto.organizations !== undefined ||
+      dto.minUrgency !== undefined ||
+      dto.deadlineWithinDays !== undefined
+    );
   }
 
   async remove(userId: string, id: string): Promise<void> {

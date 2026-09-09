@@ -6,6 +6,7 @@ import { NotificationsService } from '../services/notifications.service';
 import { RequestWhatsappOtpDto } from '../dto/request-whatsapp-otp.dto';
 import { VerifyWhatsappOtpDto } from '../dto/verify-whatsapp-otp.dto';
 import { ToggleWhatsappAlertsDto } from '../dto/toggle-whatsapp-alerts.dto';
+import { ToggleEmailAlertsDto } from '../dto/toggle-email-alerts.dto';
 import { SetDigestFrequencyDto } from '../dto/set-digest-frequency.dto';
 
 @Controller('notifications/whatsapp')
@@ -41,5 +42,26 @@ export class NotificationsController {
   @Delete()
   disconnect(@CurrentUser() user: User) {
     return this.notificationsService.disconnect(user.id);
+  }
+}
+
+/**
+ * The email alert channel for the signed-in user. Nothing to verify — alerts
+ * go to the account email — so this is only an on/off switch plus whether the
+ * admin has SMTP configured at all.
+ */
+@Controller('notifications')
+@UseGuards(JwtAuthGuard)
+export class AlertChannelStatusController {
+  constructor(private readonly notificationsService: NotificationsService) {}
+
+  @Get('channels')
+  channels(@CurrentUser() user: User) {
+    return this.notificationsService.getChannels(user.id);
+  }
+
+  @Patch('email/toggle')
+  toggleEmail(@CurrentUser() user: User, @Body() dto: ToggleEmailAlertsDto) {
+    return this.notificationsService.toggleEmailAlerts(user.id, dto.enabled);
   }
 }

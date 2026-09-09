@@ -6,12 +6,13 @@ import {
   MessageSquare, ChevronRight,
   LayoutPanelLeft, BookOpen, Copy, Trash2,
   ThumbsUp, ThumbsDown, RefreshCw, CheckCircle,
-  AlertCircle, Loader2, X, File, Download, ArrowRight,
+  AlertCircle, Loader2, X, File, Download, ArrowRight, Workflow,
 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { Header } from "@/components/layout/header"
-import { ChatMessage, RagDocument, RagSource, DocumentProgress } from "@/lib/types"
+import { ChatMessage, RagDocument, RagSource, DocumentProgress, RagRunTrace } from "@/lib/types"
+import { WorkflowPreview } from "@/components/rag/workflow-preview"
 import { useAuth } from "@/lib/auth-context"
 import Link from "next/link"
 import {
@@ -654,7 +655,17 @@ export default function RagPage() {
   }])
   const [ratings, setRatings] = useState<Record<string, "up" | "down">>({})
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  // The pipeline preview replays the last real answer; before one exists it
+  // falls back to a sample run so the workflow can still be demoed.
+  const [lastRun, setLastRun] = useState<RagRunTrace | null>(null)
+  const [previewRun, setPreviewRun] = useState<RagRunTrace | null>(null)
+  const [showWorkflow, setShowWorkflow] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
+
+  const openWorkflow = (run?: RagRunTrace | null) => {
+    setPreviewRun(run ?? lastRun)
+    setShowWorkflow(true)
+  }
 
   const indexedDocs = docs.filter(d => d.status === "INDEXED")
   const embeddedCount = indexedDocs.length
@@ -887,7 +898,28 @@ export default function RagPage() {
     setTyping(true)
 
     try {
+      const startedAt = performance.now()
       const result = await ragQuery(q, docIdOverride)
+      // Everything the pipeline preview replays comes from this one response:
+      // per-stage timings measured in the AI service, plus the browser's own
+      // round trip so API and network overhead stays visible.
+      const run: RagRunTrace = {
+        question: q,
+        answer: result.answer,
+        askedAt: userMsg.timestamp,
+        authenticated: !!user,
+        documentId: docIdOverride ?? null,
+        clientMs: Math.round(performance.now() - startedAt),
+        aiMs: result.ai_ms ?? null,
+        searchMode: result.search_mode ?? null,
+        modelUsed: result.model_used,
+        scopeDocCount: result.scope_doc_count ?? null,
+        scopeLabel: docIdOverride
+          ? (docs.find(d => d.id === docIdOverride)?.title ?? "Selected document")
+          : "All ready documents",
+        stages: result.pipeline ?? [],
+        sources: result.sources,
+      }
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -895,7 +927,9 @@ export default function RagPage() {
         timestamp: new Date().toISOString(),
         sources: result.sources.length > 0 ? result.sources : undefined,
         modelUsed: result.model_used,
+        run,
       }
+      setLastRun(run)
       setMessages(prev => [...prev, assistantMsg])
     } catch (e) {
       // A spent AI allowance is a billing state, not a chat failure — surface
@@ -1172,6 +1206,16 @@ export default function RagPage() {
                   >
                     <ThumbsDown className="size-3.5" />
                   </button>
+                  {msg.run && (
+                    <button
+                      onClick={() => openWorkflow(msg.run)}
+                      title="Replay how this answer was produced"
+                      className="flex items-center gap-1 rounded-lg p-2 text-vez-mute/60 transition-colors hover:bg-vez-surface hover:text-vez-navy"
+                    >
+                      <Workflow className="size-3.5" />
+                      <span className="text-[11px] font-medium">Pipeline</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1263,6 +1307,16 @@ export default function RagPage() {
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={() => openWorkflow()}
+              title={lastRun ? "Replay how your last answer was produced" : "See how an answer is produced"}
+              className="flex min-h-[44px] items-center gap-2 rounded-lg border border-vez-line bg-white px-3 py-2 text-sm font-medium text-vez-ink shadow-sm transition-all hover:border-vez-sky hover:bg-vez-sky/10 hover:shadow sm:px-3.5"
+            >
+              <Workflow className="size-4 text-vez-navy" />
+              <span className="hidden sm:inline">Preview</span>
+              <span className="hidden lg:inline">pipeline</span>
+              {lastRun && <span className="size-1.5 rounded-full bg-emerald-500" />}
+            </button>
             <button
               onClick={() => loadDocs()}
               aria-label="Refresh documents"
@@ -1358,6 +1412,14 @@ export default function RagPage() {
       </div>
 
       {showUpload && <UploadModal onClose={() => setShowUpload(false)} onUploaded={() => loadDocs()} />}
+
+      {showWorkflow && (
+        <WorkflowPreview
+          run={previewRun}
+          isSample={!previewRun}
+          onClose={() => setShowWorkflow(false)}
+        />
+      )}
     </div>
   )
 }

@@ -305,6 +305,16 @@ export class EmailChannelService {
   // ── send (for the alert pipeline) ─────────────────────────────────────
 
   /**
+   * True when send() could actually deliver. The alert pipeline checks this
+   * first so "the admin hasn't set SMTP up" is recorded as a skipped channel
+   * rather than a delivery failure.
+   */
+  async isReady(): Promise<boolean> {
+    const config = await this.getConfig();
+    return config.enabled && config.configured;
+  }
+
+  /**
    * Deliver one alert email. Returns false rather than throwing when the
    * channel is off or misconfigured, so a broken SMTP box can never take
    * down the alert queue — matching EvolutionApiService.sendText().

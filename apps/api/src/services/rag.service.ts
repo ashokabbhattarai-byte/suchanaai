@@ -4,6 +4,13 @@ import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 
+/** One stage the AI service actually executed, as measured there. */
+export interface RagPipelineStage {
+  id: string;
+  ms: number;
+  detail: Record<string, any>;
+}
+
 export interface RagQueryResult {
   answer: string;
   sources: Array<{
@@ -14,6 +21,12 @@ export interface RagQueryResult {
     title?: string;
   }>;
   model_used: string | null;
+  search_mode?: string | null;
+  pipeline?: RagPipelineStage[];
+  // Time spent inside the AI service, excluding this hop.
+  ai_ms?: number | null;
+  // Documents the caller was allowed to search, for the pipeline view.
+  scope_doc_count?: number | null;
 }
 
 @Injectable()
@@ -48,6 +61,7 @@ export class RagService {
             answer: 'This document is not available for querying.',
             sources: [],
             model_used: 'none',
+            pipeline: [],
           };
         }
       }
@@ -73,6 +87,10 @@ export class RagService {
         answer: response.data.answer ?? '',
         sources: response.data.sources ?? [],
         model_used: response.data.model_used ?? 'unknown',
+        search_mode: response.data.search_mode ?? null,
+        pipeline: response.data.pipeline ?? [],
+        ai_ms: response.data.total_ms ?? null,
+        scope_doc_count: documentId ? 1 : (allowedDocIds?.length ?? null),
       };
     } catch (err: any) {
       // axios reduces an upstream failure to "Request failed with status code
@@ -91,6 +109,7 @@ export class RagService {
             'The AI service could not answer right now. Please try again in a moment.',
           sources: [],
           model_used: 'none',
+          pipeline: [],
         };
       }
 

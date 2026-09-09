@@ -73,6 +73,86 @@ export function renderTemplate(template: string, data: Record<string, string>): 
   return out;
 }
 
+/** Escape for interpolation into the HTML email body. */
+function esc(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * The email rendering of one alert, built from the same token data as the
+ * WhatsApp message. Deliberately not the WhatsApp template: `*bold*` renders
+ * as literal asterisks in a mail client, and email has a subject line and
+ * room for a real layout.
+ */
+export function renderAlertEmail(data: Record<string, string>): {
+  subject: string;
+  text: string;
+  html: string;
+} {
+  const title = data.title || 'New notice';
+  const subject = `${data.categoryEmoji} ${title}`.slice(0, 180);
+
+  const facts: [string, string][] = [
+    ['Organization', data.organization],
+    ['Published', data.publishedDate],
+    ['Deadline', data.deadlineDate],
+    ['Urgency', data.urgencyLabel ? `${data.urgencyEmoji} ${data.urgencyLabel}` : ''],
+  ];
+  const present = facts.filter(([, v]) => v);
+
+  const text = [
+    `${data.categoryEmoji} ${data.categoryLabel} alert`,
+    '',
+    title,
+    '',
+    ...present.map(([k, v]) => `${k}: ${v}`),
+    ...(data.summary ? ['', 'Summary:', data.summary] : []),
+    ...(data.keyFacts ? ['', 'Key facts:', data.keyFacts] : []),
+    '',
+    `Matched your alert "${data.ruleName}" (${data.matchReason}).`,
+    '',
+    `Read the full notice: ${data.noticeUrl}`,
+    `Manage your alerts: ${data.manageUrl}`,
+  ].join('\n');
+
+  const html = `<!doctype html>
+<html><body style="margin:0;padding:24px;background:#f4f6f8;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#12203a">
+  <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;padding:28px">
+    <p style="margin:0 0 4px;font-size:13px;color:#5b6b86">${esc(data.categoryEmoji)} ${esc(data.categoryLabel)} alert</p>
+    <h1 style="margin:0 0 16px;font-size:20px;line-height:1.35;font-weight:600">${esc(title)}</h1>
+    ${present
+      .map(
+        ([k, v]) =>
+          `<p style="margin:0 0 6px;font-size:14px"><span style="color:#5b6b86">${esc(k)}:</span> ${esc(v)}</p>`,
+      )
+      .join('')}
+    ${data.summary ? `<p style="margin:18px 0 0;font-size:14px;line-height:1.6">${esc(data.summary)}</p>` : ''}
+    ${
+      data.keyFacts
+        ? `<ul style="margin:14px 0 0;padding-left:18px;font-size:14px;line-height:1.6">${data.keyFacts
+            .split('\n')
+            .map((f) => `<li>${esc(f.replace(/^•\s*/, ''))}</li>`)
+            .join('')}</ul>`
+        : ''
+    }
+    <p style="margin:22px 0 0">
+      <a href="${esc(data.noticeUrl)}" style="display:inline-block;background:#12203a;color:#ffffff;text-decoration:none;padding:11px 22px;border-radius:999px;font-size:14px">Read the full notice</a>
+    </p>
+    <hr style="margin:26px 0 14px;border:0;border-top:1px solid #e6eaf0" />
+    <p style="margin:0;font-size:12px;color:#5b6b86">
+      Matched your alert <strong>${esc(data.ruleName)}</strong> (${esc(data.matchReason)}).<br />
+      <a href="${esc(data.manageUrl)}" style="color:#5b6b86">Manage your alerts</a>
+    </p>
+  </div>
+</body></html>`;
+
+  return { subject, text, html };
+}
+
 /** Realistic fixture data for the admin's live preview — no real notice required. */
 export function sampleTemplateData(): Record<string, string> {
   return {

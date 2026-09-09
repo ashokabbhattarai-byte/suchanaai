@@ -301,23 +301,58 @@ async def query(
         question,
     )
 
-    async def _chat_reply() -> dict:
-        answer = await llm.generate_chat(question, language)
-        return {
-            "answer": answer,
-            "sources": [],
-            "model_used": config.GROQ_MODEL if config.GROQ_API_KEY else None,
-        }
+    started = time.perf_counter()
+    # One entry per stage that actually ran; a stage the request skipped is
+    # simply absent, which is what the pipeline view renders as "skipped".
+    stages: list[dict] = []
 
+    def _stage(stage_id: str, since: float, detail: dict) -> None:
+        stages.append(
+            {
+                "id": stage_id,
+                "ms": round((time.perf_counter() - since) * 1000, 1),
+                "detail": detail,
+            }
+        )
+
+    def _envelope(payload: dict) -> dict:
+        payload["pipeline"] = stages
+        payload["total_ms"] = round((time.perf_counter() - started) * 1000, 1)
+        return payload
+
+    async def _chat_reply() -> dict:
+        gen_start = time.perf_counter()
+        answer = await llm.generate_chat(question, language)
+        model = config.GROQ_MODEL if config.GROQ_API_KEY else None
+        _stage("generate", gen_start, {"model": model, "mode": "chat", "chars": len(answer)})
+        return _envelope(
+            {
+                "answer": answer,
+                "sources": [],
+                "model_used": model,
+            }
+        )
+
+    intent_start = time.perf_counter()
     if _is_small_talk(question):
         logger.info("Small talk detected (lexical); skipping retrieval")
+        _stage("intent", intent_start, {"route": "chat", "matched_by": "lexical"})
         return await _chat_reply()
 
+    embed_start = time.perf_counter()
     query_embedding = await asyncio.to_thread(embeddings.get_embedding, question, kind="query")
+    _stage(
+        "embed_query",
+        embed_start,
+        {"model": config.EMBEDDING_MODEL, "dim": len(query_embedding), "chars": len(question)},
+    )
 
+    intent_start = time.perf_counter()
     if await _detect_chat_intent(question, query_embedding):
         logger.info("Small talk detected (semantic); skipping retrieval")
+        _stage("intent", intent_start, {"route": "chat", "matched_by": "embedding"})
         return await _chat_reply()
+    _stage("intent", intent_start, {"route": "document", "matched_by": "embedding"})
 
     search_start = time.perf_counter()
     # Off the event loop like the dense encode above: this also runs a BM25
@@ -332,9 +367,32 @@ async def query(
     )
     metrics.histogram("search_latency").observe(time.perf_counter() - search_start)
     metrics.counter("searches_total").inc()
-
-    results = _select_context(candidates["results"], top_k)
     search_mode = candidates["mode"]
+    _stage(
+        "search",
+        search_start,
+        {
+            "mode": search_mode,
+            "collection": config.QDRANT_COLLECTION,
+            "candidates": len(candidates["results"]),
+            "requested": min(top_k * _CANDIDATE_MULTIPLIER, _MAX_CANDIDATES),
+            "scope": "single-doc" if doc_id else (f"{len(doc_ids)} docs" if doc_ids else "all"),
+            "top_score": round(candidates["results"][0]["score"], 3) if candidates["results"] else None,
+        },
+    )
+
+    select_start = time.perf_counter()
+    results = _select_context(candidates["results"], top_k)
+    _stage(
+        "select_context",
+        select_start,
+        {
+            "threshold": config.RAG_SCORE_THRESHOLD,
+            "in": len(candidates["results"]),
+            "kept": len(results),
+            "chars": sum(len(r["content"]) for r in results),
+        },
+    )
     logger.info(
         "Retrieved %d candidates, kept %d after threshold/dedup (mode=%s)",
         len(candidates["results"]),
@@ -343,11 +401,17 @@ async def query(
     )
 
     if not results:
-        return {
-            "answer": await llm.generate_no_results(question, language),
-            "sources": [],
-            "model_used": config.GROQ_MODEL if config.GROQ_API_KEY else None,
-        }
+        gen_start = time.perf_counter()
+        answer = await llm.generate_no_results(question, language)
+        model = config.GROQ_MODEL if config.GROQ_API_KEY else None
+        _stage("generate", gen_start, {"model": model, "mode": "no-results", "chars": len(answer)})
+        return _envelope(
+            {
+                "answer": answer,
+                "sources": [],
+                "model_used": model,
+            }
+        )
 
     # Locators travel with the context: a model told to cite [2] can only
     # make that citation mean something if block [2] says which page and
@@ -363,10 +427,31 @@ async def query(
         for r in results
     ]
 
+    gen_start = time.perf_counter()
     answer = await llm.generate_answer(question, context_chunks, language)
-    answer = _drop_dangling_citations(answer, len(results))
-
     model_used = config.GROQ_MODEL if config.GROQ_API_KEY else "extractive"
+    _stage(
+        "generate",
+        gen_start,
+        {
+            "model": model_used,
+            "mode": "grounded",
+            "context_blocks": len(context_chunks),
+            "chars": len(answer),
+        },
+    )
+
+    cite_start = time.perf_counter()
+    answer = _drop_dangling_citations(answer, len(results))
+    _stage(
+        "citations",
+        cite_start,
+        {
+            "markers": len(set(_CITATION.findall(answer))),
+            "available": len(results),
+        },
+    )
+
     logger.info(
         "RAG query answered from %d sources (model=%s)", len(results), model_used
     )
@@ -385,9 +470,11 @@ async def query(
         for r in results
     ]
 
-    return {
-        "answer": answer,
-        "sources": sources,
-        "model_used": model_used,
-        "search_mode": search_mode,
-    }
+    return _envelope(
+        {
+            "answer": answer,
+            "sources": sources,
+            "model_used": model_used,
+            "search_mode": search_mode,
+        }
+    )

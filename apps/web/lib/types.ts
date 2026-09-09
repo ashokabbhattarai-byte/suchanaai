@@ -23,6 +23,19 @@ export interface WhatsappStatus {
   digestFrequency: DigestFrequency
 }
 
+export interface EmailAlertStatus {
+  alertsEnabled: boolean
+  /** Alerts go to the account email, so there is nothing to verify. */
+  address: string
+  /** False when the admin hasn't configured SMTP for the whole app. */
+  channelAvailable: boolean
+}
+
+export interface AlertChannelStatus {
+  whatsapp: WhatsappStatus
+  email: EmailAlertStatus
+}
+
 export interface Notice {
   id: string
   title: string
@@ -81,6 +94,32 @@ export interface AlertRule {
   updatedAt: string
 }
 
+/** SKIPPED = matched and recorded, but no channel was connected to send it. */
+export type AlertNotificationStatus = "PENDING" | "SENT" | "FAILED" | "SKIPPED"
+
+/** One entry of the in-app alert feed behind the header bell. */
+export interface AlertFeedEntry {
+  id: string
+  status: AlertNotificationStatus
+  /** Channels that actually delivered it, e.g. ["whatsapp", "email"]. */
+  channels: string[]
+  matchedAt: string
+  readAt: string | null
+  ruleName: string
+  notice: {
+    id: string
+    title: string
+    category: ScrapedItemCategory
+    sourceLabel: string
+    publishedAt: string | null
+  }
+}
+
+export interface AlertFeed {
+  entries: AlertFeedEntry[]
+  unread: number
+}
+
 export type DocumentStatus = "PENDING" | "PROCESSING" | "INDEXED" | "UNEMBEDDED" | "FAILED"
 
 /** Live ingestion progress reported by the AI service while a document embeds. */
@@ -132,10 +171,38 @@ export interface RagSource {
   section_path?: string | null
 }
 
+// One stage the AI service actually executed, timed where it ran.
+export interface RagPipelineStage {
+  id: string
+  ms: number
+  detail: Record<string, unknown>
+}
+
 export interface RagQueryResponse {
   answer: string
   sources: RagSource[]
   model_used: string | null
+  search_mode?: string | null
+  pipeline?: RagPipelineStage[]
+  ai_ms?: number | null
+  scope_doc_count?: number | null
+}
+
+// Everything the pipeline view needs to replay one real answer.
+export interface RagRunTrace {
+  question: string
+  answer: string
+  askedAt: string
+  authenticated: boolean
+  documentId: string | null
+  clientMs: number
+  aiMs: number | null
+  searchMode: string | null
+  modelUsed: string | null
+  scopeDocCount: number | null
+  scopeLabel: string
+  stages: RagPipelineStage[]
+  sources: RagSource[]
 }
 
 export interface ChatMessage {
@@ -145,6 +212,7 @@ export interface ChatMessage {
   timestamp: string
   sources?: RagSource[]
   modelUsed?: string | null
+  run?: RagRunTrace
 }
 
 export interface ScrapingSource {

@@ -10,6 +10,7 @@ import {
 import { Header } from "@/components/layout/header"
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { WhatsappConnectCard } from "@/components/alerts/whatsapp-connect-card"
+import { EmailAlertsCard } from "@/components/alerts/email-alerts-card"
 import { UpgradePrompt, UsageMeterBar } from "@/components/billing/upgrade-prompt"
 import { useAuth } from "@/lib/auth-context"
 import { useAlerts } from "@/lib/alerts-context"
@@ -31,11 +32,13 @@ const URGENCY_BADGE: Record<AlertUrgency, string> = { LOW: "🟢 Low+", MEDIUM: 
 
 // Quick presets — one tap creates an alert instantly, no form friction
 const QUICK_PRESETS: Array<{ label: string; icon: typeof Bell; categories: ScrapedItemCategory[]; tags?: string[] }> = [
-  { label: "Vacancy alerts", icon: Building2, categories: ["VACANCY"] },
+  { label: "Vacancy alerts", icon: Building2, categories: ["VACANCY", "JOB"] },
   { label: "Tender notices", icon: FolderOpen, categories: ["TENDER"] },
   { label: "PSC / Lok Sewa", icon: Search, categories: ["NOTICE", "VACANCY"], tags: ["psc"] },
   { label: "Press releases", icon: Bell, categories: ["PRESS_RELEASE"] },
-  { label: "All notices", icon: Zap, categories: ["NOTICE"] },
+  // "All notices" has to mean all of them — it used to select NOTICE only,
+  // so the one preset people reach for first matched the least.
+  { label: "All notices", icon: Zap, categories: CATEGORY_ORDER },
 ]
 
 const emptyForm = {
@@ -262,6 +265,7 @@ export default function AlertsPage() {
         </div>
 
         <WhatsappConnectCard />
+        <EmailAlertsCard />
 
         {error && (
           <div className="mb-6 flex min-w-0 items-center gap-2 overflow-hidden rounded-[14px] bg-red-50 px-4 py-3 text-sm text-red-600">

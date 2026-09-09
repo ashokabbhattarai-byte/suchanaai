@@ -5,7 +5,8 @@ import Link from "next/link"
 import Image from "next/image"
 import logo from "@/public/images/logo.png"
 import { usePathname } from "next/navigation"
-import { Bell, Menu, X, Globe, LogOut, LayoutDashboard, Shield, ArrowUpRight, ChevronDown } from "lucide-react"
+import { Menu, X, Globe, LogOut, LayoutDashboard, Shield, ArrowUpRight, ChevronDown } from "lucide-react"
+import { AlertBell } from "@/components/alerts/alert-bell"
 import { useAuth } from "@/lib/auth-context"
 import { useLanguage } from "@/lib/language-context"
 import { cn } from "@/lib/utils"
@@ -202,18 +203,12 @@ export function Header() {
 
             {user ? (
               <>
-                <button
+                <AlertBell
                   className={cn(
                     "relative flex size-10 items-center justify-center rounded-full text-vez-ink/70 transition-colors hover:text-vez-navy",
                     solid ? "hover:bg-vez-surface" : "hover:bg-white/40"
                   )}
-                  aria-label="Notifications"
-                >
-                  <Bell className="size-4" />
-                  <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-vez-navy text-[9px] text-white">
-                    3
-                  </span>
-                </button>
+                />
 
                 {user.role === "admin" && (
                   <Link
@@ -263,12 +258,9 @@ export function Header() {
           {/* Mobile toggle - 44px touch targets, 8px gap */}
           <div className="flex items-center gap-2 xl:hidden shrink-0">
             {user && (
-              <button className="relative flex size-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white/40 text-vez-ink backdrop-blur-[6px] transition-colors hover:bg-white/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vez-navy focus-visible:ring-offset-2" aria-label="Notifications">
-                <Bell className="size-4" />
-                <span className="absolute right-1 top-1 flex size-3.5 items-center justify-center rounded-full bg-vez-navy text-[8px] text-white">
-                  3
-                </span>
-              </button>
+              <AlertBell
+                className="relative flex size-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white/40 text-vez-ink backdrop-blur-[6px] transition-colors hover:bg-white/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vez-navy focus-visible:ring-offset-2"
+              />
             )}
             <button
               className="flex size-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white/40 text-vez-ink backdrop-blur-[6px] transition-colors hover:bg-white/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vez-navy focus-visible:ring-offset-2 cursor-pointer"

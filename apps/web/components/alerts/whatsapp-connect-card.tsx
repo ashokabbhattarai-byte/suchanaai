@@ -143,7 +143,7 @@ export function WhatsappConnectCard() {
           <p className="text-sm text-vez-mute">
             {step === "connected"
               ? "Get your matching alerts delivered straight to WhatsApp."
-              : "Verify a WhatsApp number to receive your alert matches instantly."}
+              : "Optional — your alerts already run and show under the bell. Verify a number to get them on WhatsApp too."}
           </p>
         </div>
       </div>

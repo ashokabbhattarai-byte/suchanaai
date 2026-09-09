@@ -1,8 +1,11 @@
 import {
   User,
   WhatsappStatus,
+  EmailAlertStatus,
+  AlertChannelStatus,
   DigestFrequency,
   AlertRule,
+  AlertFeed,
   RagDocument,
   RagDocumentListResponse,
   RagQueryResponse,
@@ -1460,6 +1463,15 @@ export async function deleteAlertRule(id: string): Promise<void> {
   await apiFetch(`/alerts/${id}`, { method: "DELETE" })
 }
 
+/** Recent matches, whether or not a channel delivered them — drives the bell. */
+export async function fetchAlertFeed(limit = 20): Promise<AlertFeed> {
+  return apiFetch<AlertFeed>(`/alerts/feed?limit=${limit}`)
+}
+
+export async function markAlertFeedRead(): Promise<{ read: number }> {
+  return apiFetch("/alerts/feed/read", { method: "POST" })
+}
+
 // ─── WhatsApp notification channel API ───────────────────────────────────
 
 export async function fetchWhatsappStatus(): Promise<WhatsappStatus> {
@@ -1496,6 +1508,21 @@ export async function toggleWhatsappAlerts(enabled: boolean): Promise<WhatsappSt
 
 export async function disconnectWhatsapp(): Promise<WhatsappStatus> {
   return apiFetch("/notifications/whatsapp", { method: "DELETE" })
+}
+
+// ─── Email notification channel API ──────────────────────────────────────
+// Alerts go to the account email, so there is no verification step — only an
+// on/off switch, and whether the admin has SMTP configured at all.
+
+export async function fetchAlertChannels(): Promise<AlertChannelStatus> {
+  return apiFetch("/notifications/channels")
+}
+
+export async function toggleEmailAlerts(enabled: boolean): Promise<EmailAlertStatus> {
+  return apiFetch("/notifications/email/toggle", {
+    method: "PATCH",
+    body: JSON.stringify({ enabled }),
+  })
 }
 
 // ─── Admin: shared WhatsApp sender instance (Evolution API) ─────────────────

@@ -1116,12 +1116,6 @@ export class ScrapingService {
       });
       let freshSummaryId = item.ai_summary ? created.id : null;
 
-      // Queue for alert matching — synchronous, cannot throw, never blocks or
-      // slows the scrape loop. Processed one at a time in the background so
-      // a burst of new items can't flood the DB/WhatsApp API with concurrent
-      // requests (see AlertMatchingService.enqueue).
-      this.alertMatching.enqueue(created);
-
       if (item.attachments?.length) {
         await this.prisma.attachment.createMany({
           data: item.attachments.map((att) => ({
@@ -1148,6 +1142,14 @@ export class ScrapingService {
         const summarized = await this.analyzeNotice(created.id, item.title, item.content_text);
         if (summarized) freshSummaryId = created.id;
       }
+
+      // Queue for alert matching last: the extract/analyze steps above are
+      // what write tags, urgency and the AI summary, and rules match on all
+      // three — queueing before them meant a tag or urgency rule could never
+      // fire. Synchronous, cannot throw, never blocks the scrape loop; items
+      // drain one at a time in the background so a burst of new notices can't
+      // flood the DB or the WhatsApp API (see AlertMatchingService.enqueue).
+      this.alertMatching.enqueue(created.id);
 
       return { outcome: 'new', freshSummaryId, hadSummaryAttempt, wasSummarized };
     }
@@ -1185,6 +1187,12 @@ export class ScrapingService {
           })),
         });
       }
+      // A notice whose content changed may now match rules it didn't before
+      // (a deadline appearing, a category correction). Re-queueing is safe:
+      // the notification's (user, notice) unique constraint means nobody is
+      // messaged twice, and AlertMatchingService ignores stale notices.
+      this.alertMatching.enqueue(existing.id);
+
       return {
         outcome: 'updated',
         freshSummaryId: item.ai_summary ? existing.id : null,

@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import { DigestFrequency } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { QuotaService } from './quota.service';
+import { EmailChannelService } from './email-channel.service';
 import { EvolutionApiService } from '../integrations/evolution/evolution-api.service';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
@@ -15,16 +16,31 @@ export interface WhatsappStatus {
   digestFrequency: DigestFrequency;
 }
 
+export interface EmailAlertStatus {
+  /** The user's own switch. */
+  alertsEnabled: boolean;
+  /** Where alerts would go — the account email, so nothing to verify. */
+  address: string;
+  /** False when the admin hasn't configured/enabled SMTP for the whole app. */
+  channelAvailable: boolean;
+}
+
+export interface AlertChannelStatus {
+  whatsapp: WhatsappStatus;
+  email: EmailAlertStatus;
+}
+
 /**
- * WhatsApp channel management for the currently authenticated user: register
- * + OTP-verify a phone number against the single shared Evolution API
- * instance, then toggle whether AlertRule matches are delivered to it.
+ * Per-user alert channel management: register + OTP-verify a WhatsApp number
+ * against the single shared Evolution API instance, and toggle whether
+ * AlertRule matches are delivered to WhatsApp and/or the account email.
  */
 @Injectable()
 export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly evolutionApi: EvolutionApiService,
+    private readonly email: EmailChannelService,
     private readonly quota: QuotaService,
   ) {}
 
@@ -36,6 +52,25 @@ export class NotificationsService {
       phoneNumberMasked: user.whatsappVerified ? this.mask(user.whatsappNumber) : null,
       digestFrequency: user.digestFrequency,
     };
+  }
+
+  async getEmailStatus(userId: string): Promise<EmailAlertStatus> {
+    const [user, channelAvailable] = await Promise.all([
+      this.prisma.user.findUniqueOrThrow({ where: { id: userId } }),
+      this.email.isReady(),
+    ]);
+    return { alertsEnabled: user.emailAlertsEnabled, address: user.email, channelAvailable };
+  }
+
+  async toggleEmailAlerts(userId: string, enabled: boolean): Promise<EmailAlertStatus> {
+    await this.prisma.user.update({ where: { id: userId }, data: { emailAlertsEnabled: enabled } });
+    return this.getEmailStatus(userId);
+  }
+
+  /** Both channels in one call — what the alerts page renders its cards from. */
+  async getChannels(userId: string): Promise<AlertChannelStatus> {
+    const [whatsapp, email] = await Promise.all([this.getStatus(userId), this.getEmailStatus(userId)]);
+    return { whatsapp, email };
   }
 
   async setDigestFrequency(userId: string, digestFrequency: DigestFrequency): Promise<WhatsappStatus> {

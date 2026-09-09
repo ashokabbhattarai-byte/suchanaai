@@ -626,3 +626,50 @@
     min-width: auto;
   }
 }
+
+/* ── Pipeline preview canvas (components/rag/workflow-preview.tsx) ── */
+.vz-flow-grid {
+  background-color: #fbfbfc;
+  background-image: radial-gradient(circle, rgba(16, 29, 35, 0.09) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+/* Dashes crawl along the wire currently carrying data. */
+@keyframes vz-flow-dash {
+  to { stroke-dashoffset: -32; }
+}
+
+.vz-flow-dash {
+  animation: vz-flow-dash 600ms linear infinite;
+}
+
+/* The node being executed breathes, like a running n8n node. */
+@keyframes vz-flow-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.35); }
+  50% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+}
+
+.vz-flow-pulse {
+  animation: vz-flow-pulse 1.2s ease-out infinite;
+}
+
+/* A packet of data travelling from one node to the next. */
+@keyframes vz-flow-travel {
+  from { offset-distance: 0%; }
+  to { offset-distance: 100%; }
+}
+
+.vz-flow-packet {
+  offset-rotate: 0deg;
+  animation-name: vz-flow-travel;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vz-flow-dash,
+  .vz-flow-pulse,
+  .vz-flow-packet {
+    animation: none;
+  }
+}

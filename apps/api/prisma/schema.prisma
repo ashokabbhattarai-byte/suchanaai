@@ -43,9 +43,14 @@ model User {
   whatsappOtpCode        String?   @map("whatsapp_otp_code")
   whatsappOtpExpiresAt   DateTime? @map("whatsapp_otp_expires_at")
   whatsappOtpRequestedAt DateTime? @map("whatsapp_otp_requested_at")
-  // Delivery cadence for matched alerts: instant (one WhatsApp message per
-  // match) or a batched digest. HIGH-priority AlertRules always bypass this
-  // and send instantly regardless (see AlertMatchingService).
+  // Email alert channel — delivered to the account email, so nothing to
+  // verify. On by default: it costs nothing and it's the only channel a user
+  // has before they connect WhatsApp. Still requires the admin to have
+  // configured + enabled SMTP (see EmailChannelService).
+  emailAlertsEnabled     Boolean   @default(true) @map("email_alerts_enabled")
+  // Delivery cadence for matched alerts: instant (one message per match) or
+  // a batched digest. HIGH-priority AlertRules always bypass this and send
+  // instantly regardless (see AlertMatchingService).
   digestFrequency  DigestFrequency @default(INSTANT) @map("digest_frequency")
   lastDigestSentAt DateTime?       @map("last_digest_sent_at")
 
@@ -132,11 +137,16 @@ enum AlertNotificationStatus {
   PENDING
   SENT
   FAILED
+  // Matched and recorded, but no outbound channel was available or allowed
+  // (no WhatsApp connected, SMTP off, monthly allowance spent). Not an error
+  // — the match is still real and still shows in the in-app feed.
+  SKIPPED
 }
 
 // One (user, scrapedItem) delivery record — the unique constraint is what
 // prevents a user being messaged twice for the same notice even if several
-// of their rules match it.
+// of their rules match it. A row is written for every match, whether or not
+// anything was delivered, so it doubles as the in-app alert feed.
 model AlertNotification {
   id            String                   @id @default(uuid()) @db.Uuid
   userId        String                   @map("user_id") @db.Uuid
@@ -146,11 +156,17 @@ model AlertNotification {
   scrapedItemId String                   @map("scraped_item_id") @db.Uuid
   scrapedItem   ScrapedItem              @relation(fields: [scrapedItemId], references: [id], onDelete: Cascade)
   status        AlertNotificationStatus
+  // Channels that actually accepted the message, e.g. ["whatsapp","email"].
+  channels      String[]                 @default([])
   error         String?
+  // Null until the user opens the in-app alert feed — drives the bell badge.
+  readAt        DateTime?                @map("read_at")
   sentAt        DateTime                 @default(now()) @map("sent_at")
 
   @@unique([userId, scrapedItemId])
   @@index([alertRuleId])
+  @@index([userId, status])
+  @@index([userId, sentAt])
   @@map("alert_notifications")
 }
 

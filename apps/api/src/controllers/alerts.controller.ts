@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  ParseUUIDPipe,
+} from '@nestjs/common';
 import { User } from '@prisma/client';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { CurrentUser } from '../decorators/current-user.decorator';
@@ -18,6 +29,21 @@ export class AlertsController {
   @Get()
   findAll(@CurrentUser() user: User) {
     return this.alertsService.findAllForUser(user.id);
+  }
+
+  /**
+   * In-app alert feed. Every match is recorded here whether or not WhatsApp
+   * or email took it, so a user without any channel connected can still see
+   * that their rules are firing.
+   */
+  @Get('feed')
+  feed(@CurrentUser() user: User, @Query('limit') limit?: string) {
+    return this.alertsService.feedForUser(user.id, Number(limit) || 20);
+  }
+
+  @Post('feed/read')
+  markFeedRead(@CurrentUser() user: User) {
+    return this.alertsService.markFeedRead(user.id);
   }
 
   @Post()
