@@ -115,23 +115,6 @@ export class AiProvidersService implements OnModuleInit {
       model: 'qwen2.5:1.5b',
       sortOrder: -10,
     },
-    // SECONDARY: self-hosted vLLM on same EC2 — keep as 2nd agent (0.5B or 1.5B).
-    // t3.large has no GPU; vLLM --device cpu needs VLLM_TARGET_DEVICE=cpu at
-    // pip build + systemd Environment, Python 3.11 venv, torch CPU wheel first,
-    // and AVX512 (t3 Xeon Platinum 8000 does have it, but wheel must be built
-    // with it). See scripts/ec2-install-vllm.sh + docs/EC2_VLLM_MIGRATION.md
-    // "Troubleshooting: Failed to infer device type". Until `curl
-    // http://3.80.188.210:8001/v1/models` succeeds, keep Ollama TOP. For very
-    // very fast 0.5B use Qwen/Qwen2.5-0.5B-Instruct (0.8 GB, ~1-2s) via same
-    // :8001 or :8002 — preset "vLLM Ultra-Fast (0.5B)" in provider-dialog.
-    {
-      slug: 'vllm-services',
-      label: 'vLLM (Qwen2.5-1.5B) — EC2 services',
-      kind: AiProviderKind.OPENAI_COMPATIBLE,
-      baseUrl: 'http://3.80.188.210:8001/v1/chat/completions',
-      model: 'Qwen/Qwen2.5-1.5B-Instruct',
-      sortOrder: -9,
-    },
     // First in the hosted chain. OpenRouter meters requests per day (50/day, 1000/day
     // after $10, 20 RPM shared across all :free models) rather than tokens
     // per day, so a long RAG context costs no more than a one-line question.
@@ -148,28 +131,12 @@ export class AiProvidersService implements OnModuleInit {
       sortOrder: -1,
     },
     {
-      slug: 'gemini',
-      label: 'Google Gemini',
-      kind: AiProviderKind.GEMINI,
-      baseUrl: null,
-      model: 'gemini-3.6-flash',
-      sortOrder: 0,
-    },
-    {
       slug: 'groq',
       label: 'Groq',
       kind: AiProviderKind.OPENAI_COMPATIBLE,
       baseUrl: 'https://api.groq.com/openai/v1/chat/completions',
       model: 'openai/gpt-oss-120b',
       sortOrder: 1,
-    },
-    {
-      slug: 'opencode',
-      label: 'OpenCode Zen',
-      kind: AiProviderKind.OPENAI_COMPATIBLE,
-      baseUrl: 'https://opencode.ai/zen/v1/chat/completions',
-      model: 'deepseek-v4-flash-free',
-      sortOrder: 2,
     },
   ];
 
@@ -220,19 +187,49 @@ export class AiProvidersService implements OnModuleInit {
     ]);
     const bedrockBuiltIn = AiProvidersService.BUILT_INS.find((p) => p.slug === 'bedrock')!;
     const bedrockRow = existing.find((p) => p.slug === 'bedrock');
-    if (bedrockRow && UNUSABLE_BEDROCK_MODELS.has(bedrockRow.model)) {
-      await this.prisma.aiProvider.update({
-        where: { slug: 'bedrock' },
-        data: {
-          model: bedrockBuiltIn.model,
-          label: bedrockBuiltIn.label,
-          sortOrder: bedrockBuiltIn.sortOrder,
-          enabled: true,
-        },
-      });
-      this.logger.warn(
-        `Promoted Bedrock to primary (sortOrder ${bedrockBuiltIn.sortOrder}) on ${bedrockBuiltIn.model}`,
-      );
+    if (bedrockRow) {
+      const patch: Record<string, unknown> = {};
+      if (UNUSABLE_BEDROCK_MODELS.has(bedrockRow.model)) {
+        patch.model = bedrockBuiltIn.model;
+        patch.sortOrder = bedrockBuiltIn.sortOrder;
+        patch.enabled = true;
+      }
+      // An admin who repointed the model by hand leaves the label describing a
+      // model the row no longer runs — the panel then reads "Sonnet 5" over a
+      // Haiku 4.5 ID. Only the exact stale shipped label is rewritten, so a
+      // genuinely custom name is never clobbered.
+      const runningModel = (patch.model as string) ?? bedrockRow.model;
+      if (
+        runningModel === bedrockBuiltIn.model &&
+        bedrockRow.label === 'AWS Bedrock (Claude Sonnet 5)'
+      ) {
+        patch.label = bedrockBuiltIn.label;
+      }
+      if (Object.keys(patch).length) {
+        await this.prisma.aiProvider.update({ where: { slug: 'bedrock' }, data: patch });
+        this.logger.warn(
+          `Bedrock row healed → ${JSON.stringify(patch)}`,
+        );
+      }
+    }
+
+    // 2026-09-09: admin decision — active roster is Bedrock, Ollama, Groq
+    // only. Gemini, OpenCode Zen, and vLLM are removed from BUILT_INS (so a
+    // fresh install never seeds them) and disabled here for existing installs
+    // that already have the rows — disabled rather than deleted, matching
+    // remove()'s own rule that a built-in is retired by disabling it, never
+    // deleted. This supersedes the "vLLM SECOND (-9)" positioning in the
+    // Ollama/vLLM swap migration below; that block still runs for the Ollama
+    // half, its vLLM patches are now moot since this always re-disables it.
+    const RETIRED_SLUGS = ['gemini', 'opencode', 'vllm-services'];
+    for (const row of existing) {
+      if (RETIRED_SLUGS.includes(row.slug) && row.enabled) {
+        await this.prisma.aiProvider.update({
+          where: { slug: row.slug },
+          data: { enabled: false },
+        });
+        this.logger.warn(`Disabled retired built-in provider "${row.slug}" per admin cleanup`);
+      }
     }
 
     // ── FIX 2026-09-08: Ollama TOP (-10), vLLM SECOND (-9) — swap from previous vLLM TOP

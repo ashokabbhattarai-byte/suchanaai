@@ -364,12 +364,6 @@ def _env_fallback_providers() -> list[dict]:
             "base_url": config.OPENROUTER_BASE_URL, "model": config.OPENROUTER_MODEL,
             "api_key": _key, "enabled": True,
         })
-    if config.GEMINI_API_KEY:
-        out.append({
-            "slug": "gemini", "label": "Google Gemini", "kind": "GEMINI",
-            "base_url": None, "model": config.GEMINI_MODEL,
-            "api_key": config.GEMINI_API_KEY, "enabled": True,
-        })
     for idx, _key in enumerate(getattr(config, "GROQ_API_KEYS", []) or []):
         # Expand GROQ_API_KEYS into multiple slugs so the hedged race gets
         # one agent per key — doubles free-tier quota without extra latency
@@ -382,12 +376,6 @@ def _env_fallback_providers() -> list[dict]:
             "kind": "OPENAI_COMPATIBLE",
             "base_url": GROQ_API_URL, "model": config.GROQ_MODEL,
             "api_key": _key, "enabled": True,
-        })
-    if config.OPENCODE_ZEN_API_KEY:
-        out.append({
-            "slug": "opencode", "label": "OpenCode Zen", "kind": "OPENAI_COMPATIBLE",
-            "base_url": config.OPENCODE_ZEN_BASE_URL, "model": config.OPENCODE_ZEN_MODEL,
-            "api_key": config.OPENCODE_ZEN_API_KEY, "enabled": True,
         })
     return out
 
@@ -793,8 +781,13 @@ async def _bedrock_call(
     kwargs = {
         "model": provider.get("model") or config.BEDROCK_MODEL,
         "max_tokens": max_tokens,
-        "temperature": temperature,
         "messages": turns,
+        # `temperature` was dropped as a typed Messages.create() kwarg in
+        # current `anthropic` SDK releases (matches the newer models' API-side
+        # removal) — passing it positionally now raises a Python TypeError,
+        # not an HTTP 400. extra_body still reaches the wire for models that
+        # do accept it, e.g. Haiku 4.5.
+        "extra_body": {"temperature": temperature},
     }
     if system:
         kwargs["system"] = system
