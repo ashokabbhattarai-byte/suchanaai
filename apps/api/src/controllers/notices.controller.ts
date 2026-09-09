@@ -150,8 +150,13 @@ export class NoticesController {
   }
 
   @Get(':id')
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.noticesService.findOne(id);
+  async findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
+    // IP + user-agent identify the reader for view counting; the service
+    // hashes them and never stores either.
+    return this.noticesService.findOne(id, {
+      ip: clientIp(req),
+      userAgent: (req.headers['user-agent'] as string | undefined)?.slice(0, 512),
+    });
   }
 
   /**

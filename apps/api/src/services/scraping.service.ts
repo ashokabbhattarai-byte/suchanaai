@@ -1604,7 +1604,9 @@ export class ScrapingService {
     const pending = await this.prisma.scrapedItem.findMany({
       where: { aiSummary: null, contentText: { not: null } },
       select: { id: true, title: true, contentText: true },
-      orderBy: { publishedAt: 'desc' },
+      // Newest first so a backfill that only gets partway through has
+      // summarized the notices people are most likely to open.
+      orderBy: { effectivePublishedAt: 'desc' },
       take: limit,
     });
 
@@ -1787,7 +1789,11 @@ export class ScrapingService {
   }) {
     const page = filters.page ?? 1;
     const limit = filters.limit ?? 20;
-    const sortBy = filters.sortBy ?? 'publishedAt';
+    // Same substitution as the public list: "publishedAt" means newest first,
+    // answered with the effective date so undated notices order by when they
+    // were seen rather than sorting as NULL.
+    const requestedSort = filters.sortBy ?? 'publishedAt';
+    const sortBy = requestedSort === 'publishedAt' ? 'effectivePublishedAt' : requestedSort;
     const sortOrder = filters.sortOrder ?? 'desc';
 
     const publishedAtFilter: Prisma.DateTimeFilter = {};

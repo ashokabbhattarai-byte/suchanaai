@@ -44,9 +44,14 @@ export class CreateContactMessageDto {
    * Google reCAPTCHA v2 checkbox token (g-recaptcha-response).
    * Required when RECAPTCHA_SECRET_KEY is configured server-side.
    * When the server has no secret configured, this may be omitted (dev mode).
+   *
+   * Google does not document a token length and has grown it over time — real
+   * tokens already exceed the 2048 this used to cap, which rejected a valid
+   * submission as a malformed one. The bound only exists to stop an unbounded
+   * body reaching the verify call, so it is set well clear of any real token.
    */
   @IsOptional()
   @IsString()
-  @MaxLength(2048)
+  @MaxLength(8192)
   recaptchaToken?: string;
 }

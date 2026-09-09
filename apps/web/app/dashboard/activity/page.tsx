@@ -1,6 +1,6 @@
 "use client"
 
-import React from "react"
+import React, { useEffect, useState } from "react"
 import Link from "next/link"
 import {
   Clock,
@@ -10,14 +10,36 @@ import {
   Search,
   FileText,
   AlertCircle,
+  Loader2,
 } from "lucide-react"
 import { Header } from "@/components/layout/header"
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { useAuth } from "@/lib/auth-context"
-import { mockActivities } from "@/lib/mock-data"
+import { useAlerts } from "@/lib/alerts-context"
+import { fetchNotices } from "@/lib/api"
+import type { ScrapedItem } from "@/lib/types"
 
 export default function ActivityPage() {
   const { user } = useAuth()
+  const { alerts } = useAlerts()
+  const [notices, setNotices] = useState<ScrapedItem[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetchNotices({ limit: 10, sortBy: "publishedAt", sortOrder: "desc" })
+        if (!cancelled) setNotices(res.data ?? [])
+      } catch {
+        if (!cancelled) setNotices([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [user])
 
   if (!user) {
     return (
@@ -51,6 +73,21 @@ export default function ActivityPage() {
     }
   }
 
+  const activities = [
+    ...alerts.slice(0, 3).map(a => ({
+      id: `alert-${a.id}`,
+      type: "alert" as const,
+      description: `Alert "${a.name}" — ${a.matchCount} matches`,
+      timestamp: (a as unknown as { createdAt?: string }).createdAt ?? new Date().toISOString(),
+    })),
+    ...notices.slice(0, 7).map(n => ({
+      id: `notice-${n.id}`,
+      type: "view" as const,
+      description: `Viewed '${n.title.slice(0, 50)}'`,
+      timestamp: n.publishedAt ?? n.scrapedAt ?? new Date().toISOString(),
+    })),
+  ].slice(0, 10)
+
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-white font-poppins">
       <Header />
@@ -63,7 +100,15 @@ export default function ActivityPage() {
         </div>
 
         <div className="w-full max-w-full min-w-0 space-y-3 overflow-hidden">
-          {mockActivities.map((activity) => (
+          {loading ? (
+            <div className="flex items-center justify-center py-12 text-vez-mute"><Loader2 className="size-5 animate-spin" /></div>
+          ) : activities.length === 0 ? (
+            <div className="rounded-[16px] bg-white p-8 text-center">
+              <Clock className="mx-auto size-8 text-vez-mute/40" />
+              <p className="mt-2 text-sm text-vez-mute">No recent activity — browse notices to get started.</p>
+              <Link href="/notices" className="mt-3 inline-flex rounded-full bg-vez-navy px-4 py-2 text-xs text-white">Browse notices</Link>
+            </div>
+          ) : activities.map((activity) => (
             <div
               key={activity.id}
               className="flex w-full min-w-0 items-center gap-3 overflow-hidden rounded-[16px] bg-white p-4 transition-colors hover:bg-vez-sky/10 sm:gap-4 sm:p-5"

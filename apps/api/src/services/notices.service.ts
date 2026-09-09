@@ -67,14 +67,17 @@ export class NoticesService {
     Number(process.env.NOTICES_META_CACHE_MS ?? 60_000),
   );
 
-  // Debounce view increments to avoid Postgres flood
-  private static readonly viewThrottle = new Map<string, number>();
-
   // Single-flight guard around view-triggered AI enrichment (PDF OCR, LLM
   // summarization). Without it, N users opening the same unanalyzed notice
   // fire N identical AI calls in the same window. Failure backoff (default
   // 60s) additionally stops a flaky AI service from being retried by every
   // viewer at once.
+  // Ceiling on view-triggered OCR jobs in flight at once, across all notices.
+  // Matches the AI service's own extract concurrency so the API can't queue
+  // work the AI will only refuse.
+  private static readonly MAX_BACKGROUND_EXTRACTIONS = 2;
+  private backgroundExtractions = 0;
+
   private readonly aiSingleFlight = new SingleFlight(
     Number(process.env.AI_RETRY_COOLDOWN_MS ?? 60_000),
   );
@@ -159,7 +162,11 @@ export class NoticesService {
     const page = filters.page ?? 1;
     const defaultLimit = await this.settings.getNumber('notices.perPage', 20);
     const limit = Math.min(filters.limit ?? defaultLimit, 100);
-    const sortBy = filters.sortBy ?? 'publishedAt';
+    // "publishedAt" from the client means "newest first" — it is answered with
+    // the effective date so a notice whose source published no date still
+    // ranks by when we saw it, instead of sinking below the dated 12%.
+    const requestedSort = filters.sortBy ?? 'publishedAt';
+    const sortBy = requestedSort === 'publishedAt' ? 'effectivePublishedAt' : requestedSort;
     const sortOrder = filters.sortOrder ?? 'desc';
 
     // Stable cache key: sort keys and include explicit undefined handling to avoid collisions
@@ -224,31 +231,15 @@ export class NoticesService {
     });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, viewer?: ViewerMeta) {
     const notice = await this.prisma.scrapedItem.findUnique({
       where: { id },
       include: { attachments: true },
     });
     if (!notice) throw new NotFoundException(`Notice ${id} not found`);
 
-    // Throttle view increments: at most once per 30s per notice to prevent
-    // burst traffic (popular notice shared on social) from flooding Postgres
-    // with concurrent increment queries. Best-effort in-memory debounce.
-    const now = Date.now()
-    const last = (NoticesService.viewThrottle.get(id) ?? 0)
-    if (now - last > 30000) {
-      NoticesService.viewThrottle.set(id, now)
-      this.prisma.scrapedItem
-        .update({ where: { id }, data: { views: { increment: 1 } } })
-        .catch(() => undefined);
-      // Prune throttle map to prevent unbounded growth
-      if (NoticesService.viewThrottle.size > 5000) {
-        for (const [k, t] of NoticesService.viewThrottle.entries()) {
-          if (now - t > 60000) NoticesService.viewThrottle.delete(k)
-          if (NoticesService.viewThrottle.size <= 4000) break
-        }
-      }
-    }
+    // Counted off the response path — the reader should never wait on it.
+    void this.recordView(id, viewer);
 
     // PDF-only notice: contentText comes from OCR, so trigger extraction in
     // the background (legacy notices scraped before extraction was added to
@@ -258,11 +249,25 @@ export class NoticesService {
     // successful notice isn't re-extracted on every subsequent view either.
     if (!notice.contentText && !notice.aiAnalyzedAt) {
       const attachmentUrl = this.findExtractableAttachmentUrl(notice);
-      if (attachmentUrl) {
-        this.extractPdfAndCache(notice.id, notice.title, attachmentUrl)
+      // Single-flight dedupes per notice, which is no help here: this fires on
+      // *viewing* a notice, so a crawler walking the sitemap hits a different
+      // id every time and fans out to one OCR job per page. The AI runs a
+      // single worker and each job is minutes of CPU, so unbounded fan-out
+      // pegged it until every request timed out — nginx logged 63 concurrent
+      // /notices/extract-pdf calls, 67 of them abandoned mid-flight (499).
+      //
+      // Dropped rather than queued: this is opportunistic backfill, and the
+      // next view of the same notice retries it. A queue would just move the
+      // pile-up rather than shed it.
+      if (attachmentUrl && this.backgroundExtractions < NoticesService.MAX_BACKGROUND_EXTRACTIONS) {
+        this.backgroundExtractions += 1;
+        void this.extractPdfAndCache(notice.id, notice.title, attachmentUrl)
           .catch((err: any) => {
             if (err instanceof SingleFlightCooldownError) return; // retry later
             this.logger.warn(`Attachment extraction failed for notice ${notice.id}: ${err.message}`);
+          })
+          .finally(() => {
+            this.backgroundExtractions -= 1;
           });
       }
     }
@@ -318,6 +323,44 @@ export class NoticesService {
       });
     }
     return list;
+  }
+
+  /**
+   * Count one view, deduplicated per viewer per UTC day.
+   *
+   * A "view" means a distinct reader opening a notice, so the same person
+   * refreshing all afternoon counts once and two people reading at the same
+   * instant count twice. The previous throttle got both backwards: keyed by
+   * notice id alone, it collapsed concurrent readers into one and let one
+   * person keep incrementing every 30 seconds.
+   *
+   * The insert is the dedupe. `skipDuplicates` makes the composite key decide
+   * whether this viewer is new today, in one round trip and without a
+   * read-then-write race, and the counter only moves when a row was created.
+   */
+  private async recordView(noticeId: string, viewer?: ViewerMeta): Promise<void> {
+    // Crawlers walk every notice in the sitemap; counting them makes the
+    // number a measure of bot traffic rather than of readership.
+    if (!viewer || isBot(viewer.userAgent)) return;
+
+    const day = new Date();
+    day.setUTCHours(0, 0, 0, 0);
+
+    try {
+      const { count } = await this.prisma.noticeView.createMany({
+        data: [{ noticeId, viewerHash: hashViewer(viewer), day }],
+        skipDuplicates: true,
+      });
+      if (count === 0) return; // already counted this viewer today
+
+      await this.prisma.scrapedItem.update({
+        where: { id: noticeId },
+        data: { views: { increment: 1 } },
+      });
+    } catch (err: any) {
+      // Never let analytics break reading a notice.
+      this.logger.warn(`View count failed for notice ${noticeId}: ${err.message}`);
+    }
   }
 
   // Scanned notices are just as often a photographed/screenshotted image
@@ -1005,7 +1048,13 @@ export class NoticesService {
               category: r.category,
               sourceLabel: r.sourceLabel,
               sourceUrl: r.sourceUrl,
+              // Both, deliberately. `publishedAt` is null for ~89% of notices
+              // because the source never published one, and the AI must not
+              // present a date we inferred as the date the source printed —
+              // so it ranks on `effectivePublishedAt` and only ever *states*
+              // `publishedAt`.
               publishedAt: r.publishedAt?.toISOString() || null,
+              effectivePublishedAt: r.effectivePublishedAt?.toISOString() || null,
             })),
             // Only a category the *question* named constrains the semantic
             // leg. A page filter is context, not instruction: hard-filtering
@@ -1095,6 +1144,7 @@ export class NoticesService {
       sourceLabel: true,
       sourceUrl: true,
       publishedAt: true,
+      effectivePublishedAt: true,
     } as const;
 
     const from = ignoreWindow ? undefined : intent.dateFrom;
@@ -1116,7 +1166,7 @@ export class NoticesService {
       return this.prisma.scrapedItem.findMany({
         where,
         select,
-        orderBy: { publishedAt: 'desc' },
+        orderBy: { effectivePublishedAt: 'desc' },
         take: 10,
       });
     }
@@ -1131,7 +1181,7 @@ export class NoticesService {
         ]),
       },
       select,
-      orderBy: { publishedAt: 'desc' },
+      orderBy: { effectivePublishedAt: 'desc' },
       // Widened well past the 10 we return: ranking only improves on what it
       // is given, and `publishedAt desc` alone would hand back the newest
       // single-term match ahead of an older notice that matched every term.
@@ -1155,7 +1205,10 @@ export class NoticesService {
     // how an answer ends up citing a notice that merely contains the word.
     const ranked = scored.some((s) => s.score > 0) ? scored.filter((s) => s.score > 0) : scored;
 
-    const time = (r: (typeof ranked)[number]) => r.row.publishedAt?.getTime() ?? 0;
+    // Effective date so an undated notice doesn't rank as epoch-zero and sink
+    // below every dated one whenever the question asks for the newest.
+    const time = (r: (typeof ranked)[number]) =>
+      (r.row.effectivePublishedAt ?? r.row.publishedAt)?.getTime() ?? 0;
     // "Latest X" asks for a date ordering over the matching set, and so does a
     // question pinned to a date — there the newest notice inside the window is
     // the one that states the current figure. Everything else wants the best
@@ -1201,10 +1254,10 @@ export class NoticesService {
     return this.metaCache.remember(`sitemap:${take}`, async () => {
       const rows = await this.prisma.scrapedItem.findMany({
         select: { id: true, title: true, updatedAt: true, publishedAt: true },
-        // NULLs sort FIRST under a plain Postgres DESC, so undated rows would
-        // occupy the top of the window and push real recent notices out of
-        // the sitemap entirely.
-        orderBy: { publishedAt: { sort: 'desc', nulls: 'last' } },
+        // Effective date, not publishedAt: a plain DESC sorts NULLs first and
+        // would fill the window with undated rows, and NULLS LAST would drop
+        // every recently scraped notice out of the sitemap instead.
+        orderBy: { effectivePublishedAt: 'desc' },
         take,
       });
       // Never publish a junk row to a search engine: an "(untitled)" page is
@@ -1222,6 +1275,44 @@ export class NoticesService {
     // Devanagari letters start at U+0904 — U+0900-0903 are combining marks.
     return (clean.match(/[A-Za-zऄ-ॿ]/g)?.length ?? 0) >= 5;
   }
+}
+
+/** Who is reading — the identity a view is deduplicated against. */
+export interface ViewerMeta {
+  ip?: string;
+  userAgent?: string;
+}
+
+// Substrings that appear in the user-agent of things that read pages without
+// a person behind them. Deliberately broad: over-counting a bot inflates every
+// notice it walks, while missing one human view costs almost nothing.
+const BOT_UA = [
+  'bot', 'crawler', 'spider', 'scraper', 'slurp', 'curl', 'wget', 'python-requests',
+  'axios', 'node-fetch', 'go-http-client', 'java/', 'okhttp', 'headlesschrome',
+  'phantomjs', 'puppeteer', 'playwright', 'lighthouse', 'preview', 'monitor',
+  'uptime', 'pingdom', 'facebookexternalhit', 'whatsapp', 'telegrambot', 'embedly',
+];
+
+export function isBot(userAgent?: string): boolean {
+  // No user-agent at all is a script, not a browser.
+  if (!userAgent) return true;
+  const ua = userAgent.toLowerCase();
+  return BOT_UA.some((frag) => ua.includes(frag));
+}
+
+/**
+ * Stable per-viewer id: salted SHA-256 of IP + user-agent.
+ *
+ * The user-agent is mixed in so several people behind one office NAT are not
+ * flattened into a single viewer. Salted for the same reason as the anonymous
+ * quota hash — an unsalted IPv4 hash is trivially reversible.
+ */
+export function hashViewer(viewer: ViewerMeta): string {
+  const salt = process.env.ANON_QUOTA_SALT || process.env.JWT_SECRET || 'pnm-views';
+  return crypto
+    .createHash('sha256')
+    .update(`${salt}:${viewer.ip ?? 'unknown'}:${viewer.userAgent ?? ''}`)
+    .digest('hex');
 }
 
 export interface SearchIntent {

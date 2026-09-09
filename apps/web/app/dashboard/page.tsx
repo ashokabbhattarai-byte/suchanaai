@@ -12,9 +12,9 @@ import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { useAuth } from "@/lib/auth-context"
 import { useAlerts } from "@/lib/alerts-context"
 import { toast } from "sonner"
-import { mockNotices, mockActivities } from "@/lib/mock-data"
 import { CATEGORY_ORDER, categoryLabel, ScrapedItemCategory } from "@/lib/types"
-import { fetchBillingSummary, fetchInvoices, formatPlanPrice, type Invoice, type BillingSummary } from "@/lib/api"
+import { fetchBillingSummary, fetchInvoices, formatPlanPrice, fetchNotices, type Invoice, type BillingSummary } from "@/lib/api"
+import type { ScrapedItem } from "@/lib/types"
 import gsap from "gsap"
 
 function StatCard({
@@ -57,6 +57,9 @@ export default function DashboardPage() {
   const [billing, setBilling] = useState<BillingSummary | null>(null)
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [invoicesLoading, setInvoicesLoading] = useState(false)
+  const [notices, setNotices] = useState<ScrapedItem[]>([])
+  const [noticesTotal, setNoticesTotal] = useState(0)
+  const [noticesLoading, setNoticesLoading] = useState(true)
 
   useEffect(() => {
     if (!gridRef.current) return
@@ -110,6 +113,31 @@ export default function DashboardPage() {
     }
   }, [user])
 
+  // Load real notices for dashboard — replaces mockNotices
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    setNoticesLoading(true)
+    ;(async () => {
+      try {
+        const res = await fetchNotices({ limit: 12, sortBy: "publishedAt", sortOrder: "desc" })
+        if (cancelled) return
+        setNotices(res.data ?? [])
+        setNoticesTotal(res.meta?.total ?? res.data.length)
+      } catch {
+        if (!cancelled) {
+          setNotices([])
+          setNoticesTotal(0)
+        }
+      } finally {
+        if (!cancelled) setNoticesLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user])
+
   if (!user) {
     return (
       <div className="min-h-screen bg-white font-poppins">
@@ -134,9 +162,27 @@ export default function DashboardPage() {
   const hasAlerts = alerts.length > 0
   const activeAlertCount = alerts.filter(a => a.enabled).length
   const totalMatches = alerts.reduce((s, a) => s + a.matchCount, 0)
-  const recommendedNotices = mockNotices.slice(0, 5)
-  const urgentNotices = mockNotices.filter(n => n.priority === "high").slice(0, 2)
-  const recentActivities = mockActivities.slice(0, 6)
+  // Real data derived from API — no mocks
+  const recommendedNotices = notices.slice(0, 5)
+  const urgentNotices = notices.filter(n => {
+    const withUrgency = n as unknown as { aiUrgency?: string; priority?: string }
+    return withUrgency.aiUrgency === "HIGH" || withUrgency.priority === "high" || n.category === "VACANCY" || n.category === "TENDER"
+  }).slice(0, 2)
+  // Activity derived from real alerts + notices if no dedicated endpoint
+  const recentActivities = [
+    ...alerts.slice(0, 2).map(a => ({
+      id: `alert-${a.id}`,
+      description: `Alert active: ${a.name} — ${a.matchCount} matches`,
+      timestamp: a.createdAt ?? new Date().toISOString(),
+      type: "alert" as const,
+    })),
+    ...notices.slice(0, 4).map(n => ({
+      id: `notice-${n.id}`,
+      description: `New notice: ${n.title.slice(0, 60)}`,
+      timestamp: n.publishedAt ?? n.scrapedAt ?? new Date().toISOString(),
+      type: "view" as const,
+    })),
+  ].slice(0, 6)
 
   const handleWizardSubmit = async () => {
     if (!wizardData.name || wizardData.categories.length === 0) return
@@ -190,20 +236,20 @@ export default function DashboardPage() {
         </div>
 
         <div ref={gridRef} className="w-full max-w-full min-w-0 space-y-4 overflow-x-hidden sm:space-y-6">
-          {/* Stats row - responsive: 1 col mobile, 2 on sm, 4 on lg */}
+          {/* Stats row - real data, responsive: 1 col mobile, 2 on sm, 4 on lg */}
           <div className="grid w-full max-w-full min-w-0 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             <StatCard
-              label="Notices viewed"
-              value="47"
-              sub="this month"
-              trend="+12 this week"
+              label="Notices available"
+              value={noticesLoading ? "—" : noticesTotal.toLocaleString()}
+              sub={noticesLoading ? "loading…" : `${notices.length} loaded • this month`}
+              trend={noticesTotal > 0 ? `${noticesTotal} total` : undefined}
               icon={<Eye className="size-4" />}
             />
             <StatCard
               label="Saved"
-              value="8"
+              value={noticesLoading ? "—" : "0"}
               sub="notices bookmarked"
-              trend="+2 new"
+              trend="Use bookmark on notices"
               icon={<Bookmark className="size-4" />}
             />
             <StatCard
@@ -221,8 +267,16 @@ export default function DashboardPage() {
             />
           </div>
 
-          {/* Urgent notices banner */}
-          {urgentNotices.length > 0 && (
+          {/* Urgent notices banner — real data */}
+          {noticesLoading ? (
+            <div className="dash-card w-full max-w-full min-w-0 overflow-hidden rounded-[20px] bg-vez-navy p-4 sm:p-6 animate-pulse">
+              <div className="h-5 w-32 rounded bg-white/20" />
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                <div className="h-16 rounded-[16px] bg-white/10" />
+                <div className="h-16 rounded-[16px] bg-white/10" />
+              </div>
+            </div>
+          ) : urgentNotices.length > 0 ? (
             <div className="dash-card w-full max-w-full min-w-0 overflow-hidden rounded-[20px] bg-vez-navy p-4 sm:p-6">
               <div className="mb-3 flex flex-wrap items-center gap-2 sm:mb-4 sm:gap-2.5">
                 <CalendarClock className="size-4 shrink-0 text-vez-sky sm:size-5" />
@@ -235,7 +289,7 @@ export default function DashboardPage() {
                 {urgentNotices.map((n) => (
                   <Link
                     key={n.id}
-                    href="/notices"
+                    href={`/notices/${n.id}`}
                     className="group flex min-w-0 items-center gap-3 overflow-hidden rounded-[16px] bg-white/10 p-3 transition-colors hover:bg-white/20 sm:p-4"
                   >
                     <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-vez-sky/30 sm:size-9">
@@ -243,14 +297,14 @@ export default function DashboardPage() {
                     </div>
                     <div className="min-w-0 flex-1 overflow-hidden">
                       <p className="truncate text-sm text-white">{n.title}</p>
-                      <p className="truncate text-xs text-white/60">{n.organization}</p>
+                      <p className="truncate text-xs text-white/60">{n.sourceLabel || "Notice"}</p>
                     </div>
                     <ArrowRight className="hidden size-4 shrink-0 text-vez-sky opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100 sm:block" />
                   </Link>
                 ))}
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* Main grid */}
           <div className="grid w-full max-w-full min-w-0 grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
@@ -376,10 +430,16 @@ export default function DashboardPage() {
                   </Link>
                 </div>
                 <div className="w-full min-w-0 space-y-0">
-                  {recommendedNotices.map((notice) => (
+                  {noticesLoading ? (
+                    <div className="space-y-2 animate-pulse">
+                      {[1,2,3].map(i => <div key={i} className="h-14 rounded-[14px] bg-vez-surface" />)}
+                    </div>
+                  ) : recommendedNotices.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-vez-mute">No notices yet — check back soon.</p>
+                  ) : recommendedNotices.map((notice) => (
                     <Link
                       key={notice.id}
-                      href="/notices"
+                      href={`/notices/${notice.id}`}
                       className="group flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-[14px] border-b border-vez-line/50 px-2 py-3 transition-colors last:border-0 hover:bg-vez-surface sm:gap-3 sm:px-3"
                     >
                       <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-vez-sky/30 sm:size-9">
@@ -388,14 +448,14 @@ export default function DashboardPage() {
                       <div className="min-w-0 flex-1 overflow-hidden">
                         <p className="truncate text-sm text-vez-ink">{notice.title}</p>
                         <div className="mt-0.5 flex min-w-0 items-center gap-1 sm:gap-1.5">
-                          <span className="min-w-0 truncate text-xs text-vez-mute">{notice.organization}</span>
+                          <span className="min-w-0 truncate text-xs text-vez-mute">{notice.sourceLabel || "Notice"}</span>
                           <span className="hidden shrink-0 text-xs text-vez-mute/60 sm:inline">·</span>
-                          <span className="hidden shrink-0 text-xs text-vez-mute sm:inline">{notice.views.toLocaleString()} views</span>
+                          <span className="hidden shrink-0 text-xs text-vez-mute sm:inline">{notice.publishedAt ? new Date(notice.publishedAt).toLocaleDateString() : ""}</span>
                         </div>
                       </div>
                       <div className="hidden shrink-0 items-center gap-1.5 sm:flex sm:gap-2">
                         <span className="rounded-full bg-vez-surface px-2 py-0.5 text-[10px] capitalize text-vez-mute sm:px-2.5">{notice.category}</span>
-                        {notice.priority === "high" && (
+                        {((notice as unknown as { aiUrgency?: string }).aiUrgency === "HIGH") && (
                           <span className="size-2 rounded-full bg-vez-navy" />
                         )}
                         <ArrowRight className="size-3.5 text-vez-navy opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100" />

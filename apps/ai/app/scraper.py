@@ -160,15 +160,42 @@ class ScrapedItem:
 # --- date / text helpers ---
 
 
+def _reinterpret_as_bs(dt: datetime) -> str | None:
+    """A Gregorian parse landing decades in the future is a Bikram Sambat date.
+
+    Nepali sites write BS in plain ASCII too ("2083-03-19"), which matches
+    %Y-%m-%d and parsed as Gregorian year 2083 — the notice then sorted ahead
+    of everything real for the next 57 years. BS and AD ranges don't overlap
+    anywhere near the present, so the year alone identifies which calendar it is.
+    """
+    try:
+        ad = nepali_datetime.date(dt.year, dt.month, dt.day).to_datetime_date()
+    except Exception:
+        return None  # not a valid BS date either — better no date than a wrong one
+    return datetime(ad.year, ad.month, ad.day, dt.hour, dt.minute).isoformat()
+
+
+def _plausible_gregorian(dt: datetime) -> bool:
+    """Reject dates a government notice cannot carry: BS years read as AD, and
+    obvious garbage from a mis-selected element."""
+    year = datetime.now().year
+    return 1990 <= dt.year <= year + 1
+
+
 def _parse_published(raw: str | None) -> str | None:
     if not raw:
         return None
     cleaned = re.sub(r"\s+", " ", raw).strip().strip(",")
     for fmt in _DATE_FORMATS:
         try:
-            return datetime.strptime(cleaned, fmt).isoformat()
+            parsed = datetime.strptime(cleaned, fmt)
         except ValueError:
             continue
+        if _plausible_gregorian(parsed):
+            return parsed.isoformat()
+        # Year is out of range for a real publication date — try reading the
+        # same numbers as Bikram Sambat before giving up on them.
+        return _reinterpret_as_bs(parsed)
     bs_parsed = _parse_bs_date(cleaned)
     if bs_parsed:
         return bs_parsed

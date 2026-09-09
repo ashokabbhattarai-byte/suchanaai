@@ -35,9 +35,14 @@ Rules:
 - Only say nothing was found when the context is genuinely about other subjects.
 - If the context doesn't contain the answer, say so plainly — do not guess.
 - When citing a specific notice, mention its title in quotes so the user knows which one.
-- Every notice carries a "Published" date. Use THAT date when the user asks
+- Every notice carries a "Published" line. Use THAT date when the user asks
   when something was posted, and never present a date found inside a summary
   (often a Bikram Sambat date from the notice body) as the publication date.
+- Where the line reads "not stated by the source (first seen ...)", the source
+  published no date. That first-seen date is when this service discovered the
+  notice, NOT when it was issued — order by it if you must, but never state it
+  as the publication date. If asked when such a notice was published, say the
+  source did not give a date.
 - NEVER add figures from different notices together. Death tolls, amounts,
   quotas and counts belong to the specific incident, scheme or period their
   notice reports. Summing them invents a number no notice states.
@@ -200,14 +205,14 @@ async def search_and_answer(
     # The newest date present, so each entry can state its own age relative to
     # it. Without that the model has to rank raw dates itself to work out which
     # figure supersedes which, and it does that unreliably.
-    dated = [d for d in (_published_label(s) for s in sources) if d != "unknown"]
+    dated = [d for d in (_effective_date(s) for s in sources) if d != "unknown"]
     newest = max(dated) if dated else ""
 
     context = "\n\n".join(
         f"[{i+1}] Title: \"{s.get('title', 'Untitled')}\"\n"
         f"Category: {s.get('category', 'NOTICE')}\n"
         f"Source: {s.get('sourceLabel', '')}\n"
-        f"Published: {_published_label(s)}{_age_marker(s, newest) if newest else ''}\n"
+        f"{_published_line(s, newest)}\n"
         f"{_source_body(s, budget)}"
         for i, (s, budget) in enumerate(_with_budgets(sources))
     )
@@ -432,11 +437,29 @@ def _trim(text: str, limit: int) -> str:
 
 
 def _published_label(source: dict) -> str:
-    """YYYY-MM-DD from whatever the caller sent (the API sends ISO 8601)."""
+    """The date the SOURCE published, or "unknown" — never a date we inferred.
+
+    Kept strictly separate from _effective_date below. Most notices carry no
+    publication date at all, and answering "it was published on the 9th" from
+    the day we happened to scrape a 2020 policy is exactly the confident
+    wrongness the prompt rules spend their length forbidding.
+    """
     raw = source.get("publishedAt") or source.get("published_at")
     if not raw:
         return "unknown"
     return str(raw)[:10]
+
+
+def _effective_date(source: dict) -> str:
+    """Date used for ordering and recency: the source's date when it exists,
+    otherwise when we first saw the notice. Never shown as a publication date."""
+    raw = (
+        source.get("effectivePublishedAt")
+        or source.get("effective_published_at")
+        or source.get("publishedAt")
+        or source.get("published_at")
+    )
+    return str(raw)[:10] if raw else "unknown"
 
 
 def _within(published: str | None, date_from: str | None, date_to: str | None) -> bool:
@@ -455,29 +478,56 @@ def _within(published: str | None, date_from: str | None, date_to: str | None) -
     return True
 
 
-def _age_marker(source: dict, newest: str) -> str:
+def _published_line(source: dict, newest: str) -> str:
+    """The Published line for one context entry.
+
+    Says which date it is showing. When the source published no date the line
+    says so and gives first-seen instead, so the model can still rank by
+    recency without being able to quote a scrape date as a publication date.
+    """
+    published = _published_label(source)
+    effective = _effective_date(source)
+
+    if published != "unknown":
+        return f"Published: {published}{_age_marker(effective, newest)}"
+    if effective != "unknown":
+        return (
+            f"Published: not stated by the source "
+            f"(first seen {effective}){_age_marker(effective, newest)}"
+        )
+    return "Published: unknown"
+
+
+def _age_marker(day: str, newest: str) -> str:
     """How this notice sits in time relative to the newest one in the context.
 
     The model cannot rank dates reliably by reading them, and the context is
     not always in date order — so the relationship that decides which figure
     supersedes which is stated outright rather than left to be inferred.
     """
-    day = _published_label(source)
-    if day == "unknown":
-        return " (date unknown)"
+    if day == "unknown" or not newest:
+        return ""
     if day == newest:
-        return " (most recent here)"
+        return " — most recent here"
     try:
         delta = (date.fromisoformat(newest) - date.fromisoformat(day)).days
     except ValueError:
         return ""
-    return f" ({delta} day{'s' if delta != 1 else ''} older than the most recent here)"
+    return f" — {delta} day{'s' if delta != 1 else ''} older than the most recent here"
 
 
 def _by_published_desc(sources: list[dict]) -> list[dict]:
-    """Newest first; undated notices sink to the bottom rather than the top,
-    where an empty date would otherwise sort as the largest value."""
-    return sorted(sources, key=lambda s: (_published_label(s) != "unknown", _published_label(s)), reverse=True)
+    """Newest first by effective date.
+
+    Ordering on the source date alone put ~89% of the corpus — everything the
+    source dated nothing — into one undifferentiated block at the bottom, so
+    "latest" questions could never reach them.
+    """
+    return sorted(
+        sources,
+        key=lambda s: (_effective_date(s) != "unknown", _effective_date(s)),
+        reverse=True,
+    )
 
 
 def _extractive_fallback(sources: list[dict]) -> str:

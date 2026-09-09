@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react"
+import { AlertTriangle, Info } from "lucide-react"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -9,6 +10,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
+  AlertDialogMedia,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 
@@ -61,29 +63,42 @@ export function ConfirmDialogProvider({ children }: { children: React.ReactNode 
 
   const value = useMemo(() => confirm, [confirm])
 
+  const isDanger = Boolean(options?.danger)
+
   return (
     <ConfirmContext.Provider value={value}>
       {children}
       <AlertDialog open={options !== null} onOpenChange={(open) => !open && settle(false)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{options?.title}</AlertDialogTitle>
-            {options?.description && (
-              <AlertDialogDescription className="whitespace-pre-line">
-                {options.description}
-              </AlertDialogDescription>
-            )}
+        <AlertDialogContent data-variant={isDanger ? "danger" : "default"} className="gap-0">
+          <AlertDialogHeader className="gap-3">
+            <div className="flex items-start gap-4">
+              <AlertDialogMedia className={isDanger ? "bg-red-50 border-red-100 text-red-600" : "bg-vez-sky/20 border-vez-sky/30 text-vez-navy"}>
+                {isDanger ? <AlertTriangle className="size-5" /> : <Info className="size-5" />}
+              </AlertDialogMedia>
+              <div className="min-w-0 flex-1 space-y-1.5 pt-0.5">
+                <AlertDialogTitle>{options?.title}</AlertDialogTitle>
+                {options?.description && (
+                  <AlertDialogDescription className="whitespace-pre-line">
+                    {options.description}
+                  </AlertDialogDescription>
+                )}
+              </div>
+            </div>
           </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2 sm:gap-3">
-            <AlertDialogCancel onClick={() => settle(false)} className="min-h-[44px] sm:min-h-0 w-full sm:w-auto">
+          <AlertDialogFooter className="mt-6">
+            <AlertDialogCancel
+              onClick={() => settle(false)}
+              className="min-h-[44px] w-full sm:w-auto rounded-full border border-vez-line bg-white px-5 py-2.5 text-sm font-medium text-vez-ink hover:bg-vez-surface focus-visible:ring-vez-navy/20"
+            >
               {options?.cancelLabel ?? "Cancel"}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => settle(true)}
               className={
-                (options?.danger
-                  ? "bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600"
-                  : "bg-vez-navy text-white hover:opacity-90") + " min-h-[44px] sm:min-h-0 w-full sm:w-auto"
+                (isDanger
+                  ? "bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600 shadow-sm"
+                  : "bg-vez-navy text-white hover:bg-vez-navy/90 focus-visible:ring-vez-navy shadow-sm") +
+                " min-h-[44px] w-full sm:w-auto rounded-full px-6 py-2.5 text-sm font-medium"
               }
             >
               {options?.confirmLabel ?? "Continue"}

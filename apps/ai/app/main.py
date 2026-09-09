@@ -73,7 +73,11 @@ ROUTE_TIMEOUT_SECONDS = {
     "/notices/search": 150,
     "/notices/ask": 150,
     "/notices/analyze": 120,
-    "/notices/extract-pdf": 120,
+    # 85s, not 120: notices.service.ts gives this route 90s, so a 120s budget
+    # meant the caller always hung up first and nginx logged a 499 with no
+    # error from this service to explain it. Under the caller, per the rule
+    # above, so a slow extraction surfaces here as a real 504.
+    "/notices/extract-pdf": 85,
     # Bulk vector write: one batched encode plus chunked upserts. Stays under
     # the API's 120s budget (scraping.service.ts) so the AI owns the timeout.
     "/notices/embed": 110,
@@ -1578,6 +1582,32 @@ async def _notices_extract_pdf(receive) -> tuple[int, dict]:
     attachment — picked by the URL's extension — with SSRF protection,
     extracts text via OCR if needed, then runs AI analysis. Returns
     {content_text, is_ocr, summary, summary_ne, key_facts, tags}."""
+    # Refuse rather than pile up. This route is OCR at 250-300 DPI plus an LLM
+    # call — minutes of CPU on a single worker — and it had no bound at all,
+    # so a caller that fanned out (a crawler walking notice pages) started one
+    # job per request until nothing finished and every caller timed out.
+    # 503 lets the API back off and retry; queueing here only hides the pile.
+    global _extract_inflight
+    if _extract_inflight >= _EXTRACT_CONCURRENCY:
+        logger.warning(
+            "extract-pdf at capacity (%d in flight) — shedding request", _extract_inflight
+        )
+        return 503, {"error": "Extraction capacity reached — retry shortly"}
+    _extract_inflight += 1
+    try:
+        return await _notices_extract_pdf_inner(receive)
+    finally:
+        _extract_inflight -= 1
+
+
+# Concurrent /notices/extract-pdf jobs allowed. Matches the API's own
+# MAX_BACKGROUND_EXTRACTIONS so neither side queues work the other will refuse.
+_EXTRACT_CONCURRENCY = 2
+_extract_inflight = 0
+
+
+async def _notices_extract_pdf_inner(receive) -> tuple[int, dict]:
+    """Body of the extract route, behind the concurrency bound above."""
     import tempfile
 
     body = await _read_body(receive)

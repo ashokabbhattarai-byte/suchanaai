@@ -294,6 +294,10 @@ model ScrapedItem {
   contentHtml   String?             @map("content_html")
   attachmentUrl String?             @map("attachment_url")
   publishedAt   DateTime?           @map("published_at")
+  /// Read-only. A Postgres STORED generated column, COALESCE(publishedAt,
+  /// scrapedAt) — the single key every "latest" ordering sorts on. Never write
+  /// to it: the database maintains it, and an INSERT that names it will fail.
+  effectivePublishedAt DateTime?    @map("effective_published_at")
   contentHash   String              @map("content_hash")
   views         Int                 @default(0)
   // AI enrichment — computed concurrently during scraping, not lazily.
@@ -310,6 +314,7 @@ model ScrapedItem {
   updatedAt     DateTime            @updatedAt @map("updated_at")
 
   attachments   Attachment[]
+  noticeViews   NoticeView[]
   alertNotifications AlertNotification[]
 
   @@index([category])
@@ -608,6 +613,27 @@ model RevokedToken {
 //
 // `clientHash` is a salted SHA-256 of the caller's IP: the raw address is
 // never stored, and a counter never needs to be reversed to a person.
+// One row per (viewer, notice, UTC day) — the dedupe key behind ScrapedItem.views.
+//
+// The counter alone cannot be deduped correctly: the previous throttle was
+// keyed by notice id only, so a hundred people opening the same notice inside
+// the window counted as one view. Popularity actively suppressed the count.
+//
+// `viewerHash` is a salted SHA-256 of IP + user-agent; the raw address is never
+// stored. Rows are only ever inserted, and are prunable by `day`.
+model NoticeView {
+  noticeId   String      @map("notice_id") @db.Uuid
+  notice     ScrapedItem @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  viewerHash String      @map("viewer_hash")
+  day        DateTime    @map("day") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([noticeId, viewerHash, day])
+  @@index([day])
+  @@map("notice_views")
+}
+
 model AnonAiUsage {
   clientHash String   @map("client_hash")
   // Midnight UTC of the day this counter covers.
