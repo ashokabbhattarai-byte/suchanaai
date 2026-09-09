@@ -121,19 +121,22 @@ OPENCODE_ZEN_API_KEY: str = _env("OPENCODE_ZEN_API_KEY")
 OPENCODE_ZEN_BASE_URL: str = _env("OPENCODE_ZEN_BASE_URL", "https://opencode.ai/zen/v1/chat/completions")
 OPENCODE_ZEN_MODEL: str = _env("OPENCODE_ZEN_MODEL", "deepseek-v4-flash-free")
 
-# AWS Bedrock (Claude) — the paid backstop, tried last once every free tier
-# above has refused, rate-limited, or run out of credit. Authenticates with a
-# Bedrock bearer token (AWS_BEARER_TOKEN_BEDROCK) rather than SigV4 keys, so
-# it fits the same single-secret shape as every other provider here.
-# `global.` is the cross-region endpoint: best availability, and no regional
-# pricing premium.
+# AWS Bedrock (Claude) — the primary provider. Authenticates with a Bedrock
+# bearer token (AWS_BEARER_TOKEN_BEDROCK) rather than SigV4 keys, so it fits
+# the same single-secret shape as every other provider here.
 BEDROCK_API_KEY: str = _env("BEDROCK_API_KEY") or _env("AWS_BEARER_TOKEN_BEDROCK")
 BEDROCK_REGION: str = _env("BEDROCK_REGION", "us-east-1")
-# Sonnet 4.6 is NOT served by the Bedrock Messages endpoint (it 404s there);
-# Sonnet 5 is the current Sonnet on that endpoint. IDs carry an `anthropic.`
-# prefix and no `global.`/`us.` inference-profile prefix — those belong to the
-# legacy InvokeModel API, not this one.
-BEDROCK_MODEL: str = _env("BEDROCK_MODEL", "anthropic.claude-sonnet-5")
+# Haiku 4.5 is the cheapest and fastest Claude, which is what "low effort"
+# means here — it does no thinking unless given a budget_tokens, and `effort`
+# is rejected outright on 4.5-tier models, so neither is ever sent.
+# This is an inference-profile ID, so it routes to the legacy InvokeModel API
+# (see _is_legacy_bedrock_model). Verified 2026-09-08: this account has NO
+# access to the Messages endpoint — every bare `anthropic.*` ID 403s there
+# with "not available for this account" — so a plain `anthropic.` ID would
+# break. `global.` is cross-region: best availability, no pricing premium.
+BEDROCK_MODEL: str = _env(
+    "BEDROCK_MODEL", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+)
 
 # NOTE: nothing reads this. Order comes from the registry's sort_order (or the
 # order _env_fallback_providers builds when the sync is down), and disabling is

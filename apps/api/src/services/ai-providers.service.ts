@@ -71,6 +71,26 @@ export class AiProvidersService implements OnModuleInit {
     Pick<AiProvider, 'slug' | 'label' | 'kind' | 'baseUrl' | 'model' | 'sortOrder'> &
       Partial<Pick<AiProvider, 'region'>>
   > = [
+    // PRIMARY. Paid but fast and reliable: Haiku 4.5 is the cheapest Claude
+    // and answers in ~0.8s in-region, so it carries normal traffic and
+    // everything below is fallback. llm.py calls a first-sorted BEDROCK
+    // provider alone rather than racing it, so this costs one paid request per
+    // question, not one per question per agent. `effort` is rejected on
+    // 4.5-tier models and thinking is off unless given a budget, so a call
+    // here is already minimum-spend.
+    // Inference-profile ID, not a bare `anthropic.*` one: verified 2026-09-08
+    // that this account has no Messages-endpoint access (every `anthropic.*`
+    // ID 403s "not available for this account"), so only this legacy
+    // InvokeModel path works. Sonnet 4.6 is not on Bedrock here at all.
+    {
+      slug: 'bedrock',
+      label: 'AWS Bedrock (Claude Haiku 4.5)',
+      kind: AiProviderKind.BEDROCK,
+      baseUrl: null,
+      region: 'us-east-1',
+      model: 'global.anthropic.claude-haiku-4-5-20251001-v1:0',
+      sortOrder: -20,
+    },
     // VERY VERY FAST — TOP PRIORITY: Ollama on EC2 services t3.large (2 vCPU, 7.6 GiB, no GPU)
     // 3.80.188.210:11434 — qwen2.5:1.5b (~986 MB, fits easily, ~2-4s on CPU via llama.cpp).
     // FIX 2026-09-08: vLLM at 3.80.188.210:8001 was TOP (-10) but health shows
@@ -151,19 +171,6 @@ export class AiProvidersService implements OnModuleInit {
       model: 'deepseek-v4-flash-free',
       sortOrder: 2,
     },
-    // Last in the chain: the paid, high-reliability backstop for when every
-    // free tier above has refused, rate-limited, or run out of credit.
-    // Model IDs on the Bedrock Messages endpoint carry an `anthropic.` prefix
-    // and no inference-profile prefix; Sonnet 4.6 is not served there at all.
-    {
-      slug: 'bedrock',
-      label: 'AWS Bedrock (Claude Sonnet 5)',
-      kind: AiProviderKind.BEDROCK,
-      baseUrl: null,
-      region: 'us-east-1',
-      model: 'anthropic.claude-sonnet-5',
-      sortOrder: 3,
-    },
   ];
 
   constructor(
@@ -197,6 +204,34 @@ export class AiProvidersService implements OnModuleInit {
       });
       this.logger.log(
         `Seeded ${missing.length} built-in AI provider(s): ${missing.map((p) => p.slug).join(', ')}`,
+      );
+    }
+
+    // Promote Bedrock from last-resort backstop to primary, on Haiku 4.5.
+    // Only fires for a row still on one of the bare `anthropic.*` IDs we used
+    // to ship: those address the Bedrock Messages endpoint, which this account
+    // has no access to (verified 2026-09-08 — every one returns 403 "not
+    // available for this account"), so they can never answer. An admin who
+    // picked their own working inference-profile ID keeps it and its position.
+    const UNUSABLE_BEDROCK_MODELS = new Set([
+      'anthropic.claude-sonnet-5',
+      'anthropic.claude-haiku-4-5',
+      'anthropic.claude-opus-4-8',
+    ]);
+    const bedrockBuiltIn = AiProvidersService.BUILT_INS.find((p) => p.slug === 'bedrock')!;
+    const bedrockRow = existing.find((p) => p.slug === 'bedrock');
+    if (bedrockRow && UNUSABLE_BEDROCK_MODELS.has(bedrockRow.model)) {
+      await this.prisma.aiProvider.update({
+        where: { slug: 'bedrock' },
+        data: {
+          model: bedrockBuiltIn.model,
+          label: bedrockBuiltIn.label,
+          sortOrder: bedrockBuiltIn.sortOrder,
+          enabled: true,
+        },
+      });
+      this.logger.warn(
+        `Promoted Bedrock to primary (sortOrder ${bedrockBuiltIn.sortOrder}) on ${bedrockBuiltIn.model}`,
       );
     }
 

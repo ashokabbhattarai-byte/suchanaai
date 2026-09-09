@@ -69,11 +69,20 @@ const PRESETS: Array<{
     model: "Qwen/Qwen2.5-0.5B-Instruct",
   },
   {
-    label: "AWS Bedrock (Claude Sonnet 5)",
+    label: "AWS Bedrock (Claude Haiku 4.5)",
     kind: "BEDROCK",
     baseUrl: "",
     region: "us-east-1",
-    model: "anthropic.claude-sonnet-5",
+    // Inference-profile ID — the account has no Messages-endpoint access, so a
+    // bare "anthropic.claude-haiku-4-5" 403s. See ai-providers.service.ts.
+    model: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+  },
+  {
+    label: "AWS Bedrock (Claude Sonnet 4.5)",
+    kind: "BEDROCK",
+    baseUrl: "",
+    region: "us-east-1",
+    model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
   },
   {
     label: "AWS Bedrock (Claude Sonnet 4.6)",

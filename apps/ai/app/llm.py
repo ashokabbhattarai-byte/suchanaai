@@ -345,6 +345,13 @@ RUNTIME_PROVIDERS: list[dict] = []
 def _env_fallback_providers() -> list[dict]:
     """Built-ins from environment variables, used until the registry syncs."""
     out = []
+    # First — Bedrock is the primary provider (see the primary branch in _llm_chat).
+    if config.BEDROCK_API_KEY:
+        out.append({
+            "slug": "bedrock", "label": "AWS Bedrock (Claude Haiku 4.5)", "kind": "BEDROCK",
+            "base_url": None, "region": config.BEDROCK_REGION, "model": config.BEDROCK_MODEL,
+            "api_key": config.BEDROCK_API_KEY, "enabled": True,
+        })
     for idx, _key in enumerate(getattr(config, "OPENROUTER_API_KEYS", []) or []):
         # Expand OPENROUTER_API_KEYS into multiple slugs so the hedged race gets
         # one agent per key — mirrors GROQ_API_KEYS expansion (see _llm_chat
@@ -381,12 +388,6 @@ def _env_fallback_providers() -> list[dict]:
             "slug": "opencode", "label": "OpenCode Zen", "kind": "OPENAI_COMPATIBLE",
             "base_url": config.OPENCODE_ZEN_BASE_URL, "model": config.OPENCODE_ZEN_MODEL,
             "api_key": config.OPENCODE_ZEN_API_KEY, "enabled": True,
-        })
-    if config.BEDROCK_API_KEY:
-        out.append({
-            "slug": "bedrock", "label": "AWS Bedrock (Claude Sonnet 5)", "kind": "BEDROCK",
-            "base_url": None, "region": config.BEDROCK_REGION, "model": config.BEDROCK_MODEL,
-            "api_key": config.BEDROCK_API_KEY, "enabled": True,
         })
     return out
 
@@ -604,6 +605,26 @@ async def _llm_chat(
     if not providers:
         logger.info("No LLM provider is configured")
         return None
+
+    # Bedrock as designated primary: when it sorts first it is called alone,
+    # before any race. Racing it would bill a paid request on every question
+    # even when a free tier answers first, and Haiku 4.5 returns in well under
+    # a second, so the race would buy no latency to justify that cost.
+    if providers[0].get("kind") == "BEDROCK":
+        primary = providers[0]
+        result = await _call_provider(primary, messages, max_tokens, temperature)
+        if result:
+            return result
+        logger.warning(
+            "Primary %s (%s) failed; falling back to %d other provider(s)",
+            primary.get("label", primary.get("slug")),
+            primary.get("model"),
+            len(providers) - 1,
+        )
+        providers = providers[1:]
+        if not providers:
+            return None
+
     # Single provider — no race needed, keep sequential path (simpler logs).
     if len(providers) == 1:
         return await _call_provider(providers[0], messages, max_tokens, temperature)
@@ -1061,12 +1082,15 @@ async def _probe_one_model(provider: dict) -> tuple[bool, str | None]:
     fallback. Works for any registry entry, including admin-added ones,
     because it dispatches on `kind` exactly like chat does."""
     if provider.get("kind") == "BEDROCK":
-        # No raw HTTP path here — Bedrock is reached through the SDK client,
-        # so the probe is the same one-token call the chat path would make.
-        _, error = await _bedrock_call(
-            [{"role": "user", "content": "ping"}], 8, 0.0, provider
+        # Same instruction-following probe as every other kind — a bare "ping"
+        # passes on a model too weak to follow instructions, which is exactly
+        # how the panel used to show green while chat returned only fallbacks.
+        text, error = await _bedrock_call(
+            [{"role": "user", "content": _PROBE_PROMPT}], _PROBE_MAX_TOKENS, 0.0, provider
         )
-        return (error is None), error
+        if error:
+            return False, error
+        return _verify_probe_text(text or "")
 
     # A real instruction with a checkable answer, sized like an actual call.
     # "ping" with max_tokens=8 passed on quota that rejects every real request
@@ -1103,7 +1127,11 @@ async def _probe_one_model(provider: dict) -> tuple[bool, str | None]:
     if response.status_code != 200:
         return False, _describe_http_failure(response.status_code, response.text)
 
-    text = _probe_text(response, provider.get("kind"))
+    return _verify_probe_text(_probe_text(response, provider.get("kind")))
+
+
+def _verify_probe_text(text: str) -> tuple[bool, str | None]:
+    """Shared verdict for a probe's answer, whatever transport produced it."""
     if not text.strip():
         return False, (
             "Returned an empty answer — the model produced no text. On reasoning "
