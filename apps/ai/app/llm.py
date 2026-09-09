@@ -352,18 +352,9 @@ def _env_fallback_providers() -> list[dict]:
             "base_url": None, "region": config.BEDROCK_REGION, "model": config.BEDROCK_MODEL,
             "api_key": config.BEDROCK_API_KEY, "enabled": True,
         })
-    for idx, _key in enumerate(getattr(config, "OPENROUTER_API_KEYS", []) or []):
-        # Expand OPENROUTER_API_KEYS into multiple slugs so the hedged race gets
-        # one agent per key — mirrors GROQ_API_KEYS expansion (see _llm_chat
-        # hedged concurrency cap). First key keeps the canonical "openrouter"
-        # slug for backward compat; additional keys get "openrouter-2", ...
-        out.append({
-            "slug": "openrouter" if idx == 0 else f"openrouter-{idx+1}",
-            "label": "OpenRouter" if idx == 0 else f"OpenRouter {idx+1}",
-            "kind": "OPENAI_COMPATIBLE",
-            "base_url": config.OPENROUTER_BASE_URL, "model": config.OPENROUTER_MODEL,
-            "api_key": _key, "enabled": True,
-        })
+    # OpenRouter is retired — the roster is Bedrock, Ollama and Groq. The
+    # _is_openrouter host checks elsewhere stay put and simply never match;
+    # they cost nothing without a provider row to fire on.
     for idx, _key in enumerate(getattr(config, "GROQ_API_KEYS", []) or []):
         # Expand GROQ_API_KEYS into multiple slugs so the hedged race gets
         # one agent per key — doubles free-tier quota without extra latency

@@ -115,21 +115,6 @@ export class AiProvidersService implements OnModuleInit {
       model: 'qwen2.5:1.5b',
       sortOrder: -10,
     },
-    // First in the hosted chain. OpenRouter meters requests per day (50/day, 1000/day
-    // after $10, 20 RPM shared across all :free models) rather than tokens
-    // per day, so a long RAG context costs no more than a one-line question.
-    // Primary is liquid/lfm-2.5-2.6b:free — 2.6B ultra-fast <600ms vs
-    // nemotron-lightning's ~12.9s; gemma-4-26b is next in chain for powerful
-    // Devanagari fallback. sortOrder is -1 rather than 0 so it also lands ahead
-    // of the providers already seeded at 0..3 on installs that predate it.
-    {
-      slug: 'openrouter',
-      label: 'OpenRouter',
-      kind: AiProviderKind.OPENAI_COMPATIBLE,
-      baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
-      model: 'liquid/lfm-2.5-2.6b:free',
-      sortOrder: -1,
-    },
     {
       slug: 'groq',
       label: 'Groq',
@@ -221,7 +206,7 @@ export class AiProvidersService implements OnModuleInit {
     // deleted. This supersedes the "vLLM SECOND (-9)" positioning in the
     // Ollama/vLLM swap migration below; that block still runs for the Ollama
     // half, its vLLM patches are now moot since this always re-disables it.
-    const RETIRED_SLUGS = ['gemini', 'opencode', 'vllm-services'];
+    const RETIRED_SLUGS = ['gemini', 'opencode', 'vllm-services', 'openrouter'];
     for (const row of existing) {
       if (RETIRED_SLUGS.includes(row.slug) && row.enabled) {
         await this.prisma.aiProvider.update({
@@ -247,65 +232,42 @@ export class AiProvidersService implements OnModuleInit {
     // self-hosted OPENAI_COMPATIBLE with no API key (_key_optional). Stale
     // keys are cleared idempotently — admin can re-add via "My endpoint needs
     // a key" toggle if auth is ever enabled.
-    const ollamaBuiltIn = AiProvidersService.BUILT_INS.find((p) => p.slug === 'ollama-services')!;
-    const vllmBuiltIn = AiProvidersService.BUILT_INS.find((p) => p.slug === 'vllm-services')!;
-    for (const row of existing) {
+    // Ollama only — vLLM is retired above, so it is disabled rather than
+    // repositioned and has no BUILT_INS entry to heal against. Look it up
+    // without `!`: a missing entry must skip this block, never crash boot.
+    const ollamaBuiltIn = AiProvidersService.BUILT_INS.find((p) => p.slug === 'ollama-services');
+    for (const row of ollamaBuiltIn ? existing : ([] as typeof existing)) {
+      if (!ollamaBuiltIn) break;
       const isOllamaRow =
         row.slug === 'ollama-services' ||
         (row.baseUrl?.includes(':11434') ?? false) ||
         (row.baseUrl?.toLowerCase().includes('ollama') ?? false);
-      const isVllmRow =
-        row.slug === 'vllm-services' ||
-        (row.baseUrl?.includes('3.80.188.210:8001') ?? false) ||
-        (row.baseUrl?.includes('172.31.95.204:8001') ?? false) ||
-        (row.baseUrl?.includes(':8001') && (row.slug.includes('vllm') || row.label.toLowerCase().includes('vllm')));
+      if (!isOllamaRow) continue;
 
-      if (!isOllamaRow && !isVllmRow) continue;
-
-      const target = isOllamaRow ? ollamaBuiltIn : vllmBuiltIn;
       const patch: Record<string, any> = {};
+      if (row.sortOrder !== ollamaBuiltIn.sortOrder) patch.sortOrder = ollamaBuiltIn.sortOrder;
 
-      // Fix slug mismatch: custom row with same baseUrl gets canonical slug
-      // (but we patch by id via slug, so we only fix builtIn flag + baseUrl).
-      if (row.sortOrder !== target.sortOrder) patch.sortOrder = target.sortOrder;
-
-      // Only fix baseUrl if it drifted to private IP or missing /v1/chat/completions
-      // Keep private 172.31.95.204 as public 3.80.188.210 (not routable from Beanstalk)
-      if (isOllamaRow && row.baseUrl !== ollamaBuiltIn.baseUrl) {
-        // Normalize private IP to public, and ensure /v1/chat/completions suffix
-        if (row.baseUrl?.includes('172.31.95.204:11434') || row.baseUrl === 'http://3.80.188.210:11434') {
+      // Only fix baseUrl if it drifted to the private IP, which is not
+      // routable from Beanstalk, or lost its /v1/chat/completions suffix.
+      if (row.baseUrl !== ollamaBuiltIn.baseUrl) {
+        if (
+          row.baseUrl?.includes('172.31.95.204:11434') ||
+          row.baseUrl === 'http://3.80.188.210:11434' ||
+          row.slug === 'ollama-services'
+        ) {
           patch.baseUrl = ollamaBuiltIn.baseUrl;
-        } else if (row.baseUrl !== ollamaBuiltIn.baseUrl && row.slug === 'ollama-services') {
-          patch.baseUrl = ollamaBuiltIn.baseUrl;
-        }
-      }
-      if (isVllmRow && row.baseUrl !== vllmBuiltIn.baseUrl) {
-        if (row.baseUrl?.includes('172.31.95.204:8001') || row.baseUrl === 'http://3.80.188.210:8001') {
-          patch.baseUrl = vllmBuiltIn.baseUrl;
-        } else if (row.baseUrl !== vllmBuiltIn.baseUrl && row.slug === 'vllm-services') {
-          patch.baseUrl = vllmBuiltIn.baseUrl;
         }
       }
 
       if (row.slug === 'ollama-services' && !row.isBuiltIn) patch.isBuiltIn = true;
-      if (row.slug === 'vllm-services' && !row.isBuiltIn) patch.isBuiltIn = true;
-
-      // Self-hosted must have no key — clear stale stored keys
+      // Self-hosted takes no key — clear a stale stored one.
       if (row.apiKeyEnc) patch.apiKeyEnc = null;
-
-      // Ollama TOP must stay enabled — it's the healthy primary. vLLM secondary
-      // stays enabled too (health will show red until fixed, but hedged race
-      // will still try it; disable it here would hide that it needs fixing).
-      // If admin disabled Ollama manually, re-enable it — it is the only
-      // self-hosted that currently answers (2127ms). Admin can disable again
-      // after, but boot should heal to a working primary.
-      if (isOllamaRow && !row.enabled) patch.enabled = true;
+      if (!row.enabled) patch.enabled = true;
 
       if (Object.keys(patch).length) {
         await this.prisma.aiProvider.update({ where: { slug: row.slug }, data: patch });
-        const targetLabel = isOllamaRow ? 'Ollama TOP (-10)' : 'vLLM SECOND (-9)';
         this.logger.warn(
-          `Fixed provider "${row.slug}" → ${targetLabel} (sortOrder ${target.sortOrder}), no API key — swap for CPU fix (vLLM "Failed to infer device type")`,
+          `Healed Ollama provider "${row.slug}" → sortOrder ${ollamaBuiltIn.sortOrder}, no API key`,
         );
       }
     }
@@ -322,27 +284,9 @@ export class AiProvidersService implements OnModuleInit {
       }
     }
 
-    // Self-heal retired free models: minimax/* was removed from OpenRouter
-    // (404) and nemotron-lightning as primary was 12.9s in prod. Promote any
-    // row still pointing at a dead/slow model to the new live fast primary.
-    const RETIRED_MODELS = new Set([
-      'minimax/minimax-m3:free',
-      'minimax/minimax-m2.7:free',
-      'nvidia/nemotron-3.5-lightning:free',
-    ]);
-    const livePrimary = AiProvidersService.BUILT_INS.find((p) => p.slug === 'openrouter')!.model;
-    for (const row of existing) {
-      if (row.slug === 'openrouter' && RETIRED_MODELS.has(row.model)) {
-        await this.prisma.aiProvider.update({
-          where: { slug: 'openrouter' },
-          data: { model: livePrimary },
-        });
-        this.logger.warn(
-          `Migrated OpenRouter primary from retired/slow "${row.model}" to "${livePrimary}"`,
-        );
-        break;
-      }
-    }
+    // The OpenRouter retired-model self-heal lived here. It is gone with the
+    // provider itself — its BUILT_INS lookup used a non-null assertion, so
+    // leaving it behind would dereference undefined and crash boot.
   }
 
   // ── URL safety ─────────────────────────────────────────────────────────
