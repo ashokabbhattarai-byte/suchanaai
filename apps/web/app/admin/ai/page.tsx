@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useCallback, useEffect, useState } from "react"
+import React, { useCallback, useEffect, useRef, useState } from "react"
 import {
   Activity,
   AlertCircle,
@@ -45,8 +45,28 @@ import {
   reorderAiProviders,
   testAiProvider,
   fetchAiHealth,
+  isApiError,
 } from "@/lib/api"
 import type { AiProvider, AiProviderHealth, AiProviderInput } from "@/lib/types"
+
+// Health cache TTL 30s — avoids refetching within window, matches api.ts global cache
+const HEALTH_CACHE_MS = 30_000
+// Retry transient 503/429/5xx after 5s once, with auto-retry and degraded UI instead of blocking
+const RETRY_DELAY_MS = 5_000
+
+function isRetryableErr(err: unknown): boolean {
+  if (isApiError(err)) {
+    return [503, 502, 504, 429, 408].includes(err.status)
+  }
+  const msg = err instanceof Error ? err.message : String(err ?? "")
+  // Backend surfaces 503 as "Could not reach AI service" with 503 status; also handle timeout wrappers
+  if (msg.includes("503") || msg.includes("429") || msg.toLowerCase().includes("unavailable") || msg.toLowerCase().includes("timeout")) {
+    return true
+  }
+  // ApiError not yet classified but message contains AI service
+  if (msg.includes("Could not reach the AI service")) return true
+  return false
+}
 
 export default function AdminAiPage() {
   const confirm = useConfirm()
@@ -54,6 +74,8 @@ export default function AdminAiPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
+  // Degraded banner — amber instead of blocking red for transient AI unavailability
+  const [degraded, setDegraded] = useState<string | null>(null)
 
   // Health is keyed by slug so a single-provider test updates just that card
   // instead of blowing away every other card's result.
@@ -65,13 +87,26 @@ export default function AdminAiPage() {
   const [dialogFor, setDialogFor] = useState<AiProvider | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
 
+  // Health caching + auto-retry refs
+  const lastFetchAtRef = useRef<Map<string, number>>(new Map())
+  const retryTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const healthCacheRef = useRef<Map<string, { data: { providers: AiProviderHealth[]; activeProvider: string | null } }>>(new Map())
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
       setProviders(await fetchAiProviders())
       setError(null)
+      setDegraded(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load providers")
+      const msg = err instanceof Error ? err.message : "Could not load providers"
+      // If it's a network/timeout to AI-adjacent endpoint, show degraded not blocking
+      if (isRetryableErr(err)) {
+        setDegraded(`${msg} — showing cached data if available. Retry in 5s.`)
+        setError(null)
+      } else {
+        setError(msg)
+      }
     } finally {
       setLoading(false)
     }
@@ -81,32 +116,140 @@ export default function AdminAiPage() {
     void load()
   }, [load])
 
+  // Cleanup retry timers on unmount
+  useEffect(() => {
+    return () => {
+      for (const t of retryTimersRef.current.values()) clearTimeout(t)
+      retryTimersRef.current.clear()
+    }
+  }, [])
+
   const mergeHealth = (rows: AiProviderHealth[]) =>
     setHealth((h) => ({ ...h, ...Object.fromEntries(rows.map((r) => [r.provider, r])) }))
 
-  const testOne = async (p: AiProvider) => {
+  const isCacheFresh = (key: string): boolean => {
+    const at = lastFetchAtRef.current.get(key)
+    return at !== undefined && Date.now() - at < HEALTH_CACHE_MS
+  }
+
+  const getCachedHealth = (key: string) => {
+    if (!isCacheFresh(key)) return undefined
+    return healthCacheRef.current.get(key)?.data
+  }
+
+  const setCachedHealth = (key: string, data: { providers: AiProviderHealth[]; activeProvider: string | null }) => {
+    healthCacheRef.current.set(key, { data })
+    lastFetchAtRef.current.set(key, Date.now())
+  }
+
+  const clearRetryTimer = (key: string) => {
+    const t = retryTimersRef.current.get(key)
+    if (t) {
+      clearTimeout(t)
+      retryTimersRef.current.delete(key)
+    }
+  }
+
+  const testOne = async (p: AiProvider, opts?: { force?: boolean; isRetry?: boolean }) => {
+    const cacheKey = `provider:${p.id}`
+
+    // Health caching: don't refetch within 30s unless forced or this is a scheduled retry
+    if (!opts?.force && !opts?.isRetry && isCacheFresh(cacheKey)) {
+      const cached = getCachedHealth(cacheKey)
+      if (cached) {
+        mergeHealth(cached.providers)
+        setDegraded("Using cached health — refreshed within 30s. Click Test again to force.")
+        return
+      }
+      // If we have no cached payload but timestamp says fresh, skip network and keep existing cards
+      setNotice({ ok: true, text: "Using cached result — checked within 30s." })
+      return
+    }
+
+    clearRetryTimer(cacheKey)
     setTesting((t) => ({ ...t, [p.id]: true }))
+    // When we start a fresh probe, clear any old degraded banner for this provider
+    if (!opts?.isRetry) setDegraded(null)
     try {
       const snap = await testAiProvider(p.id)
       mergeHealth(snap.providers)
+      setCachedHealth(cacheKey, { providers: snap.providers, activeProvider: snap.activeProvider })
+      setDegraded(null)
+      setNotice(null)
     } catch (err) {
-      setNotice({ ok: false, text: err instanceof Error ? err.message : "Test failed." })
+      const retryable = isRetryableErr(err)
+      const msg = err instanceof Error ? err.message : "Test failed."
+      if (retryable && !opts?.isRetry) {
+        // Auto-retry with backoff: retry 503 after 5s, show degraded amber instead of blocking red
+        setDegraded(`AI temporarily unavailable (503) — retrying ${p.label} in 5s…`)
+        const timer = setTimeout(() => {
+          retryTimersRef.current.delete(cacheKey)
+          void testOne(p, { force: true, isRetry: true })
+        }, RETRY_DELAY_MS)
+        retryTimersRef.current.set(cacheKey, timer)
+        // Also keep existing health cards visible (degraded), don't blow away
+      } else if (retryable && opts?.isRetry) {
+        // Retry also failed — stay degraded with manual retry affordance
+        setDegraded(`AI still unavailable for ${p.label} — showing cached result. Retry now or wait.`)
+        // Keep last cached health if any, don't clear
+      } else {
+        setNotice({ ok: false, text: msg })
+      }
     } finally {
       setTesting((t) => ({ ...t, [p.id]: false }))
     }
   }
 
-  const testAll = async () => {
+  const testAll = async (opts?: { force?: boolean; isRetry?: boolean }) => {
+    const cacheKey = "all"
+
+    if (!opts?.force && !opts?.isRetry && isCacheFresh(cacheKey)) {
+      const cached = getCachedHealth(cacheKey)
+      if (cached) {
+        mergeHealth(cached.providers)
+        if (cached.activeProvider) setActiveProvider(cached.activeProvider)
+        setDegraded("Using cached health — refreshed within 30s. Click Test all again to force.")
+        return
+      }
+      setNotice({ ok: true, text: "Using cached health — checked within 30s." })
+      return
+    }
+
+    clearRetryTimer(cacheKey)
     setCheckingAll(true)
+    if (!opts?.isRetry) setDegraded(null)
     try {
       const snap = await fetchAiHealth()
       mergeHealth(snap.providers)
       setActiveProvider(snap.activeProvider)
+      setCachedHealth(cacheKey, { providers: snap.providers, activeProvider: snap.activeProvider })
+      setDegraded(null)
+      setNotice(null)
     } catch (err) {
-      setNotice({ ok: false, text: err instanceof Error ? err.message : "Health check failed." })
+      const retryable = isRetryableErr(err)
+      const msg = err instanceof Error ? err.message : "Health check failed."
+      if (retryable && !opts?.isRetry) {
+        setDegraded("AI temporarily unavailable (503) — retrying in 5s. Showing cached health where available.")
+        const timer = setTimeout(() => {
+          retryTimersRef.current.delete(cacheKey)
+          void testAll({ force: true, isRetry: true })
+        }, RETRY_DELAY_MS)
+        retryTimersRef.current.set(cacheKey, timer)
+      } else if (retryable && opts?.isRetry) {
+        setDegraded("AI still unavailable — showing cached health. Retry now or wait for service to recover.")
+      } else {
+        setNotice({ ok: false, text: msg })
+      }
     } finally {
       setCheckingAll(false)
     }
+  }
+
+  const handleTestAllClick = () => {
+    // Manual click should force if cache is fresh but user explicitly wants fresh — force:true bypasses cache
+    const cacheKey = "all"
+    const force = isCacheFresh(cacheKey) // if fresh, manual click implies force
+    void testAll({ force })
   }
 
   const sensors = useSensors(
@@ -192,12 +335,14 @@ export default function AdminAiPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={testAll}
+              onClick={handleTestAllClick}
               disabled={checkingAll}
-              className="flex items-center gap-2 rounded-full border border-vez-line px-4 py-2.5 text-sm text-vez-ink transition-colors hover:bg-vez-surface disabled:opacity-50"
+              aria-busy={checkingAll}
+              aria-label={checkingAll ? "Testing all providers…" : "Test all providers"}
+              className="flex items-center gap-2 rounded-full border border-vez-line px-4 py-2.5 text-sm text-vez-ink transition-colors hover:bg-vez-surface disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {checkingAll ? <Loader2 className="size-4 animate-spin" /> : <Activity className="size-4" />}
-              Test all
+              {checkingAll ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Activity className="size-4" aria-hidden />}
+              {checkingAll ? "Testing…" : "Test all"}
             </button>
             <button
               onClick={() => {
@@ -211,10 +356,29 @@ export default function AdminAiPage() {
           </div>
         </div>
 
+        {degraded && (
+          <div className="mb-5 flex flex-wrap items-center gap-2 rounded-[14px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <AlertCircle className="size-4 shrink-0 text-amber-600" aria-hidden />
+            <span className="min-w-0 flex-1">{degraded}</span>
+            <button
+              onClick={() => {
+                setDegraded(null)
+                void testAll({ force: true })
+              }}
+              className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100"
+            >
+              Retry now
+            </button>
+            <button onClick={() => setDegraded(null)} className="shrink-0 text-xs underline underline-offset-2">
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="mb-5 flex items-center gap-2 rounded-[14px] bg-red-50 px-4 py-3 text-sm text-red-600">
             <AlertCircle className="size-4 shrink-0" /> {error}
-            <button onClick={load} className="ml-auto font-medium underline underline-offset-2">
+            <button onClick={() => void load()} className="ml-auto font-medium underline underline-offset-2">
               Retry
             </button>
           </div>
@@ -401,11 +565,13 @@ function ProviderCard({
           <button
             onClick={onTest}
             disabled={testing}
-            title="Test this provider"
-            className="flex items-center gap-1.5 rounded-full border border-vez-line px-3 py-1.5 text-xs text-vez-ink transition-colors hover:bg-vez-surface disabled:opacity-50"
+            aria-busy={testing}
+            aria-label={testing ? `Testing ${provider.label}…` : `Test ${provider.label}`}
+            title={testing ? "Testing…" : "Test this provider"}
+            className="flex items-center gap-1.5 rounded-full border border-vez-line px-3 py-1.5 text-xs text-vez-ink transition-colors hover:bg-vez-surface disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {testing ? <Loader2 className="size-3 animate-spin" /> : <Activity className="size-3" />}
-            Test
+            {testing ? <Loader2 className="size-3 animate-spin" aria-hidden /> : <Activity className="size-3" aria-hidden />}
+            {testing ? "Testing…" : "Test"}
           </button>
           <button
             onClick={onEdit}

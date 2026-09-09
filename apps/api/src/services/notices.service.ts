@@ -13,6 +13,27 @@ import { TtlCache } from '../common/cache/ttl-cache';
 import { SingleFlight, SingleFlightCooldownError } from '../common/cache/single-flight';
 import { SettingsService } from './settings.service';
 import { withTraceAsync } from '../common/logger';
+import * as crypto from 'crypto';
+
+export interface BulkReextractProgress {
+  jobId: string;
+  scope: string;
+  status: 'running' | 'done' | 'failed';
+  total: number;
+  processed: number;
+  improved: number;
+  failed: number;
+  scanned: number;
+  clean: number;
+  messy: number;
+  broken: number;
+  withAttachment: number;
+  queued: number;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+  error?: string;
+}
 
 export interface PublicNoticeFilters {
   category?: string;
@@ -63,6 +84,13 @@ export class NoticesService {
   // question asked by many users isn't re-generated each time.
   private readonly qaCache = new TtlCache<unknown>(Number(process.env.QA_CACHE_MS ?? 5 * 60_000));
 
+  // Bulk re-extract progress — in-memory like scrape_progress on the AI side.
+  // Fire-and-forget void made bulk invisible until it finished; this lets the
+  // admin poll live progress. TTL 30m, max 50 entries, process-local.
+  private readonly bulkProgress = new Map<string, BulkReextractProgress>();
+  private static readonly BULK_TTL_MS = 30 * 60 * 1000;
+  private static readonly BULK_MAX_ENTRIES = 50;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly httpService: HttpService,
@@ -70,6 +98,61 @@ export class NoticesService {
     private readonly settings: SettingsService,
   ) {
     this.aiServiceUrl = this.config.get<string>('AI_SERVICE_URL') || 'http://localhost:8000';
+  }
+
+  // ── Bulk progress helpers ───────────────────────────────────────────
+  private evictBulkProgress() {
+    const now = Date.now();
+    for (const [k, v] of this.bulkProgress.entries()) {
+      if (now - new Date(v.updatedAt).getTime() > NoticesService.BULK_TTL_MS) {
+        this.bulkProgress.delete(k);
+      }
+    }
+    if (this.bulkProgress.size > NoticesService.BULK_MAX_ENTRIES) {
+      const sorted = [...this.bulkProgress.entries()].sort(
+        (a, b) => new Date(a[1].updatedAt).getTime() - new Date(b[1].updatedAt).getTime(),
+      );
+      for (let i = 0; i < sorted.length - NoticesService.BULK_MAX_ENTRIES; i++) {
+        this.bulkProgress.delete(sorted[i][0]);
+      }
+    }
+  }
+
+  getBulkProgress(jobId: string): BulkReextractProgress | null {
+    return this.bulkProgress.get(jobId) ?? null;
+  }
+
+  getBulkProgressList(): BulkReextractProgress[] {
+    return [...this.bulkProgress.values()].sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+    );
+  }
+
+  getLatestBulkProgress(): BulkReextractProgress | null {
+    const list = this.getBulkProgressList();
+    return list[0] ?? null;
+  }
+
+  private async probeAiHealth(): Promise<{
+    ready: boolean;
+    phase: string;
+    warming: boolean;
+    queueFull: boolean;
+    queueWaiting: number;
+    queueLimit: number;
+  }> {
+    const res = await firstValueFrom(
+      this.httpService.get(`${this.aiServiceUrl}/health`, { timeout: 5000 }),
+    );
+    const data = res.data ?? {};
+    const phase: string = data.phase ?? data.status ?? 'unknown';
+    const warming: boolean = data.warming ?? (phase !== 'ok' && phase !== 'ready');
+    const ingest = data.ingest ?? {};
+    const waiting = typeof ingest.waiting === 'number' ? ingest.waiting : 0;
+    const limit = typeof ingest.limit === 'number' ? ingest.limit : 30;
+    const queueFull: boolean = Boolean(ingest.queue_full ?? ingest.queueFull ?? waiting >= limit);
+    const ready = !warming && !queueFull && (phase === 'ok' || phase === 'ready');
+    return { ready, phase, warming, queueFull, queueWaiting: waiting, queueLimit: limit };
   }
 
   async findAll(filters: PublicNoticeFilters) {
@@ -453,63 +536,312 @@ export class NoticesService {
   }
 
   /**
-   * Admin action: re-extract many notices in the background.
-   *
-   * `scope: 'garbled'` (default) only touches notices whose stored text scores
-   * below the quality bar — the ones showing noise today. `'all'` re-runs every
-   * notice that has an attachment. Runs with a small concurrency so the AI
-   * service (OCR is CPU-heavy) isn't swamped, and returns immediately.
+   * Classify a notice's extraction health.
+   * - clean: quality >= 0.55 (readable, keep)
+   * - messy: 0 < quality < 0.55 (garbled legacy-font / OCR noise, re-extract may fix)
+   * - broken: quality === 0 (empty / <40 chars, no usable text, needs re-extract if attachable)
    */
-  async reextractBulk(scope: 'garbled' | 'all' = 'garbled', limit = 200) {
-    const cappedLimit = Math.min(Math.max(1, limit), 1000);
-    const candidates = await this.prisma.scrapedItem.findMany({
-      where: { OR: [{ attachments: { some: {} } }, { attachmentUrl: { not: null } }] },
-      select: { id: true, title: true, contentText: true },
-      orderBy: { scrapedAt: 'desc' },
-      take: cappedLimit,
-    });
+  private classifyExtraction(text: string | null): 'clean' | 'messy' | 'broken' {
+    const q = this.textQuality(text);
+    if (q >= 0.55) return 'clean';
+    if (q === 0) return 'broken';
+    return 'messy';
+  }
 
-    const selected =
-      scope === 'all'
-        ? candidates
-        : candidates.filter((n) => this.textQuality(n.contentText) < 0.55);
+  /**
+   * Full pipeline health: scans ALL notices (paginated, not capped) and
+   * differentiates clean / messy / broken. With attachments vs without is
+   * tracked separately because only attachable ones can be fixed by re-extract.
+   * Grows safely with catalogue size — offset pagination, 500 per batch.
+   */
+  async getExtractionHealth() {
+    const batchSize = 500;
+    let offset = 0;
+    let total = 0;
+    let withAttachment = 0;
+    let withoutAttachment = 0;
+    let clean = 0;
+    let messy = 0;
+    let broken = 0;
+    let extractableMessy = 0;
+    let extractableBroken = 0;
 
-    void this.runBulkReextract(selected.map((n) => n.id));
+    for (;;) {
+      const batch: Array<{ id: string; contentText: string | null; attachmentUrl: string | null; attachments: { url: string; mimeType: string | null }[] }> =
+        await this.prisma.scrapedItem.findMany({
+          select: { id: true, contentText: true, attachmentUrl: true, attachments: { select: { url: true, mimeType: true } } },
+          orderBy: { scrapedAt: 'desc' },
+          skip: offset,
+          take: batchSize,
+        });
+      if (batch.length === 0) break;
+      offset += batch.length;
+      for (const n of batch) {
+        total++;
+        const hasAttachment = !!this.findExtractableAttachmentUrl(n as any);
+        if (hasAttachment) withAttachment++;
+        else withoutAttachment++;
+        const cls = this.classifyExtraction(n.contentText);
+        if (cls === 'clean') clean++;
+        else if (cls === 'messy') {
+          messy++;
+          if (hasAttachment) extractableMessy++;
+        } else {
+          broken++;
+          if (hasAttachment) extractableBroken++;
+        }
+      }
+      if (batch.length < batchSize) break;
+    }
 
     return {
-      scope,
-      scanned: candidates.length,
-      queued: selected.length,
-      message:
-        selected.length > 0
-          ? `Re-extracting ${selected.length} notice(s) in the background. Refresh in a few minutes.`
-          : 'No notices need re-extraction.',
+      total,
+      withAttachment,
+      withoutAttachment,
+      clean,
+      messy,
+      broken,
+      extractableMessy,
+      extractableBroken,
+      queueable: extractableMessy + extractableBroken,
+      // Percentages for UI convenience
+      cleanPct: total ? Math.round((clean / total) * 100) : 0,
+      messyPct: total ? Math.round((messy / total) * 100) : 0,
+      brokenPct: total ? Math.round((broken / total) * 100) : 0,
     };
   }
 
-  /** Background worker for `reextractBulk` — bounded concurrency, never throws. */
-  private async runBulkReextract(ids: string[], concurrency = 2) {
+  /**
+   * Admin action: re-extract many notices in the background — now dynamic.
+   *
+   * - Scans the ENTIRE catalogue via offset pagination (no 200 cap).
+   * - Differentiates clean / messy / broken on the fly.
+   * - Only queues notices that can actually be fixed (has extractable attachment):
+   *   - garbled (default): messy + broken with attachment
+   *   - messy: only messy with attachment
+   *   - broken: only broken with attachment
+   *   - all: every notice with an attachment
+   * - `limit` is optional: if omitted, scans all. If provided, caps the number
+   *   of SCANNED rows (safety valve), not just queued. Bounded to 10k.
+   * - Returns a full breakdown so the UI can show what was done and what remains.
+   * - Background worker is concurrency-limited and never throws.
+   */
+  async reextractBulk(scope: 'garbled' | 'all' | 'broken' | 'messy' = 'garbled', limit?: number) {
+    const batchSize = 500;
+    const cappedLimit = limit !== undefined ? Math.min(Math.max(1, limit), 10000) : undefined;
+    let offset = 0;
+    let scanned = 0;
+    let clean = 0;
+    let messy = 0;
+    let broken = 0;
+    let withAttachment = 0;
+    const queuedIds: string[] = [];
+
+    // Scan all (or up to cappedLimit) with offset pagination — stable for any catalogue size
+    scanLoop: for (;;) {
+      const take = cappedLimit !== undefined ? Math.min(batchSize, cappedLimit - scanned) : batchSize;
+      if (take <= 0) break;
+      const batch: Array<{ id: string; contentText: string | null; attachmentUrl: string | null; attachments: { url: string; mimeType: string | null }[] }> =
+        await this.prisma.scrapedItem.findMany({
+          select: { id: true, contentText: true, attachmentUrl: true, attachments: { select: { url: true, mimeType: true } } },
+          orderBy: { scrapedAt: 'desc' },
+          skip: offset,
+          take,
+        });
+      if (batch.length === 0) break;
+      offset += batch.length;
+      for (const n of batch) {
+        if (cappedLimit !== undefined && scanned >= cappedLimit) break scanLoop;
+        scanned++;
+        const hasAttachment = !!this.findExtractableAttachmentUrl(n as any);
+        if (hasAttachment) withAttachment++;
+        const q = this.textQuality(n.contentText);
+        const cls = q >= 0.55 ? 'clean' : q === 0 ? 'broken' : 'messy';
+        if (cls === 'clean') clean++;
+        else if (cls === 'messy') messy++;
+        else broken++;
+
+        let shouldQueue = false;
+        if (scope === 'all') shouldQueue = hasAttachment;
+        else if (scope === 'broken') shouldQueue = cls === 'broken' && hasAttachment;
+        else if (scope === 'messy') shouldQueue = cls === 'messy' && hasAttachment;
+        else shouldQueue = cls !== 'clean' && hasAttachment; // garbled = messy+broken
+
+        if (shouldQueue) queuedIds.push(n.id);
+      }
+      if (batch.length < take) break;
+      if (cappedLimit !== undefined && scanned >= cappedLimit) break;
+    }
+
+    const queued = queuedIds.length;
+    const baseStats = { scanned, clean, messy, broken, withAttachment, withoutAttachment: scanned - withAttachment, queued };
+
+    // ── AI health gate (5s probe) ─────────────────────────────────────
+    // If AI is warming or queue full, we still queue but warn and drop
+    // concurrency to 1 so the 2-vCPU t3.medium isn't hit by 2×OCR+embed+Qdrant
+    // while also serving scrape browser pool (4) and ingest (2) →7 heavy tasks.
+    let effectiveConcurrency = 2;
+    let healthWarning: string | undefined;
+    try {
+      const h = await this.probeAiHealth();
+      if (!h.ready) {
+        effectiveConcurrency = 1;
+        healthWarning = `AI ${h.phase} (queue ${h.queueWaiting}/${h.queueLimit}) — concurrency reduced to 1`;
+        this.logger.warn(`Bulk re-extract health gate: ${healthWarning} — still queuing ${queued} items`);
+      }
+    } catch (err: any) {
+      effectiveConcurrency = 1;
+      healthWarning = `Health probe failed: ${err.message} — concurrency reduced to 1`;
+      this.logger.warn(`Bulk re-extract health gate probe failed: ${err.message} — concurrency reduced to 1, still queuing ${queued}`);
+    }
+
+    // ── Bulk progress tracking (in-memory, like scrape_progress) ───────
+    const jobId = crypto.randomUUID();
+    this.evictBulkProgress();
+    const nowIso = new Date().toISOString();
+    const progressEntry: BulkReextractProgress = {
+      jobId,
+      scope,
+      status: queued === 0 ? 'done' : 'running',
+      total: queued,
+      processed: 0,
+      improved: 0,
+      failed: 0,
+      scanned,
+      clean,
+      messy,
+      broken,
+      withAttachment,
+      queued,
+      message:
+        queued === 0
+          ? scanned === 0
+            ? 'No notices found.'
+            : 'No notices need re-extraction — all scanned items are clean or have no extractable attachment.'
+          : healthWarning
+            ? `Scanned ${scanned}: ${clean} clean, ${messy} messy, ${broken} broken — queuing ${queued} with warning: ${healthWarning}`
+            : `Scanned ${scanned}: ${clean} clean, ${messy} messy, ${broken} broken — queuing ${queued} for background re-extraction.`,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    if (healthWarning) (progressEntry as any).healthWarning = healthWarning;
+    this.bulkProgress.set(jobId, progressEntry);
+
+    if (queued > 0) {
+      void this.runBulkReextract(queuedIds, effectiveConcurrency, jobId);
+    }
+
+    if (queued === 0) {
+      return {
+        jobId,
+        scope,
+        ...baseStats,
+        extractableMessy: scope === 'messy' || scope === 'garbled' ? queued : undefined,
+        message: progressEntry.message,
+        progress: progressEntry,
+      };
+    }
+
+    const queuedLabel =
+      scope === 'broken' ? 'broken' : scope === 'messy' ? 'messy' : scope === 'all' ? 'with attachment' : 'messy/broken';
+
+    return {
+      jobId,
+      scope,
+      ...baseStats,
+      healthWarning,
+      effectiveConcurrency,
+      message: progressEntry.message,
+      progress: progressEntry,
+      // Hint for polling
+      progressUrl: `/admin/scraping/items/reextract/progress/${jobId}`,
+    };
+  }
+
+  /** Background worker for `reextractBulk` — bounded concurrency, rate-limited, health-gated. */
+  private async runBulkReextract(ids: string[], concurrency = 2, jobId?: string) {
+    // Rate limiting: 500ms pause every 10 items + health check before next batch.
+    // Prevents 2856 OCR jobs from spiking CPU on the single-worker AI (2 vCPU).
+    const BATCH_SIZE = 10;
+    const BATCH_DELAY_MS = 500;
+    const HEALTH_PAUSE_MS = 2000;
+    const QUEUE_FULL_PAUSE_MS = 5000;
+
+    let cursor = 0;
     let done = 0;
     let improved = 0;
+    let failed = 0;
+
+    const update = (patch?: Partial<BulkReextractProgress>) => {
+      if (!jobId) return;
+      const e = this.bulkProgress.get(jobId);
+      if (!e) return;
+      e.processed = done;
+      e.improved = improved;
+      e.failed = failed;
+      e.updatedAt = new Date().toISOString();
+      if (patch) Object.assign(e, patch);
+    };
 
     const worker = async () => {
       for (;;) {
-        const id = ids[done++];
-        if (id === undefined) return;
+        const idx = cursor++;
+        if (idx >= ids.length) return;
+        const id = ids[idx];
+
+        // Every BATCH_SIZE items, add delay + probe AI health; if warming or
+        // queue full, pause longer so the 1-worker AI can drain.
+        if (idx > 0 && idx % BATCH_SIZE === 0) {
+          await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
+          try {
+            const h = await this.probeAiHealth();
+            if (!h.ready) {
+              this.logger.warn(
+                `Bulk job ${jobId ?? ''}: AI not ready at batch ${idx} (phase=${h.phase}, queue ${h.queueWaiting}/${h.queueLimit}) — pausing ${h.queueFull ? QUEUE_FULL_PAUSE_MS : HEALTH_PAUSE_MS}ms`,
+              );
+              update({ message: `Paused at ${done}/${ids.length} — AI ${h.phase} (queue ${h.queueWaiting}/${h.queueLimit}), waiting...` });
+              await new Promise((r) => setTimeout(r, h.queueFull ? QUEUE_FULL_PAUSE_MS : HEALTH_PAUSE_MS));
+              // Re-check after pause; if still full, one more long pause
+              if (h.queueFull) {
+                try {
+                  const h2 = await this.probeAiHealth();
+                  if (h2.queueFull) {
+                    this.logger.warn(`Bulk job ${jobId ?? ''}: queue still full after pause — pausing additional ${QUEUE_FULL_PAUSE_MS}ms`);
+                    await new Promise((r) => setTimeout(r, QUEUE_FULL_PAUSE_MS));
+                  }
+                } catch {}
+              }
+            }
+          } catch (err: any) {
+            this.logger.warn(`Bulk job ${jobId ?? ''}: health check failed at batch ${idx}: ${err.message} — continuing`);
+          }
+        }
+
         try {
           const result = await this.reextract(id);
+          done++;
           if (result.updated && (result.qualityAfter ?? 0) > (result.qualityBefore ?? 0)) {
             improved++;
           }
+          update();
         } catch (err: any) {
+          done++;
+          failed++;
           this.logger.warn(`Bulk re-extract failed for ${id}: ${err.message}`);
+          update();
         }
       }
     };
 
-    await Promise.all(Array.from({ length: Math.min(concurrency, ids.length) }, worker));
-    if (ids.length > 0) {
-      this.logger.log(`Bulk re-extract finished: ${ids.length} processed, ${improved} improved`);
+    try {
+      await Promise.all(Array.from({ length: Math.min(concurrency, ids.length) }, worker));
+      update({ status: 'done', message: `Finished: ${done}/${ids.length} processed, ${improved} improved, ${failed} failed` } as any);
+      if (ids.length > 0) {
+        this.logger.log(`Bulk re-extract ${jobId ?? ''} finished: ${ids.length} processed, ${improved} improved, ${failed} failed`);
+      }
+    } catch (err: any) {
+      update({ status: 'failed', error: err.message } as any);
+      this.logger.error(`Bulk re-extract ${jobId ?? ''} failed: ${err.message}`);
     }
   }
 

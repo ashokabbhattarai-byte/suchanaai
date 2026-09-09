@@ -373,6 +373,33 @@ function getPending<T>(key: string): Promise<T> | undefined {
   return entry.promise as Promise<T>
 }
 
+// ─── Global health cache (30s) ───────────────────────────────────────────
+// Caches fetchSystemStatus and fetchExtractionHealth so concurrent pages
+// and polling timers don't hammer the backend. Entries expire after 30s so
+// stale degraded states eventually refresh. Exposed via clearHealthCache
+// so manual "Retry" buttons can force a fresh probe.
+const HEALTH_CACHE_TTL_MS = 30_000
+const healthCache = new Map<string, { data: unknown; expiresAt: number }>()
+
+function getHealthCache<T>(key: string): T | undefined {
+  const entry = healthCache.get(key)
+  if (!entry) return undefined
+  if (entry.expiresAt <= Date.now()) {
+    healthCache.delete(key)
+    return undefined
+  }
+  return entry.data as T
+}
+
+function setHealthCache<T>(key: string, data: T, ttlMs = HEALTH_CACHE_TTL_MS): void {
+  healthCache.set(key, { data, expiresAt: Date.now() + ttlMs })
+}
+
+export function clearHealthCache(key?: string): void {
+  if (key) healthCache.delete(key)
+  else healthCache.clear()
+}
+
 /** Authenticated fetch - attaches the bearer token when present. */
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase()
@@ -1124,9 +1151,16 @@ export async function fetchAiHealth(): Promise<AiHealthSnapshot> {
 
 // ─── AI provider registry (admin) ────────────────────────────────────────────
 
-/** Live health of every dependency, measured server-side at request time. */
-export async function fetchSystemStatus(): Promise<SystemStatus> {
-  return apiFetch("/admin/system/status")
+/** Live health of every dependency, measured server-side at request time. Cached 30s globally to avoid polling storms. */
+export async function fetchSystemStatus(opts?: { force?: boolean }): Promise<SystemStatus> {
+  const CACHE_KEY = "systemStatus"
+  if (!opts?.force) {
+    const cached = getHealthCache<SystemStatus>(CACHE_KEY)
+    if (cached) return cached
+  }
+  const data = await apiFetch<SystemStatus>("/admin/system/status")
+  setHealthCache(CACHE_KEY, data)
+  return data
 }
 
 export async function fetchAiProviders(): Promise<AiProvider[]> {
@@ -1227,24 +1261,59 @@ export async function reextractNotice(id: string): Promise<ReextractResult> {
   })
 }
 
+export interface ExtractionHealth {
+  total: number
+  withAttachment: number
+  withoutAttachment: number
+  clean: number
+  messy: number
+  broken: number
+  extractableMessy: number
+  extractableBroken: number
+  queueable: number
+  cleanPct: number
+  messyPct: number
+  brokenPct: number
+}
+
 export interface BulkReextractResult {
-  scope: "garbled" | "all"
+  scope: "garbled" | "all" | "broken" | "messy"
   scanned: number
   queued: number
   message: string
+  // enriched breakdown (added for dynamic pipeline)
+  clean?: number
+  messy?: number
+  broken?: number
+  withAttachment?: number
+  withoutAttachment?: number
+  total?: number
+}
+
+export async function fetchExtractionHealth(opts?: { force?: boolean }): Promise<ExtractionHealth> {
+  const CACHE_KEY = "extractionHealth"
+  if (!opts?.force) {
+    const cached = getHealthCache<ExtractionHealth>(CACHE_KEY)
+    if (cached) return cached
+  }
+  const data = await apiFetch<ExtractionHealth>("/admin/scraping/items/extraction-health")
+  setHealthCache(CACHE_KEY, data)
+  return data
 }
 
 /**
- * Admin: re-extract many notices at once. "garbled" (default) only touches
- * notices whose stored text scores as unreadable.
+ * Admin: re-extract many notices at once — now dynamic.
+ * - No default 200 cap: when limit is omitted, the entire catalogue is scanned.
+ * - Scopes: garbled (messy+broken, default), messy, broken, all.
+ * - Returns full clean/messy/broken breakdown for the UI to differentiate.
  */
 export async function reextractNotices(
-  scope: "garbled" | "all" = "garbled",
-  limit = 200,
+  scope: "garbled" | "all" | "broken" | "messy" = "garbled",
+  limit?: number,
 ): Promise<BulkReextractResult> {
   return apiFetch("/admin/scraping/items/reextract", {
     method: "POST",
-    body: JSON.stringify({ scope, limit }),
+    body: JSON.stringify(limit !== undefined ? { scope, limit } : { scope }),
   })
 }
 

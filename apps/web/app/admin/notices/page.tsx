@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react"
 import { useRouter, usePathname, useSearchParams } from "next/navigation"
-import { Search, Trash2, ExternalLink, ChevronLeft, ChevronRight, Loader2, X, SlidersHorizontal, Edit, RotateCcw, BadgeCheck, Tag, ShieldCheck, RefreshCw } from "lucide-react"
+import { Search, Trash2, ExternalLink, ChevronLeft, ChevronRight, Loader2, X, SlidersHorizontal, Edit, RotateCcw, BadgeCheck, Tag, ShieldCheck, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Activity } from "lucide-react"
 import { AdminLayout } from "@/components/admin/admin-layout"
 import { useConfirm } from "@/components/ui/confirm-dialog"
 import { Header } from "@/components/layout/header"
@@ -12,10 +12,14 @@ import {
   fetchScrapeSources,
   correctScrapedItem,
   reextractNotices,
+  fetchExtractionHealth,
+  fetchSystemStatus,
 } from "@/lib/api"
+import type { ExtractionHealth } from "@/lib/api"
 import { getStoredJSON, setStoredJSON } from "@/lib/local-store"
 import { toast } from "sonner"
-import type { ScrapedItem, ScrapedItemCategory, ScrapeSource } from "@/lib/types"
+import type { ScrapedItem, ScrapedItemCategory, ScrapeSource, SystemStatus } from "@/lib/types"
+import Link from "next/link"
 
 const inputClass =
   "h-11 w-full rounded-full border border-vez-line bg-white px-5 text-sm text-vez-ink outline-none transition-colors placeholder:text-vez-mute focus:border-vez-sky"
@@ -78,28 +82,111 @@ function AdminNoticesPageContent() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Bulk re-extraction. The API queues the work and returns immediately, so
-  // this reports what was queued rather than waiting for OCR to finish.
+  // Bulk re-extraction — now dynamic, scans ALL notices and differentiates
+  // clean / messy / broken. Broken + messy with attachment are queued in
+  // background (concurrency-limited, OCR-safe). Returns full breakdown.
   const [bulkReextracting, setBulkReextracting] = useState(false)
   const [bulkNote, setBulkNote] = useState<{ tone: "info" | "error"; text: string } | null>(null)
+  const [health, setHealth] = useState<ExtractionHealth | null>(null)
+  const [healthLoading, setHealthLoading] = useState(true)
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null)
+  const [systemStatusError, setSystemStatusError] = useState(false)
 
-  async function handleBulkReextract(scope: "garbled" | "all") {
+  const loadHealth = useCallback(async (opts?: { force?: boolean }) => {
+    setHealthLoading(true)
+    try {
+      const h = await fetchExtractionHealth(opts?.force ? { force: true } : undefined)
+      setHealth(h)
+    } catch {
+      // health is advisory — table still works without it
+    } finally {
+      setHealthLoading(false)
+    }
+  }, [])
+
+  const loadSystemStatus = useCallback(async () => {
+    try {
+      const s = await fetchSystemStatus()
+      setSystemStatus(s)
+      setSystemStatusError(false)
+    } catch {
+      setSystemStatusError(true)
+      // keep previous s if any — pipeline page still renders cached degraded state
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadHealth()
+    void loadSystemStatus()
+  }, [loadHealth, loadSystemStatus])
+
+  // AI health dependency — derived from system status (cached 30s via api.ts)
+  const aiComponent = systemStatus?.components.find((c) => c.id === "ai")
+  const aiIsWarming = !!aiComponent && (aiComponent.detail.toLowerCase().includes("warming") || aiComponent.detail.toLowerCase().includes("not loaded") || aiComponent.status === "degraded")
+  const aiIsDown = !!aiComponent && aiComponent.status === "down"
+  const aiOverallDown = systemStatus?.overall === "down" && (aiIsDown || aiIsWarming)
+  // Queue full heuristic: many items already queued for OCR; avoid pounding AI
+  const aiQueueFull = health ? health.queueable > 800 : false
+  const reextractDisabledReason = bulkReextracting
+    ? "Re-extraction already running…"
+    : aiIsWarming
+      ? "AI is warming up — extraction queue is paused. The model is loading; try again in a minute."
+      : aiIsDown || aiOverallDown
+        ? "AI service is down — re-extraction is paused until AI recovers. Check System →"
+        : aiQueueFull
+          ? `AI queue full (${health?.queueable.toLocaleString()} queued, limit 800) — please wait for current jobs to drain.`
+          : undefined
+
+  async function handleBulkReextract(scope: "garbled" | "all" | "broken" | "messy") {
     if (bulkReextracting) return
-    if (
-      scope === "all" &&
-      !(await confirm({
+    if (reextractDisabledReason) {
+      // Re-extract buttons are disabled when AI is warming/down or queue full — guard programmatic calls too
+      setBulkNote({ tone: "error", text: reextractDisabledReason })
+      return
+    }
+    const scopeLabels: Record<string, { title: string; description: string; confirmLabel: string }> = {
+      all: {
         title: "Re-extract every notice with an attachment?",
-        description: "This re-runs OCR and can take a while.",
+        description: `This scans the entire catalogue (${health?.total ?? "all"} notices) and re-runs OCR on every attachable one in the background. It will take minutes and runs with limited concurrency so the AI service isn't swamped.`,
         confirmLabel: "Re-extract all",
-      }))
-    ) {
+      },
+      garbled: {
+        title: "Fix messy & broken extractions?",
+        description: health
+          ? `Scans all ${health.total} notices. Will queue ${health.queueable} messy/broken with attachments (messy: ${health.messy}, broken: ${health.broken}) for background OCR. Clean: ${health.clean} left untouched.`
+          : "Scans the whole catalogue and queues every messy/broken notice that has an extractable PDF/image for background OCR.",
+        confirmLabel: "Fix unreadable",
+      },
+      broken: {
+        title: "Re-extract broken notices only?",
+        description: health
+          ? `Only broken (empty/unreadable, ${health.extractableBroken} with attachment) will be queued. Messy (${health.messy}) will be skipped.`
+          : "Queues only notices with empty/unreadable text that have an attachment.",
+        confirmLabel: "Fix broken",
+      },
+      messy: {
+        title: "Re-extract messy notices only?",
+        description: health
+          ? `Only messy (garbled legacy-font noise, ${health.extractableMessy} with attachment) will be queued. Broken handled separately.`
+          : "Queues only garbled legacy-font noise notices.",
+        confirmLabel: "Fix messy",
+      },
+    }
+    const cfg = scopeLabels[scope]
+    if (cfg && !(await confirm({ title: cfg.title, description: cfg.description, confirmLabel: cfg.confirmLabel }))) {
       return
     }
     setBulkReextracting(true)
     setBulkNote(null)
     try {
       const result = await reextractNotices(scope)
-      setBulkNote({ tone: "info", text: result.message })
+      // result now includes scanned/clean/messy/broken/queued for differentiation
+      const breakdown =
+        result.clean !== undefined
+          ? ` Scanned ${result.scanned}: ${result.clean} clean · ${result.messy} messy · ${result.broken} broken · queued ${result.queued}.`
+          : ""
+      setBulkNote({ tone: "info", text: result.message + breakdown })
+      void loadHealth({ force: true })
     } catch (err) {
       setBulkNote({
         tone: "error",
@@ -319,7 +406,7 @@ function AdminNoticesPageContent() {
     <div className="min-h-screen bg-white font-poppins">
       <Header />
       <AdminLayout>
-        <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-[clamp(28px,3vw,40px)] font-normal leading-tight tracking-[-0.03em] text-vez-ink">
               Notice management.
@@ -327,35 +414,159 @@ function AdminNoticesPageContent() {
             <p className="mt-2 text-sm text-vez-mute">{total.toLocaleString()} scraped notices &amp; news</p>
           </div>
           <div className="flex flex-col items-end gap-1.5">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <button
                 onClick={() => handleBulkReextract("garbled")}
-                disabled={bulkReextracting}
+                disabled={!!reextractDisabledReason}
                 className="flex items-center gap-2 rounded-full bg-vez-navy px-5 py-2.5 text-sm text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                title="Re-run extraction on notices whose stored text is unreadable"
+                title={reextractDisabledReason ?? (health ? `Queues ${health.queueable} messy/broken with attachments (messy ${health.extractableMessy} + broken ${health.extractableBroken})` : "Re-run extraction on messy & broken with attachments")}
               >
-                {bulkReextracting ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="size-4" />
-                )}
-                Fix unreadable extractions
+                {bulkReextracting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                Fix unreadable
+              </button>
+              <button
+                onClick={() => handleBulkReextract("broken")}
+                disabled={!!reextractDisabledReason}
+                className="flex items-center gap-2 rounded-full border border-vez-line bg-white px-4 py-2.5 text-sm text-vez-ink transition-colors hover:bg-vez-surface disabled:cursor-not-allowed disabled:opacity-50"
+                title={reextractDisabledReason ?? (health ? `Only broken: ${health.extractableBroken} with attachment` : "Only broken")}
+              >
+                <XCircle className="size-4" />
+                Fix broken
               </button>
               <button
                 onClick={() => handleBulkReextract("all")}
-                disabled={bulkReextracting}
+                disabled={!!reextractDisabledReason}
                 className="rounded-full border border-vez-line px-4 py-2.5 text-sm text-vez-ink transition-colors hover:bg-vez-surface disabled:cursor-not-allowed disabled:opacity-50"
-                title="Re-run extraction on every notice that has an attachment"
+                title={reextractDisabledReason ?? (health ? `Re-runs OCR on all ${health.withAttachment} with attachment` : "Re-run extraction on every notice that has an attachment")}
               >
                 Re-extract all
               </button>
             </div>
             {bulkNote && (
-              <p className={`text-xs ${bulkNote.tone === "error" ? "text-red-600" : "text-vez-mute"}`}>
+              <p className={`max-w-[420px] text-right text-xs leading-relaxed ${bulkNote.tone === "error" ? "text-red-600" : "text-vez-mute"}`}>
                 {bulkNote.text}
               </p>
             )}
           </div>
+        </div>
+
+        {/* AI health dependency warning — pipeline depends on AI service for OCR/extraction */}
+        {(aiIsDown || aiIsWarming || aiQueueFull) && (
+          <div className={`mb-4 flex flex-wrap items-start gap-2 rounded-[14px] border px-4 py-3 text-sm ${aiIsDown ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+            <AlertTriangle className={`size-4 shrink-0 mt-0.5 ${aiIsDown ? "text-red-600" : "text-amber-600"}`} />
+            <span className="min-w-0 flex-1">
+              {aiIsDown
+                ? "AI service is down — extraction & re-extraction are paused. Pipeline health below is cached."
+                : aiIsWarming
+                  ? "AI is warming up — extraction queue is paused while the model loads."
+                  : `AI queue is full (${health?.queueable.toLocaleString()} queued) — new re-extractions will wait for current jobs to drain.`}
+            </span>
+            <Link href="/admin/system" className={`shrink-0 text-xs font-medium underline underline-offset-2 ${aiIsDown ? "text-red-700" : "text-amber-800"}`}>
+              Check system
+            </Link>
+            <button
+              onClick={() => void loadSystemStatus()}
+              className={`shrink-0 rounded-full px-3 py-1 text-xs ${aiIsDown ? "bg-white text-red-700 hover:bg-red-100" : "bg-white text-amber-800 hover:bg-amber-100"}`}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {systemStatusError && !systemStatus && (
+          <div className="mb-4 flex items-center gap-2 rounded-[14px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <AlertTriangle className="size-4 shrink-0 text-amber-600" /> Could not check AI health — pipeline actions use cached state.
+            <button onClick={() => void loadSystemStatus()} className="ml-auto text-xs underline underline-offset-2">Retry</button>
+          </div>
+        )}
+
+        {/* Extraction pipeline health — dynamic, scans ALL, differentiates clean/messy/broken */}
+        <div className="mb-6 overflow-hidden rounded-[20px] border border-vez-line bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-vez-line px-5 py-4 sm:px-6">
+            <div>
+              <h2 className="flex items-center gap-2 text-sm font-medium text-vez-ink">
+                <Activity className="size-4 text-vez-navy" /> Extraction pipeline
+              </h2>
+              <p className="mt-0.5 text-xs text-vez-mute">
+                {healthLoading
+                  ? "Scanning catalogue…"
+                  : health
+                    ? `Scanned ${health.total.toLocaleString()} notices · ${health.withAttachment.toLocaleString()} with extractable attachment · auto-scales as catalogue grows`
+                    : "Health unavailable"}
+              </p>
+            </div>
+            <button
+              onClick={() => void loadHealth({ force: true })}
+              disabled={healthLoading}
+              className="flex items-center gap-1.5 rounded-full border border-vez-line px-3 py-1.5 text-xs text-vez-ink transition-colors hover:bg-vez-surface disabled:opacity-50"
+              title="Refresh pipeline health (bypasses 30s cache)"
+            >
+              <RefreshCw className={`size-3.5 ${healthLoading ? "animate-spin" : ""}`} /> Refresh
+            </button>
+          </div>
+
+          {healthLoading ? (
+            <div className="flex items-center gap-3 p-6 text-sm text-vez-mute">
+              <Loader2 className="size-4 animate-spin text-vez-navy" /> Analyzing extraction health across the whole catalogue…
+            </div>
+          ) : health ? (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-5">
+                <div className="flex items-center gap-3 rounded-[16px] border border-green-200 bg-green-50 p-4">
+                  <div className="flex size-9 items-center justify-center rounded-full bg-white">
+                    <CheckCircle2 className="size-4 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-lg leading-none tabular-nums text-vez-ink">{health.clean.toLocaleString()}</p>
+                    <p className="text-xs text-vez-mute">Clean · {health.cleanPct}% · readable</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 rounded-[16px] border border-amber-200 bg-amber-50 p-4">
+                  <div className="flex size-9 items-center justify-center rounded-full bg-white">
+                    <AlertTriangle className="size-4 text-amber-600" />
+                  </div>
+                  <div>
+                    <p className="text-lg leading-none tabular-nums text-vez-ink">{health.messy.toLocaleString()}</p>
+                    <p className="text-xs text-vez-mute">Messy · {health.extractableMessy} fixable</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 rounded-[16px] border border-red-200 bg-red-50 p-4">
+                  <div className="flex size-9 items-center justify-center rounded-full bg-white">
+                    <XCircle className="size-4 text-red-600" />
+                  </div>
+                  <div>
+                    <p className="text-lg leading-none tabular-nums text-vez-ink">{health.broken.toLocaleString()}</p>
+                    <p className="text-xs text-vez-mute">Broken · {health.extractableBroken} fixable</p>
+                  </div>
+                </div>
+              </div>
+              <div className="px-5 pb-5 sm:px-6">
+                <div className="flex h-2.5 overflow-hidden rounded-full bg-vez-surface">
+                  <div className="bg-green-500 transition-all" style={{ width: `${health.cleanPct}%` }} />
+                  <div className="bg-amber-500 transition-all" style={{ width: `${health.messyPct}%` }} />
+                  <div className="bg-red-500 transition-all" style={{ width: `${health.brokenPct}%` }} />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-vez-mute">
+                  <span className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-green-500" /> Clean {health.clean.toLocaleString()}
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-amber-500" /> Messy {health.messy.toLocaleString()} ({health.extractableMessy} with PDF/image)
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-red-500" /> Broken {health.broken.toLocaleString()} ({health.extractableBroken} with PDF/image)
+                  </span>
+                  <span className="ml-auto flex items-center gap-1.5 font-medium text-vez-ink">
+                    Queueable now: {health.queueable.toLocaleString()}
+                  </span>
+                  <span className="w-full text-[11px] leading-relaxed text-vez-mute/80">
+                    Messy = garbled legacy-font/OCR noise (quality 0–0.54, needs OCR redo). Broken = empty/unreadable (quality 0). Only attachable ones are queued — background OCR runs with concurrency 2, so the AI service isn’t swamped as the corpus grows past 2,800.
+                  </span>
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className="p-6 text-sm text-vez-mute">Could not load pipeline health.</p>
+          )}
         </div>
 
         {error && (

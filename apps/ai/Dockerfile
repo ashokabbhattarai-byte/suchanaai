@@ -112,4 +112,9 @@ EXPOSE 8000
 # One worker is intentional:
 # this server has only 2 vCPU / ~1 GB RAM and the embedding
 # models are loaded into process memory.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+#
+# --timeout-keep-alive 75 sits above the ALB's 60s idle timeout so the load
+# balancer never reuses a socket this process is closing — that race surfaces
+# as an intermittent 502 that clears itself on the next request. The default
+# is 5s.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--timeout-keep-alive", "75"]

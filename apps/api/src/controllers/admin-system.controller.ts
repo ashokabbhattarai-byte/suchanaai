@@ -1,13 +1,15 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Logger, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { Throttle } from '@nestjs/throttler';
 import { Role, ScrapeRunStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
 import { Roles } from '../decorators/roles.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../services/settings.service';
+import { TtlCache } from '../common/cache/ttl-cache';
 
 /** One dependency's live state. `null` latency means it was never contacted. */
 interface ComponentStatus {
@@ -35,6 +37,19 @@ interface ComponentStatus {
 @Roles(Role.admin)
 export class AdminSystemController {
   private static readonly startedAt = Date.now();
+  private readonly logger = new Logger(AdminSystemController.name);
+
+  // ── AI health hardening ───────────────────────────────────────────────
+  // 30s TTL cache + circuit breaker mirror ai-providers health hardening.
+  private readonly aiHealthCache = new TtlCache<{ components: ComponentStatus[] }>(30_000);
+  private aiCircuitFailures = 0;
+  private aiCircuitOpenedAt = 0;
+  private lastAiHealthy: { components: ComponentStatus[] } | null = null;
+
+  private static readonly AI_HEALTH_TIMEOUT_MS = 45_000;
+  private static readonly AI_CIRCUIT_THRESHOLD = 3;
+  private static readonly AI_CIRCUIT_COOLDOWN_MS = 30_000;
+  private static readonly AI_RETRY_BACKOFF_MS = 650;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -44,6 +59,7 @@ export class AdminSystemController {
   ) {}
 
   @Get('status')
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
   async status() {
     const [database, aiService, counts, scraping, storage] = await Promise.all([
       this.checkDatabase(),
@@ -127,20 +143,164 @@ export class AdminSystemController {
     }
   }
 
+  // ── Circuit + error helpers for AI health ──────────────────────────────
+
+  private isAiCircuitOpen(): boolean {
+    if (this.aiCircuitFailures < AdminSystemController.AI_CIRCUIT_THRESHOLD) return false;
+    const elapsed = Date.now() - this.aiCircuitOpenedAt;
+    if (elapsed >= AdminSystemController.AI_CIRCUIT_COOLDOWN_MS) {
+      this.aiCircuitFailures = 0;
+      this.aiCircuitOpenedAt = 0;
+      return false;
+    }
+    return true;
+  }
+
+  private recordAiSuccess(result: { components: ComponentStatus[] }): void {
+    this.aiCircuitFailures = 0;
+    this.aiCircuitOpenedAt = 0;
+    this.lastAiHealthy = result;
+    this.aiHealthCache.set('ai:health', result, 30_000);
+  }
+
+  private recordAiFailure(): void {
+    this.aiCircuitFailures += 1;
+    if (this.aiCircuitFailures >= AdminSystemController.AI_CIRCUIT_THRESHOLD && this.aiCircuitOpenedAt === 0) {
+      this.aiCircuitOpenedAt = Date.now();
+      this.logger.warn(
+        `AI system health circuit opened (${this.aiCircuitFailures} consecutive failures) — short-circuiting for ${AdminSystemController.AI_CIRCUIT_COOLDOWN_MS / 1000}s`,
+      );
+    }
+  }
+
+  private classifyAiError(err: any): {
+    kind: 'timeout' | 'auth' | 'unavailable' | 'network' | 'unknown';
+    status?: number;
+    message: string;
+    retryable: boolean;
+  } {
+    const status: number | undefined = err?.response?.status;
+    const code: string | undefined = err?.code;
+    const rawMessage: string = err?.message ?? '';
+    const upstream: string | undefined = err?.response?.data?.error || err?.response?.data?.message;
+
+    if (code === 'ECONNABORTED' || rawMessage.toLowerCase().includes('timeout')) {
+      return {
+        kind: 'timeout',
+        status,
+        message: `AI service timed out after ${AdminSystemController.AI_HEALTH_TIMEOUT_MS / 1000}s`,
+        retryable: true,
+      };
+    }
+    if (status === 401 || status === 403) {
+      return {
+        kind: 'auth',
+        status,
+        message: upstream ?? `AI service auth failed (${status})`,
+        retryable: false,
+      };
+    }
+    if (status === 503 || status === 502 || status === 504 || status === 429) {
+      return {
+        kind: 'unavailable',
+        status,
+        message: upstream ?? `AI service unavailable (${status})`,
+        retryable: true,
+      };
+    }
+    if (code === 'ECONNREFUSED' || code === 'ENOTFOUND' || code === 'ECONNRESET' || code === 'EHOSTUNREACH') {
+      return {
+        kind: 'network',
+        status,
+        message: upstream ?? `Network error (${code}) — AI service unreachable`,
+        retryable: true,
+      };
+    }
+    const fallback = upstream || rawMessage || code || err?.response?.statusText || 'no response';
+    return { kind: 'unknown', status, message: fallback, retryable: true };
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async fetchAiHealthWithRetry(baseUrl: string): Promise<any> {
+    const timeout = AdminSystemController.AI_HEALTH_TIMEOUT_MS;
+    const doRequest = () => firstValueFrom(this.http.get(`${baseUrl}/health`, { timeout }));
+    try {
+      const res = await doRequest();
+      return res.data;
+    } catch (err: any) {
+      const classified = this.classifyAiError(err);
+      if (!classified.retryable) throw err;
+      this.logger.warn(
+        `AI /health transient failure (${classified.kind}) — retrying once after ${AdminSystemController.AI_RETRY_BACKOFF_MS}ms: ${classified.message}`,
+      );
+      await this.sleep(AdminSystemController.AI_RETRY_BACKOFF_MS);
+      const retryRes = await doRequest();
+      return retryRes.data;
+    }
+  }
+
   /** Proxies the AI service's own /health, which also reports Qdrant + model. */
   private async checkAiService(): Promise<{ components: ComponentStatus[] }> {
     const baseUrl = this.config.get<string>('AI_SERVICE_URL') || 'http://localhost:8000';
     const started = Date.now();
+
+    // 30s TTL cache: avoid hammering AI /health on every dashboard poll
+    const cached = this.aiHealthCache.get('ai:health');
+    if (cached) {
+      return cached;
+    }
+
+    // Circuit breaker: short-circuit if AI failed 3 times in a row
+    if (this.isAiCircuitOpen()) {
+      const stale = this.lastAiHealthy ?? this.aiHealthCache.get('ai:health');
+      if (stale) {
+        this.logger.warn('AI system health circuit open — returning degraded cached components');
+        // Mark ai component as degraded due to circuit, preserve other components as cached
+        const degraded: ComponentStatus[] = stale.components.map((c) =>
+          c.id === 'ai'
+            ? { ...c, status: 'degraded' as const, detail: `${c.detail} (cached — circuit open)` }
+            : c,
+        );
+        return { components: degraded };
+      }
+      // No cache — return degraded placeholder instead of throwing 503 (must not fail the whole page)
+      return {
+        components: [
+          {
+            id: 'ai',
+            label: 'AI service',
+            status: 'degraded',
+            detail: `Circuit open — too many recent failures, retry in ${Math.ceil((AdminSystemController.AI_CIRCUIT_COOLDOWN_MS - (Date.now() - this.aiCircuitOpenedAt)) / 1000)}s (${baseUrl})`,
+            latencyMs: null,
+          },
+          {
+            id: 'qdrant',
+            label: 'Qdrant (vector store)',
+            status: 'degraded',
+            detail: 'Unknown — AI service circuit open',
+            latencyMs: null,
+          },
+          {
+            id: 'embeddings',
+            label: 'Embedding model',
+            status: 'degraded',
+            detail: 'Unknown — AI service circuit open',
+            latencyMs: null,
+          },
+        ],
+      };
+    }
+
     try {
-      const response = await firstValueFrom(
-        // AI /health is usually fast, but on a cold Ollama host it can take 10-20s (model load, Qdrant probe). 10s aborted it before ready and contributed to "(canceled)" health in the Network tab.
-        this.http.get(`${baseUrl}/health`, { timeout: 30000 }),
-      );
+      const data = await this.fetchAiHealthWithRetry(baseUrl);
       const latencyMs = Date.now() - started;
-      const body = response.data ?? {};
+      const body = data ?? {};
       const phase = body.status ?? 'unknown';
 
-      return {
+      const result: { components: ComponentStatus[] } = {
         components: [
           {
             id: 'ai',
@@ -170,21 +330,52 @@ export class AdminSystemController {
           },
         ],
       };
+      this.recordAiSuccess(result);
+      return result;
     } catch (e: any) {
-      // The AI service owns the Qdrant/model probes, so if it is unreachable
-      // their true state is unknown — reporting them as "down" would be a guess.
+      const classified = this.classifyAiError(e);
+      this.recordAiFailure();
+
+      // Never throw 503 — return degraded components so the page still renders.
+      // Distinguish error kinds for actionable detail, and degrade (not down) for transient.
+      const stale = this.aiHealthCache.get('ai:health') ?? this.lastAiHealthy;
+      if (stale) {
+        this.logger.warn(`AI /health failed (${classified.kind}) — returning degraded cached components: ${classified.message}`);
+        const degraded: ComponentStatus[] = stale.components.map((c) =>
+          c.id === 'ai'
+            ? {
+                ...c,
+                status: 'degraded' as const,
+                detail: `[${classified.kind}${classified.status ? ` ${classified.status}` : ''}] ${classified.message} (cached)`,
+                latencyMs: Date.now() - started,
+              }
+            : c,
+        );
+        return { components: degraded };
+      }
+
+      // No cache: return degraded with classified detail
+      const isAuth = classified.kind === 'auth';
       return {
         components: [
           {
             id: 'ai',
             label: 'AI service',
-            status: 'down',
-            detail: `${baseUrl} — ${e?.message || e?.code || 'no response'}`,
+            // auth failures are configuration errors → degraded (not down) — service is reachable but misconfigured
+            status: isAuth ? 'degraded' : classified.kind === 'timeout' || classified.kind === 'network' ? 'degraded' : 'down',
+            detail: `[${classified.kind}${classified.status ? ` ${classified.status}` : ''}] ${baseUrl} — ${classified.message}`,
             latencyMs: Date.now() - started,
           },
           {
             id: 'qdrant',
             label: 'Qdrant (vector store)',
+            status: 'degraded',
+            detail: 'Unknown — the AI service that probes it is unreachable',
+            latencyMs: null,
+          },
+          {
+            id: 'embeddings',
+            label: 'Embedding model',
             status: 'degraded',
             detail: 'Unknown — the AI service that probes it is unreachable',
             latencyMs: null,

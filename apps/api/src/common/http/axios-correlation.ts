@@ -1,5 +1,21 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import { Agent as HttpAgent } from 'http';
+import { Agent as HttpsAgent } from 'https';
 import { currentTrace } from '../logger/trace-context';
+
+/**
+ * Connection agents for AI-service calls, with keep-alive off.
+ *
+ * Node's global agent keeps idle sockets alive (default since Node 19) and
+ * uvicorn closes them after 5s. When both fire at once the API reuses a socket
+ * the AI service is closing and gets ECONNRESET, which every caller here
+ * classifies as "AI service unreachable" — a one-request failure that looks
+ * like an outage and clears itself on the next call. A fresh connection per
+ * request removes the race; the handshake is noise next to calls that run for
+ * seconds to minutes.
+ */
+const aiHttpAgent = new HttpAgent({ keepAlive: false });
+const aiHttpsAgent = new HttpsAgent({ keepAlive: false });
 
 /**
  * Attach the in-flight correlation id as the `x-request-id` header to outbound
@@ -48,8 +64,10 @@ export function installAxiosCorrelation(): void {
       // an outbound call to a third party (LLM vendors, scrape targets).
       const secret = process.env.INTERNAL_SERVICE_SECRET;
       const aiBase = process.env.AI_SERVICE_URL;
-      if (secret && aiBase && isSameOrigin(requestConfig, aiBase)) {
-        requestConfig.headers['x-internal-secret'] = secret;
+      if (aiBase && isSameOrigin(requestConfig, aiBase)) {
+        if (secret) requestConfig.headers['x-internal-secret'] = secret;
+        requestConfig.httpAgent = aiHttpAgent;
+        requestConfig.httpsAgent = aiHttpsAgent;
       }
       return requestConfig;
     });

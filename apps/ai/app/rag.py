@@ -320,7 +320,10 @@ async def query(
         return await _chat_reply()
 
     search_start = time.perf_counter()
-    candidates = store.search(
+    # Off the event loop like the dense encode above: this also runs a BM25
+    # sparse encode and the Qdrant round trip, both blocking.
+    candidates = await asyncio.to_thread(
+        store.search,
         query_embedding=query_embedding,
         query_text=question,
         top_k=min(top_k * _CANDIDATE_MULTIPLIER, _MAX_CANDIDATES),

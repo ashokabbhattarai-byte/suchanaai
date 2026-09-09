@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useCallback, useEffect, useState } from "react"
+import React, { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import {
   AlertCircle,
@@ -19,7 +19,7 @@ import {
 } from "lucide-react"
 import { AdminLayout } from "@/components/admin/admin-layout"
 import { Header } from "@/components/layout/header"
-import { fetchSystemStatus } from "@/lib/api"
+import { fetchSystemStatus, isNetworkError, isApiError } from "@/lib/api"
 import type { ComponentHealth, SystemStatus } from "@/lib/types"
 
 const STATUS_STYLE: Record<
@@ -46,22 +46,74 @@ function formatUptime(seconds: number): string {
   return `${Math.floor(h / 24)}d ${h % 24}h`
 }
 
+function isTimeoutErr(err: unknown): boolean {
+  if (isNetworkError(err)) return true
+  const msg = err instanceof Error ? err.message : String(err ?? "")
+  const lower = msg.toLowerCase()
+  return lower.includes("timeout") || lower.includes("timed out") || msg.includes("TimeoutError")
+}
+
+function pollIntervalFor(overall: ComponentHealth | undefined): number {
+  if (overall === "down") return 120_000
+  if (overall === "degraded") return 60_000
+  return 30_000
+}
+
 export default function AdminSystemPage() {
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [degraded, setDegraded] = useState<string | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const statusRef = useRef<SystemStatus | null>(null)
+  // Keep ref in sync for poll interval closure without re-creating timer effect on every render
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
 
   // `silent` keeps the page rendered during auto-refresh — blanking a status
   // board every 30s would make a healthy system look like it was flapping.
-  const load = useCallback(async (opts: { silent?: boolean } = {}) => {
-    if (!opts.silent) setLoading(true)
+  // `force` bypasses the 30s api.ts health cache for manual retries.
+  const load = useCallback(async (opts: { silent?: boolean; force?: boolean } = {}) => {
+    const showLoader = !opts.silent && !statusRef.current
+    if (showLoader) setLoading(true)
+    if (opts.silent) setIsRefreshing(true)
     try {
-      setStatus(await fetchSystemStatus())
+      const next = await fetchSystemStatus(opts.force ? { force: true } : undefined)
+      setStatus(next)
+      statusRef.current = next
       setError(null)
+      // Clear degraded if system recovers to ok; otherwise keep degraded banner in sync
+      if (next.overall === "ok") setDegraded(null)
+      else setDegraded(null) // overall banner itself conveys degraded/down, no extra amber needed when fresh
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load system status")
+      const msg = err instanceof Error ? err.message : "Could not load system status"
+      // If we have cached status, show degraded with retry instead of blocking red
+      if (statusRef.current) {
+        if (isTimeoutErr(err)) {
+          setDegraded("Request timed out — showing cached status. Services may have recovered; retrying automatically with backoff.")
+        } else if (isApiError(err) && err.status === 503) {
+          setDegraded("AI service temporarily unavailable (503) — showing cached status. Will retry with backoff.")
+        } else {
+          setDegraded(`${msg} — showing cached status. Polling continues with backoff.`)
+        }
+        setError(null)
+        // Keep existing status visible; don't blank board
+      } else {
+        // No cached data at all: handle timeout gracefully as degraded not hard 500
+        if (isTimeoutErr(err)) {
+          setDegraded("Request timed out while checking services — please retry. No cached data yet.")
+          setError(null)
+        } else {
+          setError(msg)
+          setDegraded(null)
+        }
+      }
     } finally {
-      if (!opts.silent) setLoading(false)
+      if (showLoader) setLoading(false)
+      setIsRefreshing(false)
     }
   }, [])
 
@@ -69,11 +121,21 @@ export default function AdminSystemPage() {
     void load()
   }, [load])
 
-  // Poll while the tab is open; this is a monitoring page, so stale numbers
-  // are worse than a little extra traffic. Each check is cheap server-side.
+  // Exponential backoff polling: 30s when healthy, 60s when degraded, 120s when down
+  // Avoids hammering AI when it's down; overall reflects backend's worst component.
   useEffect(() => {
-    const timer = setInterval(() => void load({ silent: true }), 30_000)
-    return () => clearInterval(timer)
+    const schedule = () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+      const interval = pollIntervalFor(statusRef.current?.overall)
+      timerRef.current = setTimeout(async () => {
+        await load({ silent: true })
+        schedule()
+      }, interval)
+    }
+    schedule()
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
   }, [load])
 
   const overall = status ? STATUS_STYLE[status.overall] : null
@@ -98,29 +160,50 @@ export default function AdminSystemPage() {
               </span>
             )}
             <button
-              onClick={() => void load({ silent: true })}
-              className="flex items-center gap-2 rounded-full border border-vez-line px-4 py-2.5 text-sm text-vez-ink transition-colors hover:bg-vez-surface"
+              onClick={() => void load({ silent: true, force: true })}
+              disabled={isRefreshing}
+              aria-busy={isRefreshing}
+              className="flex items-center gap-2 rounded-full border border-vez-line px-4 py-2.5 text-sm text-vez-ink transition-colors hover:bg-vez-surface disabled:opacity-50"
             >
-              <RefreshCw className="size-4" /> Refresh
+              <RefreshCw className={`size-4 ${isRefreshing ? "animate-spin" : ""}`} aria-hidden /> Refresh
             </button>
           </div>
         </div>
 
+        {degraded && (
+          <div className="mb-6 flex flex-wrap items-center gap-2 rounded-[14px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <AlertCircle className="size-4 shrink-0 text-amber-600" aria-hidden />
+            <span className="min-w-0 flex-1">{degraded}</span>
+            <button
+              onClick={() => {
+                setDegraded(null)
+                void load({ silent: true, force: true })
+              }}
+              className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100"
+            >
+              Retry now
+            </button>
+            <button onClick={() => setDegraded(null)} className="shrink-0 text-xs underline underline-offset-2">
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="mb-6 flex items-center gap-2 rounded-[14px] bg-red-50 px-4 py-3 text-sm text-red-600">
             <AlertCircle className="size-4 shrink-0" /> {error}
-            <button onClick={() => load()} className="ml-auto font-medium underline underline-offset-2">
+            <button onClick={() => void load({ force: true })} className="ml-auto font-medium underline underline-offset-2">
               Retry
             </button>
           </div>
         )}
 
         {loading ? (
-          <div className="flex items-center gap-3 rounded-[20px] border border-vez-line bg-white p-10 text-sm text-vez-mute">
+          <div className="flex w-full items-center gap-3 rounded-[20px] border border-vez-line bg-white p-10 text-sm text-vez-mute">
             <Loader2 className="size-4 animate-spin text-vez-navy" /> Checking every service…
           </div>
         ) : status ? (
-          <div className="max-w-5xl space-y-5">
+          <div className="w-full space-y-6">
             {/* Overall banner */}
             <div
               className={`flex flex-wrap items-center gap-3 rounded-[20px] border p-4 sm:px-6 sm:py-5 ${
@@ -143,8 +226,12 @@ export default function AdminSystemPage() {
                 <p className="mt-0.5 text-xs text-vez-mute">
                   {status.runtime.environment} · Node {status.runtime.nodeVersion} · API up{" "}
                   {formatUptime(status.runtime.uptimeSeconds)} · {status.runtime.memoryMb} MB RSS
+                  <span className="ml-2 hidden sm:inline tabular-nums">
+                    · next check in {pollIntervalFor(status.overall) / 1000}s
+                  </span>
                 </p>
               </div>
+              {isRefreshing && <Loader2 className="size-4 animate-spin text-vez-mute sm:ml-auto" aria-hidden />}
             </div>
 
             {/* Dependencies */}
@@ -153,6 +240,7 @@ export default function AdminSystemPage() {
                 <h2 className="text-sm sm:text-base font-medium text-vez-ink">Services</h2>
                 <p className="mt-0.5 text-xs text-vez-mute">
                   Each row is checked live — nothing here is cached or assumed.
+                  {status.overall !== "ok" && " Polling backs off when degraded (60s) or down (120s) to avoid extra load."}
                 </p>
               </div>
               {status.components.map((c, i) => {
@@ -187,12 +275,14 @@ export default function AdminSystemPage() {
                 { icon: Globe, label: "Sources", value: status.counts.sources },
                 { icon: Bell, label: "Alert rules", value: status.counts.alertRules },
               ].map((c) => (
-                <div key={c.label} className="rounded-[16px] border border-vez-line bg-white p-4 sm:p-5">
-                  <c.icon className="size-4 text-vez-navy" />
-                  <p className="mt-3 text-2xl tabular-nums text-vez-ink">
+                <div key={c.label} className="flex flex-col rounded-[16px] border border-vez-line bg-white p-5">
+                  <div className="flex size-9 items-center justify-center rounded-full bg-vez-sky/30">
+                    <c.icon className="size-4 text-vez-navy" />
+                  </div>
+                  <p className="mt-4 text-2xl tabular-nums leading-none tracking-[-0.02em] text-vez-ink">
                     {c.value.toLocaleString()}
                   </p>
-                  <p className="text-xs text-vez-mute">{c.label}</p>
+                  <p className="mt-1 text-xs text-vez-mute">{c.label}</p>
                 </div>
               ))}
             </section>

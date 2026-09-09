@@ -10,6 +10,7 @@ import {
   UseGuards,
   ParseUUIDPipe,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { Role, ScrapeRunStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
@@ -177,19 +178,53 @@ export class ScrapingController {
   }
 
   /**
-   * Re-run attachment text extraction for every notice whose stored text looks
-   * unusable (`scope=garbled`, the default) or for all of them (`scope=all`).
-   * Returns as soon as the work is queued; extraction continues in background.
+   * Full pipeline health: how many notices are clean / messy / broken.
+   * Scans the entire catalogue dynamically (cursor pagination), so it stays
+   * accurate as the corpus grows past 2800. No side effects.
+   */
+  @Get('items/extraction-health')
+  async extractionHealth() {
+    return this.noticesService.getExtractionHealth();
+  }
+
+  /**
+   * Re-run attachment text extraction in the background — now dynamic.
+   * - No hard 200 cap: when `limit` is omitted, scans the whole catalogue.
+   * - Differentiates clean / messy / broken and only queues fixable ones.
+   * - Scopes: garbled (messy+broken, default), messy, broken, all.
+   * - Bounded concurrency (2 → 1 if AI warming/queue full), returns immediately; work continues in background.
+   * - Rate-limited: 500ms every 10 items + health check before next batch to avoid CPU spike on 2 vCPU t3.medium.
+   * - Progress: poll GET items/reextract/progress/:jobId (or list) for live percent.
    */
   @Post('items/reextract')
   async reextractItems(
-    @Body('scope') scope?: 'garbled' | 'all',
+    @Body('scope') scope?: 'garbled' | 'all' | 'broken' | 'messy',
     @Body('limit') limit?: number,
   ) {
-    if (scope && scope !== 'garbled' && scope !== 'all') {
-      throw new BadRequestException("scope must be 'garbled' or 'all'");
+    const allowed = new Set(['garbled', 'all', 'broken', 'messy']);
+    if (scope && !allowed.has(scope)) {
+      throw new BadRequestException("scope must be 'garbled' | 'all' | 'broken' | 'messy'");
     }
-    return this.noticesService.reextractBulk(scope ?? 'garbled', limit ?? 200);
+    if (limit !== undefined && (!Number.isFinite(limit) || limit <= 0)) {
+      throw new BadRequestException('limit must be a positive number if provided');
+    }
+    return this.noticesService.reextractBulk((scope as any) ?? 'garbled', limit);
+  }
+
+  /** Bulk re-extract progress — in-memory like scrape_progress. Poll for live status. */
+  @Get('items/reextract/progress')
+  async bulkProgressList() {
+    return {
+      jobs: this.noticesService.getBulkProgressList(),
+      latest: this.noticesService.getLatestBulkProgress(),
+    };
+  }
+
+  @Get('items/reextract/progress/:jobId')
+  async bulkProgressById(@Param('jobId') jobId: string) {
+    const job = this.noticesService.getBulkProgress(jobId);
+    if (!job) throw new NotFoundException(`Bulk job ${jobId} not found`);
+    return job;
   }
 
   /**

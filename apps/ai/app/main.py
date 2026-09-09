@@ -74,6 +74,9 @@ ROUTE_TIMEOUT_SECONDS = {
     "/notices/ask": 150,
     "/notices/analyze": 120,
     "/notices/extract-pdf": 120,
+    # Bulk vector write: one batched encode plus chunked upserts. Stays under
+    # the API's 120s budget (scraping.service.ts) so the AI owns the timeout.
+    "/notices/embed": 110,
     "/query": 150,
     "/llm/health": 150,
 }
@@ -306,20 +309,36 @@ def _validate_qdrant_collection_schema() -> None:
 async def _warmup() -> None:
     """Run startup validation in the background, after the port is listening."""
     _warmup_state["phase"] = "warming"
+    try:
+        llm.set_warmup_phase("warming")
+    except Exception:
+        pass
     t0 = time.perf_counter()
     try:
         await _run_startup_validation()
         # Preserve INTERNAL_SERVICE_SECRET empty warning in production even if other checks pass
         if _warmup_state.get("error") and "INTERNAL_SERVICE_SECRET" in str(_warmup_state["error"]):
             _warmup_state["phase"] = "degraded"
+            try:
+                llm.set_warmup_phase("degraded")
+            except Exception:
+                pass
             logger.critical("Startup validation: %s", _warmup_state["error"])
         else:
             _warmup_state["phase"] = "ready"
             _warmup_state["error"] = None
+            try:
+                llm.set_warmup_phase("ready")
+            except Exception:
+                pass
         logger.info("Warmup complete (%.1fs)", time.perf_counter() - t0)
     except RuntimeError as e:
         _warmup_state["phase"] = "degraded"
         _warmup_state["error"] = str(e)
+        try:
+            llm.set_warmup_phase("degraded")
+        except Exception:
+            pass
         logger.critical("Startup validation failed: %s", e)
         # Don't crash — the health endpoint reports degraded instead,
         # but log prominently so operators see it.
@@ -327,6 +346,10 @@ async def _warmup() -> None:
     except Exception as e:  # never let the background task die silently
         _warmup_state["phase"] = "degraded"
         _warmup_state["error"] = str(e)
+        try:
+            llm.set_warmup_phase("degraded")
+        except Exception:
+            pass
         logger.exception("Warmup crashed: %s", e)
 
 
@@ -529,6 +552,23 @@ async def _health() -> tuple[int, dict]:
     }
     if _warmup_state["error"]:
         body["error"] = _warmup_state["error"]
+    # Ingest backpressure snapshot so callers (bulk re-extract) can gate
+    # themselves when the single worker is saturated — queue full or warming.
+    # Cheap in-process read, no I/O.
+    try:
+        with _INGEST_WAITING_LOCK:
+            waiting = _INGEST_WAITING
+        body["ingest"] = {
+            "waiting": waiting,
+            "limit": _INGEST_QUEUE_LIMIT,
+            "concurrency": _INGEST_CONCURRENCY,
+            "available": max(0, _INGEST_QUEUE_LIMIT - waiting),
+            "queue_full": waiting >= _INGEST_QUEUE_LIMIT,
+        }
+        body["phase"] = phase
+        body["warming"] = phase in ("pending", "warming", "degraded")
+    except Exception:
+        pass
     return 200, body
 
 
@@ -1770,30 +1810,9 @@ async def _notices_embed(receive) -> tuple[int, dict]:
     if not notices:
         return 400, {"error": "Field 'notices' (array) is required"}
 
-    indexed = 0
-    failed = 0
-    for n in notices:
-        notice_id = n.get("id", "")
-        title = n.get("title", "")
-        ai_summary = n.get("ai_summary", "")
-        if not notice_id or not title:
-            failed += 1
-            continue
-        ok = notice_store.index_notice(
-            notice_id=notice_id,
-            title=title,
-            ai_summary=ai_summary or "",
-            category=n.get("category", ""),
-            source_label=n.get("source_label", ""),
-            source_url=n.get("source_url", ""),
-            published_at=n.get("published_at"),
-            content=n.get("content", "") or "",
-        )
-        if ok:
-            indexed += 1
-        else:
-            failed += 1
-
+    # Off the event loop: encoding and upserting a scrape-sized batch is minutes
+    # of blocking work, and this single worker cannot answer /health while it runs.
+    indexed, failed = await asyncio.to_thread(notice_store.index_notices, notices)
     return 200, {"indexed": indexed, "failed": failed, "total": len(notices)}
 
 
@@ -1811,14 +1830,8 @@ async def _notices_delete(receive) -> tuple[int, dict]:
     if not ids:
         return 400, {"error": "Field 'ids' (array) is required"}
 
-    deleted = 0
-    failed = 0
-    for notice_id in ids:
-        if notice_store.delete_notice(notice_id):
-            deleted += 1
-        else:
-            failed += 1
-
+    # Blocking Qdrant call — keep it off the event loop like the embed path.
+    deleted, failed = await asyncio.to_thread(notice_store.delete_notices, ids)
     return 200, {"deleted": deleted, "failed": failed, "total": len(ids)}
 
 

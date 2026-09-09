@@ -3,6 +3,7 @@ collection used by user-uploaded RAG content. Stores one vector per notice (the
 concatenation of title + aiSummary), enabling semantic search as a fallback
 when PostgreSQL keyword search returns nothing useful."""
 
+import threading
 import uuid
 from typing import Optional
 
@@ -31,7 +32,30 @@ def _client():
     return _qdrant.get_client()
 
 
+# The schema check costs two Qdrant round trips and the collection does not
+# change under us, so verify once per process rather than on every call.
+_collection_ready = False
+_collection_lock = threading.Lock()
+
+
 def ensure_collection() -> None:
+    global _collection_ready
+    if _collection_ready:
+        return
+    with _collection_lock:
+        if _collection_ready:
+            return
+        _verify_collection()
+        _collection_ready = True
+
+
+def _invalidate_collection() -> None:
+    """Re-check the schema on the next call, after an upsert or query failed."""
+    global _collection_ready
+    _collection_ready = False
+
+
+def _verify_collection() -> None:
     client = _client()
     collections = client.get_collections().collections
     names = [c.name for c in collections]
@@ -97,55 +121,95 @@ _EMBED_CONTENT_CHARS = 1200
 _EXCERPT_CHARS = 3000
 
 
-def index_notice(
-    notice_id: str,
-    title: str,
-    ai_summary: str,
-    category: str = "",
-    source_label: str = "",
-    source_url: str = "",
-    published_at: Optional[str] = None,
-    content: str = "",
-) -> bool:
-    """Embed and upsert a single notice into the notices collection.
-    Returns True on success, False on failure."""
+# Points per upsert request. Keeps any single request (and any partial
+# failure) small without paying a round trip per notice.
+_UPSERT_BATCH = 50
+
+
+def index_notices(items: list[dict]) -> tuple[int, int]:
+    """Embed and upsert notices in bulk. Returns (indexed, failed).
+
+    Bulk on purpose: one encode pass and one upsert per 50 notices, instead of
+    an encode plus two schema round trips plus an upsert per notice. Blocking —
+    callers must run it via asyncio.to_thread.
+    """
+    valid: list[tuple[str, dict]] = []
+    failed = 0
+    for n in items:
+        notice_id = str(n.get("id") or "")
+        if not notice_id or not (n.get("title") or ""):
+            failed += 1
+            continue
+        valid.append((notice_id, n))
+
+    if not valid:
+        return 0, failed
+
     # Four out of five notices have no AI summary, so a title-only vector was
     # all most of the corpus could be matched on — and the answer context had
     # nothing but a title to work from. The body carries the actual facts.
-    body = (content or "").strip()
-    excerpt = body[:_EXCERPT_CHARS]
-    text = "\n".join(p for p in (title, ai_summary, body[:_EMBED_CONTENT_CHARS]) if p)
-    try:
-        vector = embeddings.get_embedding(text, kind="passage")
-    except Exception as e:
-        logger.error("Failed to embed notice %s: %s", notice_id, e)
-        return False
+    texts = [
+        "\n".join(
+            p
+            for p in (
+                n.get("title") or "",
+                n.get("ai_summary") or "",
+                (n.get("content") or "").strip()[:_EMBED_CONTENT_CHARS],
+            )
+            if p
+        )
+        for _, n in valid
+    ]
 
-    point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"notice:{notice_id}"))
-    payload = {
-        "notice_id": notice_id,
-        "title": title,
-        "ai_summary": ai_summary,
-        "content_excerpt": excerpt,
-        "category": category,
-        "source_label": source_label,
-        "source_url": source_url,
-    }
-    if published_at:
-        payload["published_at"] = published_at
+    try:
+        vectors = embeddings.get_embeddings(texts, kind="passage")
+    except Exception as e:
+        logger.error("Failed to embed %d notices: %s", len(texts), e)
+        return 0, failed + len(valid)
+
+    points = []
+    for (notice_id, n), vector in zip(valid, vectors):
+        payload = {
+            "notice_id": notice_id,
+            "title": n.get("title") or "",
+            "ai_summary": n.get("ai_summary") or "",
+            "content_excerpt": (n.get("content") or "").strip()[:_EXCERPT_CHARS],
+            "category": n.get("category") or "",
+            "source_label": n.get("source_label") or "",
+            "source_url": n.get("source_url") or "",
+        }
+        if n.get("published_at"):
+            payload["published_at"] = n["published_at"]
+        points.append(
+            PointStruct(
+                id=str(uuid.uuid5(uuid.NAMESPACE_DNS, f"notice:{notice_id}")),
+                vector={DENSE_VECTOR: vector},
+                payload=payload,
+            )
+        )
 
     client = _client()
-    try:
-        ensure_collection()
-        client.upsert(
-            collection_name=COLLECTION,
-            points=[PointStruct(id=point_id, vector={DENSE_VECTOR: vector}, payload=payload)],
-        )
-        logger.debug("Indexed notice %s into '%s'", notice_id, COLLECTION)
-        return True
-    except Exception as e:
-        logger.error("Failed to index notice %s: %s", notice_id, e)
-        return False
+    indexed = 0
+    for start in range(0, len(points), _UPSERT_BATCH):
+        chunk = points[start : start + _UPSERT_BATCH]
+        try:
+            ensure_collection()
+            client.upsert(collection_name=COLLECTION, points=chunk)
+            indexed += len(chunk)
+        except Exception as e:
+            # The collection may have been dropped or recreated under us.
+            _invalidate_collection()
+            logger.error(
+                "Failed to upsert notices %d-%d of %d: %s",
+                start,
+                start + len(chunk),
+                len(points),
+                e,
+            )
+            failed += len(chunk)
+
+    logger.info("Indexed %d/%d notices into '%s'", indexed, len(items), COLLECTION)
+    return indexed, failed
 
 
 def search(
@@ -178,6 +242,7 @@ def search(
             with_vectors=False,
         )
     except Exception as e:
+        _invalidate_collection()
         logger.error("Notices search failed: %s", e)
         return []
 
@@ -198,14 +263,16 @@ def search(
     return output
 
 
-def delete_notice(notice_id: str) -> bool:
+def delete_notices(ids: list[str]) -> tuple[int, int]:
+    """Drop notices from the vector store in one request. Returns (deleted, failed).
+    Blocking — callers must run it via asyncio.to_thread."""
+    if not ids:
+        return 0, 0
+    point_ids = [str(uuid.uuid5(uuid.NAMESPACE_DNS, f"notice:{i}")) for i in ids]
     client = _client()
     try:
-        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"notice:{notice_id}"))
-        client.delete(
-            collection_name=COLLECTION,
-            points_selector=[point_id],
-        )
-        return True
-    except Exception:
-        return False
+        client.delete(collection_name=COLLECTION, points_selector=point_ids)
+        return len(point_ids), 0
+    except Exception as e:
+        logger.error("Failed to delete %d notices: %s", len(point_ids), e)
+        return 0, len(point_ids)

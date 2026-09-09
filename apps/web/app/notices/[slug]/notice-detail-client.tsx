@@ -18,10 +18,13 @@ import { ErrorState } from "@/components/ui/error-state"
 import { ChatMarkdown } from "@/components/chat/chat-markdown"
 import { CopyButton } from "@/components/ui/copy-button"
 import { useAuth } from "@/lib/auth-context"
-import { categoryLabel } from "@/lib/types"
+import { useAlerts } from "@/lib/alerts-context"
+import { categoryLabel, type ScrapedItemCategory } from "@/lib/types"
 import { useNoticeContext } from "@/lib/notice-context"
 import type { PublicNoticeDetail } from "@/lib/types"
 import { UpgradePrompt } from "@/components/billing/upgrade-prompt"
+import { toast } from "sonner"
+import { useRouter } from "next/navigation"
 
 const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
 
@@ -555,9 +558,51 @@ export default function NoticeDetailClient() {
 
   // Admin-only re-extraction of this notice's attachment text.
   const { user } = useAuth()
+  const router = useRouter()
+  const { addAlert, quotaError: alertQuotaError } = useAlerts()
   const isAdmin = user?.role === "admin"
   const [reextracting, setReextracting] = useState(false)
   const [reextractNote, setReextractNote] = useState<{ tone: "ok" | "info" | "error"; text: string } | null>(null)
+  const [quickAlerting, setQuickAlerting] = useState(false)
+  const [quickAlertQuota, setQuickAlertQuota] = useState<QuotaDenial | null>(null)
+
+  // Quick alert: one tap creates an alert for this notice's category + first tag — responsive, quota-aware
+  const handleQuickAlert = async () => {
+    if (!notice) return
+    if (!user) {
+      router.push(`/login?redirect=${encodeURIComponent(`/notices/${slug}`)}`)
+      return
+    }
+    setQuickAlerting(true)
+    setQuickAlertQuota(null)
+    const cat = notice.category as ScrapedItemCategory
+    const firstTag = notice.tags?.[0] as string | undefined
+    const name = `${categoryLabel(cat)}${firstTag ? ` — ${firstTag}` : ""} alerts`
+    const ok = await addAlert({
+      name,
+      enabled: true,
+      priority: "NORMAL",
+      categories: [cat],
+      tags: firstTag ? [firstTag] : [],
+      keywords: [],
+      excludeKeywords: [],
+      organizations: notice.sourceLabel ? [notice.sourceLabel] : [],
+      minUrgency: null,
+      deadlineWithinDays: null,
+    })
+    setQuickAlerting(false)
+    if (ok) {
+      toast.success(`Alert created — you'll be notified for new ${categoryLabel(cat)} notices`, {
+        action: { label: "Manage", onClick: () => router.push("/dashboard/alerts") },
+      })
+    }
+    // quota error surfaces via context -> useEffect below
+  }
+
+  // Keep quickAlertQuota in sync with context quota error (QuotaDenial)
+  useEffect(() => {
+    if (alertQuotaError) setQuickAlertQuota(alertQuotaError)
+  }, [alertQuotaError])
 
   async function handleReextract() {
     if (reextracting) return
@@ -865,39 +910,47 @@ export default function NoticeDetailClient() {
             </span>
           </div>
 
-          {/* Action buttons */}
+          {/* Action buttons — responsive, 44px tap targets, quick alert with quota handling */}
           <div className="mt-4 flex flex-col flex-wrap items-center gap-3 sm:flex-row">
             <button
               onClick={() => setSaved(!saved)}
-              className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-sm transition-all ${
+              className={`flex min-h-[44px] items-center gap-2 rounded-full px-5 py-2.5 text-sm transition-all ${
                 saved ? "bg-vez-navy text-white" : "bg-white text-vez-ink border border-vez-line hover:bg-vez-surface"
               }`}
             >
-              {saved ? <BookmarkCheck className="size-4" /> : <Bookmark className="size-4" />}
+              {saved ? <BookmarkCheck className="size-4 shrink-0" /> : <Bookmark className="size-4 shrink-0" />}
               {saved ? "Saved" : "Save notice"}
             </button>
-            <Link
-              href="/login"
-              className="flex items-center gap-2 rounded-full bg-vez-navy px-5 py-2.5 text-sm text-white transition-opacity hover:opacity-90"
+            <button
+              onClick={handleQuickAlert}
+              disabled={quickAlerting}
+              className="flex min-h-[44px] items-center gap-2 rounded-full bg-vez-navy px-5 py-2.5 text-sm text-white transition-opacity hover:opacity-90 disabled:opacity-60 shrink-0"
+              title={user ? `Create alert for ${categoryLabel(notice.category as ScrapedItemCategory)}` : "Sign in to create alerts"}
             >
-              <Bell className="size-4" /> Set alert
-            </Link>
+              {quickAlerting ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <Bell className="size-4 shrink-0" />}
+              {quickAlerting ? "Creating…" : user ? "Quick alert" : "Set alert"}
+            </button>
             <button
               onClick={handleShare}
-              className="flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm text-vez-ink border border-vez-line transition-colors hover:bg-vez-surface"
+              className="flex min-h-[44px] items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm text-vez-ink border border-vez-line transition-colors hover:bg-vez-surface"
             >
-              {copied ? <Check className="size-4 text-vez-navy" /> : <Share2 className="size-4" />}
+              {copied ? <Check className="size-4 shrink-0 text-vez-navy" /> : <Share2 className="size-4 shrink-0" />}
               {copied ? "Link copied" : "Share"}
             </button>
             <a
               href={notice.sourceUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm text-vez-ink border border-vez-line transition-colors hover:bg-vez-surface"
+              className="flex min-h-[44px] items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm text-vez-ink border border-vez-line transition-colors hover:bg-vez-surface"
             >
-              <ExternalLink className="size-4" /> View original
+              <ExternalLink className="size-4 shrink-0" /> View original
             </a>
           </div>
+          {quickAlertQuota && (
+            <div className="mt-4 max-w-2xl">
+              <UpgradePrompt quota={quickAlertQuota} compact onDismiss={() => setQuickAlertQuota(null)} />
+            </div>
+          )}
         </div>
       </section>
 
@@ -1251,17 +1304,31 @@ export default function NoticeDetailClient() {
                 </div>
               )}
 
-              {/* CTA */}
+              {/* CTA — quick alert, responsive, quota-aware */}
               <div className="rounded-[16px] bg-vez-sky/20 p-4 sm:p-6">
                 <h3 className="mb-2 text-sm font-medium text-vez-ink">Never miss similar notices</h3>
-                <p className="mb-4 text-xs text-vez-mute">
-                  Get instant alerts when new {categoryLabel(notice.category)} notices are published.
+                <p className="mb-4 text-xs leading-relaxed text-vez-mute">
+                  Get <span className="font-medium text-vez-ink">instant alerts</span> when new {categoryLabel(notice.category as ScrapedItemCategory)} notices are published. One tap — respects your plan quota.
                 </p>
-                <Link
-                  href="/login"
-                  className="flex w-full items-center justify-center gap-2 rounded-full bg-vez-navy px-5 py-3 text-sm text-white transition-opacity hover:opacity-90"
-                >
-                  <Bell className="size-4" /> Set up alerts
+                {user ? (
+                  <button
+                    onClick={handleQuickAlert}
+                    disabled={quickAlerting}
+                    className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-full bg-vez-navy px-5 py-3 text-sm text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                  >
+                    {quickAlerting ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <Bell className="size-4 shrink-0" />}
+                    {quickAlerting ? "Creating…" : "Quick alert — 1 tap"}
+                  </button>
+                ) : (
+                  <Link
+                    href={`/login?redirect=${encodeURIComponent(`/notices/${slug}`)}`}
+                    className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-full bg-vez-navy px-5 py-3 text-sm text-white transition-opacity hover:opacity-90"
+                  >
+                    <Bell className="size-4 shrink-0" /> Set up alerts
+                  </Link>
+                )}
+                <Link href="/dashboard/alerts" className="mt-2 flex min-h-[44px] w-full items-center justify-center rounded-full bg-white px-5 py-2.5 text-xs text-vez-ink border border-vez-line hover:bg-vez-surface sm:text-sm">
+                  Manage alerts →
                 </Link>
               </div>
             </div>

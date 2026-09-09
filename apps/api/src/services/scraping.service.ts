@@ -149,6 +149,9 @@ export interface UpdateScrapeSourceInput {
 export class ScrapingService {
   private readonly logger = new Logger(ScrapingService.name);
   private readonly aiServiceUrl: string;
+  // Notices per /notices/embed request — matches the AI service's own upsert
+  // batch size so a request maps to roughly one encode pass and one upsert.
+  private static readonly EMBED_CHUNK_SIZE = 50;
   // A run is considered abandoned (API crashed mid-crawl, etc.) after this
   // many seconds; the scheduler then reclaims it as FAILED so the source can
   // be polled again. The actual per-source concurrency lock is the DB: a
@@ -1560,17 +1563,29 @@ export class ScrapingService {
       published_at: n.publishedAt?.toISOString() || null,
     }));
 
-    try {
-      await firstValueFrom(
-        this.httpService.post(
-          `${this.aiServiceUrl}/notices/embed`,
-          { notices: payload },
-          { timeout: 120000 },
-        ),
-      );
-      this.logger.log(`Embedded ${notices.length} notices into vector store`);
-    } catch (err: any) {
-      this.logger.warn(`Notice embedding request failed: ${err.message}`);
+    // Sent in chunks so one request is a bounded unit of work on the AI's
+    // single worker: a failed or timed-out chunk costs 50 notices, not 200,
+    // and the remaining chunks still land.
+    let embedded = 0;
+    for (let i = 0; i < payload.length; i += ScrapingService.EMBED_CHUNK_SIZE) {
+      const chunk = payload.slice(i, i + ScrapingService.EMBED_CHUNK_SIZE);
+      try {
+        await firstValueFrom(
+          this.httpService.post(
+            `${this.aiServiceUrl}/notices/embed`,
+            { notices: chunk },
+            { timeout: 120000 },
+          ),
+        );
+        embedded += chunk.length;
+      } catch (err: any) {
+        this.logger.warn(
+          `Notice embedding request failed for chunk ${i}-${i + chunk.length}: ${err.message}`,
+        );
+      }
+    }
+    if (embedded) {
+      this.logger.log(`Embedded ${embedded}/${notices.length} notices into vector store`);
     }
   }
 

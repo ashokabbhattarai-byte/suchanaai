@@ -47,7 +47,7 @@ function StatCard({
 }
 
 const inputClass =
-  "h-11 w-full rounded-full border border-vez-line bg-white px-5 text-sm text-vez-ink outline-none transition-colors placeholder:text-vez-mute focus:border-vez-sky"
+  "h-11 min-h-[44px] w-full rounded-full border border-vez-line bg-white px-5 text-[16px] sm:text-sm text-vez-ink outline-none transition-colors placeholder:text-vez-mute focus:border-vez-sky focus:bg-white"
 
 export default function DashboardPage() {
   const { user } = useAuth()
@@ -256,7 +256,7 @@ export default function DashboardPage() {
           <div className="grid w-full max-w-full min-w-0 grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
             {/* Left - 2 cols */}
             <div className="min-w-0 space-y-4 sm:space-y-6 lg:col-span-2">
-              {/* Alert setup wizard */}
+              {/* Alert setup wizard — quick, responsive, quota-aware */}
               {!hasAlerts ? (
                 <div className="dash-card w-full max-w-full min-w-0 overflow-hidden rounded-[20px] bg-vez-sky/25 p-4 sm:p-6">
                   <div className="mb-4 flex min-w-0 items-start gap-3 sm:mb-5">
@@ -264,8 +264,18 @@ export default function DashboardPage() {
                       <Zap className="size-4 text-vez-navy" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-vez-ink sm:text-base">Set up your first alert</p>
-                      <p className="mt-0.5 text-xs leading-relaxed text-vez-mute sm:text-sm">Get notified the moment relevant notices are published</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-medium text-vez-ink sm:text-base">Set up your first alert — quick</p>
+                        {billing && (
+                          <span className="rounded-full bg-white px-2.5 py-0.5 text-[11px] tabular-nums text-vez-ink border border-vez-line">
+                            {billing.usage.alertRules.used} / {billing.limits.maxAlertRules === null ? "∞" : billing.limits.maxAlertRules} {billing.limits.maxAlertRules === null ? "" : "alerts"} · {billing.plan.name}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-xs leading-relaxed text-vez-mute sm:text-sm">One name + one category is enough. Takes 10 seconds.</p>
+                      {billing && billing.usage.alertRules.exceeded && (
+                        <p className="mt-1 text-xs font-medium text-amber-700">Alert limit reached on {billing.plan.name} — delete one or <Link href="/pricing" className="underline underline-offset-2">upgrade</Link>.</p>
+                      )}
                     </div>
                   </div>
                   <div className="min-w-0 space-y-3">
@@ -274,16 +284,18 @@ export default function DashboardPage() {
                       value={wizardData.name}
                       onChange={(e) => setWizardData({ ...wizardData, name: e.target.value })}
                       className={inputClass}
+                      autoComplete="off"
+                      inputMode="text"
                     />
                     <div className="flex flex-wrap gap-1.5 sm:gap-2">
                       {CATEGORY_ORDER.map((cat) => (
                         <button
                           key={cat}
                           onClick={() => toggleWizardCategory(cat)}
-                          className={`rounded-full px-3 py-1.5 text-[11px] transition-colors sm:px-3.5 sm:text-xs ${
+                          className={`min-h-[38px] rounded-full px-3 py-1.5 text-[11px] transition-colors sm:px-3.5 sm:text-xs sm:min-h-[40px] ${
                             wizardData.categories.includes(cat)
                               ? "bg-vez-navy text-white"
-                              : "bg-white text-vez-mute hover:text-vez-navy"
+                              : "bg-white text-vez-mute hover:text-vez-navy border border-transparent hover:border-vez-line"
                           }`}
                         >
                           {categoryLabel(cat)}
@@ -293,16 +305,17 @@ export default function DashboardPage() {
                     <div className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center">
                       <button
                         onClick={handleWizardSubmit}
-                        disabled={!wizardData.name || wizardData.categories.length === 0}
-                        className="w-full rounded-full bg-vez-navy px-5 py-2.5 text-sm text-white transition-opacity hover:opacity-90 disabled:opacity-40 sm:w-auto"
+                        disabled={!wizardData.name || wizardData.categories.length === 0 || (billing?.usage.alertRules.exceeded ?? false)}
+                        className="flex min-h-[44px] w-full items-center justify-center rounded-full bg-vez-navy px-5 py-2.5 text-sm text-white transition-opacity hover:opacity-90 disabled:opacity-40 sm:w-auto"
+                        title={billing?.usage.alertRules.exceeded ? "Alert limit reached — upgrade your plan" : undefined}
                       >
                         Create alert
                       </button>
                       <Link
                         href="/dashboard/alerts"
-                        className="break-words rounded-full px-3 py-2 text-xs leading-relaxed text-vez-mute transition-colors hover:bg-white hover:text-vez-navy sm:px-5 sm:py-2.5 sm:text-sm"
+                        className="flex min-h-[44px] break-words items-center justify-center rounded-full px-3 py-2 text-xs leading-relaxed text-vez-mute transition-colors hover:bg-white hover:text-vez-navy sm:px-5 sm:py-2.5 sm:text-sm sm:justify-start"
                       >
-                        Want tags, keywords, or other advanced filters? Open the full alert builder →
+                        Need tags & keywords? Full builder →
                       </Link>
                     </div>
                   </div>

@@ -1047,6 +1047,84 @@ def _clean_answer(text: str) -> str:
 # one attempt, no retry, and the real reason surfaced so an admin can tell a
 # bad key (401) from a rate limit (429) or a wrong model name (404).
 _HEALTH_TIMEOUT_SECONDS = 12.0
+# Health probe optimization (fix: Ollama 60s hang per check):
+# _HEALTH_TIMEOUT_SECONDS is 12s for hosted vendors; self-hosted Ollama used
+# 60s which blocked health_snapshot via indefinite gather. Reduced to 25s for
+# health only — chat path still uses 60s (see _openai_compatible_chat) where
+# a CPU 7B genuinely needs it.
+_HEALTH_OLLAMA_TIMEOUT_SECONDS = 25.0
+_HEALTH_OLLAMA_CONNECT_TIMEOUT_SECONDS = 2.0  # fast-fail if host unreachable
+_HEALTH_PER_PROVIDER_TIMEOUT = 15.0  # max per-provider wall time in health_snapshot
+_HEALTH_CACHE_TTL = 30.0  # seconds
+_HEALTH_CIRCUIT_THRESHOLD = 3
+_HEALTH_CIRCUIT_COOLDOWN = 60.0
+
+# Health caching (stale-while-revalidate) + circuit breaker state.
+# Cache key = slug (None for full snapshot). Value = (monotonic_ts, result_dict)
+_HEALTH_CACHE: dict[str | None, tuple[float, dict]] = {}
+_HEALTH_CACHE_TASKS: dict[str | None, asyncio.Task] = {}
+# slug -> (consecutive_failures, open_until_monotonic or None)
+_HEALTH_CIRCUIT: dict[str, tuple[int, float | None]] = {}
+
+# Warmup phase mirror — set by app.main via set_warmup_phase(); also checked
+# via lazy import of app.main._warmup_state to survive if setter not called.
+_WARMUP_PHASE: str = "pending"
+
+
+def set_warmup_phase(phase: str) -> None:
+    """Called by app.main._warmup() to mirror _warmup_state["phase"] without
+    creating a circular import at module load time."""
+    global _WARMUP_PHASE
+    _WARMUP_PHASE = phase
+
+
+def _is_warming() -> bool:
+    if _WARMUP_PHASE == "warming":
+        return True
+    try:
+        from app.main import _warmup_state as _main_warmup  # local import avoids cycle
+        if _main_warmup.get("phase") == "warming":
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _circuit_is_open(slug: str | None) -> bool:
+    if not slug:
+        return False
+    entry = _HEALTH_CIRCUIT.get(slug)
+    if not entry:
+        return False
+    _fail_count, open_until = entry
+    if open_until is None:
+        return False
+    if time.monotonic() < open_until:
+        return True
+    # cooldown expired — reset
+    _HEALTH_CIRCUIT.pop(slug, None)
+    return False
+
+
+def _circuit_record(slug: str | None, ok: bool) -> None:
+    if not slug:
+        return
+    if ok:
+        _HEALTH_CIRCUIT.pop(slug, None)
+        return
+    fail_count, open_until = _HEALTH_CIRCUIT.get(slug, (0, None))
+    # if already open, keep open_until
+    if open_until is not None and time.monotonic() < open_until:
+        return
+    fail_count += 1
+    new_open_until: float | None = None
+    if fail_count >= _HEALTH_CIRCUIT_THRESHOLD:
+        new_open_until = time.monotonic() + _HEALTH_CIRCUIT_COOLDOWN
+        logger.warning(
+            "Circuit breaker open for %s after %d failures; skipping probe for %ds",
+            slug, fail_count, int(_HEALTH_CIRCUIT_COOLDOWN),
+        )
+    _HEALTH_CIRCUIT[slug] = (fail_count, new_open_until)
 
 
 def _describe_http_failure(status: int, body: str) -> str:
@@ -1101,11 +1179,16 @@ async def _probe_one_model(provider: dict) -> tuple[bool, str | None]:
         probe_headers = {"Content-Type": "application/json"}
         if provider.get("api_key"):
             probe_headers["Authorization"] = f"Bearer {provider['api_key']}"
-        # A self-hosted CPU model can take 20s+ to answer even 8 tokens —
-        # _HEALTH_TIMEOUT_SECONDS (12s) exists to fail hosted-vendor probes
-        # fast, which doesn't apply here.
-        probe_timeout = 60.0 if _key_optional(provider) else _HEALTH_TIMEOUT_SECONDS
-        async with httpx.AsyncClient(timeout=probe_timeout) as client:
+        # Health probe: self-hosted (Ollama/vLLM, _key_optional) uses 25s not 60s.
+        # Chat path still uses 60s where CPU 7B genuinely needs it; health 60s
+        # blocked the whole snapshot via indefinite gather. 25s still tolerates
+        # CPU inference but caps hang. Connect timeout 2s provides fast-fail when
+        # Ollama host is unreachable (connection refused) instead of waiting 25s.
+        if _key_optional(provider):
+            timeout_cfg = httpx.Timeout(_HEALTH_OLLAMA_TIMEOUT_SECONDS, connect=_HEALTH_OLLAMA_CONNECT_TIMEOUT_SECONDS)
+        else:
+            timeout_cfg = httpx.Timeout(_HEALTH_TIMEOUT_SECONDS)
+        async with httpx.AsyncClient(timeout=timeout_cfg) as client:
             response = await client.post(url, headers=probe_headers, json=payload)
 
     if response.status_code != 200:
@@ -1200,9 +1283,19 @@ async def _health_for(provider: dict) -> dict:
     }
     if not base["enabled"]:
         return {**base, "ok": False, "latencyMs": None,
-                "error": "Disabled — this provider is never called."}
+                "error": "Disabled — this provider is never called.",
+                "note": None, "resolvedModel": None, "cached": False, "circuitOpen": False}
     if not base["configured"]:
-        return {**base, "ok": False, "latencyMs": None, "error": "No API key configured."}
+        return {**base, "ok": False, "latencyMs": None, "error": "No API key configured.",
+                "note": None, "resolvedModel": None, "cached": False, "circuitOpen": False}
+
+    slug = provider.get("slug")
+    # Circuit breaker: if open, fail fast without live probe — saves 25s per
+    # degraded Ollama and matches task spec: 3 fails → skip 60s, return cached degraded.
+    if _circuit_is_open(slug):
+        return {**base, "ok": False, "latencyMs": None,
+                "error": f"Circuit breaker open — skipped probe after {_HEALTH_CIRCUIT_THRESHOLD} consecutive failures (cooldown {int(_HEALTH_CIRCUIT_COOLDOWN)}s).",
+                "note": None, "resolvedModel": None, "cached": True, "circuitOpen": True}
 
     started = time.perf_counter()
     try:
@@ -1212,19 +1305,26 @@ async def _health_for(provider: dict) -> dict:
         # message attached), which rendered as the useless "Could not reach
         # the provider: " an admin can't act on — name the exception type so
         # a timeout reads as "ReadTimeout", not blank.
+        _circuit_record(slug, False)
         return {**base, "ok": False,
                 "latencyMs": round((time.perf_counter() - started) * 1000),
-                "error": f"Could not reach the provider: {e or type(e).__name__}"}
+                "error": f"Could not reach the provider: {e or type(e).__name__}",
+                "note": None, "resolvedModel": None, "cached": False, "circuitOpen": _circuit_is_open(slug)}
     except Exception as e:  # one bad provider must not break the panel
         logger.exception("Health probe crashed for %s", provider.get("slug"))
+        _circuit_record(slug, False)
         return {**base, "ok": False,
                 "latencyMs": round((time.perf_counter() - started) * 1000),
-                "error": f"Probe failed: {e}"}
+                "error": f"Probe failed: {e}",
+                "note": None, "resolvedModel": None, "cached": False, "circuitOpen": _circuit_is_open(slug)}
     # A passing probe doesn't clear a real failure: the probe asks for 8 tokens
     # and a daily-token cap only rejects the ~1.5k a real answer needs.
     observed = recent_failure(provider.get("slug"))
     if ok and observed:
         ok, error = False, f"Probe succeeded, but real requests are failing: {observed}"
+
+    # Circuit accounting on final verdict
+    _circuit_record(slug, ok)
 
     # Only set when a fallback model answered instead of the configured one
     # (OpenRouter) — surfaced so the admin panel can show "answering via X"
@@ -1237,23 +1337,21 @@ async def _health_for(provider: dict) -> dict:
 
     return {**base, "ok": ok,
             "latencyMs": round((time.perf_counter() - started) * 1000),
-            "error": error, "note": note, "resolvedModel": resolved_model if ok else None}
+            "error": error, "note": note, "resolvedModel": resolved_model if ok else None,
+            "cached": False, "circuitOpen": _circuit_is_open(slug)}
 
 
-async def health_snapshot(slug: str | None = None) -> dict:
-    """Live status of every provider in fallback order, or just one when
-    `slug` is given (the per-card "Test" button). Probes run concurrently —
-    three sequential round-trips to external APIs would make the panel feel
-    broken on a single slow provider."""
+async def _health_snapshot_live(slug: str | None = None) -> dict:
+    """Live probe with per-provider timeout (15s) and circuit breaker.
+
+    Concurrent gather with asyncio.wait_for per provider so a single slow
+    Ollama (25s) does not block the whole response beyond 15s. This replaces
+    the prior indefinite `await asyncio.gather(*(_health_for(...)))`.
+    """
     providers = all_providers()
     if slug:
         providers = [p for p in providers if p.get("slug") == slug]
         if not providers:
-            # An empty list rendered as "Not tested yet", so a provider the
-            # service has never heard of looked identical to one nobody had
-            # clicked Test on. Say what is actually wrong: the registry the
-            # panel lists comes from the database, but this service is running
-            # on whatever the last successful config sync gave it.
             known = ", ".join(p.get("slug") or "?" for p in all_providers()) or "none"
             return {
                 "providers": [],
@@ -1266,18 +1364,170 @@ async def health_snapshot(slug: str | None = None) -> dict:
                 ),
             }
 
-    results = list(await asyncio.gather(*(_health_for(p) for p in providers)))
+    async def _probe_with_timeout(p: dict) -> dict:
+        slug_p = p.get("slug")
+        # Fast path for open circuit — already handled inside _health_for but
+        # checked here to avoid even the wait_for wrapper overhead.
+        if _circuit_is_open(slug_p):
+            base = {
+                "provider": p.get("slug"),
+                "label": p.get("label") or p.get("slug"),
+                "model": p.get("model"),
+                "kind": p.get("kind"),
+                "enabled": bool(p.get("enabled")),
+                "configured": bool(p.get("api_key")) or _key_optional(p),
+            }
+            return {**base, "ok": False, "latencyMs": None,
+                    "error": f"Circuit breaker open — skipped probe after {_HEALTH_CIRCUIT_THRESHOLD} consecutive failures (cooldown {int(_HEALTH_CIRCUIT_COOLDOWN)}s).",
+                    "note": None, "resolvedModel": None, "cached": True, "circuitOpen": True}
+        try:
+            return await asyncio.wait_for(_health_for(p), timeout=_HEALTH_PER_PROVIDER_TIMEOUT)
+        except asyncio.TimeoutError:
+            _circuit_record(slug_p, False)
+            base = {
+                "provider": p.get("slug"),
+                "label": p.get("label") or p.get("slug"),
+                "model": p.get("model"),
+                "kind": p.get("kind"),
+                "enabled": bool(p.get("enabled")),
+                "configured": bool(p.get("api_key")) or _key_optional(p),
+            }
+            return {**base, "ok": False,
+                    "latencyMs": int(_HEALTH_PER_PROVIDER_TIMEOUT * 1000),
+                    "error": f"Probe timed out after {_HEALTH_PER_PROVIDER_TIMEOUT}s",
+                    "note": None, "resolvedModel": None, "cached": False, "circuitOpen": _circuit_is_open(slug_p)}
+        except Exception as e:  # safety — _health_for already catches, but wait_for cancellation can surface
+            logger.exception("Health probe wrapper crashed for %s", p.get("slug"))
+            _circuit_record(slug_p, False)
+            base = {
+                "provider": p.get("slug"),
+                "label": p.get("label") or p.get("slug"),
+                "model": p.get("model"),
+                "kind": p.get("kind"),
+                "enabled": bool(p.get("enabled")),
+                "configured": bool(p.get("api_key")) or _key_optional(p),
+            }
+            return {**base, "ok": False, "latencyMs": None,
+                    "error": f"Probe failed: {e}",
+                    "note": None, "resolvedModel": None, "cached": False, "circuitOpen": _circuit_is_open(slug_p)}
 
-    # Which provider a real request would land on right now. Only meaningful
-    # for a full snapshot; a single-slug probe says nothing about the chain.
+    results = list(await asyncio.gather(*(_probe_with_timeout(p) for p in providers)))
+
     active = None
     if not slug:
-        active = next((r for r in results if r["enabled"] and r["ok"]), None)
+        active = next((r for r in results if r.get("enabled") and r.get("ok")), None)
     return {
         "providers": results,
         "activeProvider": active["provider"] if active else None,
-        "healthy": any(r["ok"] for r in results),
+        "healthy": any(r.get("ok") for r in results),
+        "cached": False,
     }
+
+
+def _warmup_degraded_response(slug: str | None) -> dict:
+    """Warmup-aware fast path: if phase warming, return degraded quickly
+    without probing any provider — saves up to 60s (1GB download)."""
+    providers = all_providers()
+    if slug:
+        providers = [p for p in providers if p.get("slug") == slug]
+        if not providers:
+            known = ", ".join(p.get("slug") or "?" for p in all_providers()) or "none"
+            return {
+                "providers": [],
+                "activeProvider": None,
+                "healthy": False,
+                "warmup": True,
+                "degraded": True,
+                "error": (
+                    f'"{slug}" is not in the AI service\'s registry, so it is never called. '
+                    f"Loaded providers: {known}. This means the config sync from the API has "
+                    f"not succeeded — POST /llm/providers/refresh returns the reason."
+                ),
+            }
+        target = providers
+    else:
+        target = providers
+    degraded = []
+    for p in target:
+        degraded.append({
+            "provider": p.get("slug"),
+            "label": p.get("label") or p.get("slug"),
+            "model": p.get("model"),
+            "kind": p.get("kind"),
+            "enabled": bool(p.get("enabled")),
+            "configured": bool(p.get("api_key")) or _key_optional(p),
+            "ok": False,
+            "latencyMs": None,
+            "error": "Service warming up — model download/initialization in progress; health probe deferred.",
+            "note": None,
+            "resolvedModel": None,
+            "cached": True,
+            "circuitOpen": False,
+        })
+    return {
+        "providers": degraded,
+        "activeProvider": None,
+        "healthy": False,
+        "warmup": True,
+        "degraded": True,
+        "cached": True,
+    }
+
+
+async def _refresh_and_store(slug: str | None) -> None:
+    """Background refresh for stale-while-revalidate."""
+    try:
+        live = await _health_snapshot_live(slug)
+        _HEALTH_CACHE[slug] = (time.monotonic(), live)
+    except Exception:
+        logger.exception("Background health refresh failed for %s", slug or "full")
+    finally:
+        _HEALTH_CACHE_TASKS.pop(slug, None)
+
+
+async def health_snapshot(slug: str | None = None) -> dict:
+    """Live status with 30s TTL cache, stale-while-revalidate, warmup-aware
+    fast path, circuit breaker, and per-provider 15s timeout.
+
+    - Warmup: if warming phase, return degraded immediately, no probing.
+    - Cache hit (<30s): return cached, no live probe.
+    - Stale hit (>=30s): return stale immediately and trigger background revalidate
+      so the caller never blocks on a slow Ollama.
+    - Miss: live probe (concurrent, per-provider wait_for 15s, circuit-aware)
+      then cache.
+    """
+    # Warmup-aware: return degraded quickly without probing providers
+    if _is_warming():
+        return _warmup_degraded_response(slug)
+
+    now = time.monotonic()
+    cache_key: str | None = slug
+    cached = _HEALTH_CACHE.get(cache_key)
+    if cached is not None:
+        ts, data = cached
+        age = now - ts
+        if age < _HEALTH_CACHE_TTL:
+            # Fresh hit — add cached marker for observability
+            if isinstance(data, dict) and not data.get("cached"):
+                # shallow copy to annotate without mutating cached object
+                data = {**data, "cached": True, "cacheAgeMs": int(age * 1000)}
+            return data
+        # Stale-while-revalidate: return stale now, refresh in background
+        if cache_key not in _HEALTH_CACHE_TASKS or _HEALTH_CACHE_TASKS[cache_key].done():
+            task = asyncio.create_task(_refresh_and_store(cache_key))
+            _HEALTH_CACHE_TASKS[cache_key] = task
+        if isinstance(data, dict):
+            stale = {**data, "cached": True, "stale": True, "cacheAgeMs": int(age * 1000)}
+            # ensure background refresh is visible
+            stale.setdefault("providers", data.get("providers", []))
+            return stale
+        return data
+
+    # Cache miss — live probe (blocking, but bounded by per-provider 15s)
+    live = await _health_snapshot_live(slug)
+    _HEALTH_CACHE[cache_key] = (time.monotonic(), live)
+    # Annotate as fresh
+    return {**live, "cached": False, "cacheAgeMs": 0}
 
 
 # ---------------------------------------------------------------------------

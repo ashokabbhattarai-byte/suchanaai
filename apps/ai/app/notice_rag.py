@@ -2,6 +2,7 @@
 PostgreSQL keyword results (passed from the NestJS API) + Qdrant semantic
 fallback. The LLM synthesizes an answer from the retrieved context."""
 
+import asyncio
 import random
 
 from app import clarify
@@ -112,7 +113,9 @@ async def search_and_answer(
     # suppressed the semantic leg, which is the only leg that can match an
     # English question against a Nepali notice at all.
     keyword_hits = list(pg_results or [])
-    semantic_hits = _semantic_search(question, category, top_k)
+    # Off the event loop: the dense leg encodes the question and calls Qdrant,
+    # both blocking, and this worker serves /health from the same loop.
+    semantic_hits = await asyncio.to_thread(_semantic_search, question, category, top_k)
     sources = _fuse(keyword_hits, semantic_hits, top_k)
     logger.info(
         "Retrieval: %d keyword + %d semantic → %d fused",
