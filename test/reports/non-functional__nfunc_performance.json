@@ -1,0 +1,92 @@
+{
+  "agent": "nfunc-performance",
+  "suite": "non-functional",
+  "pass": 11,
+  "fail": 0,
+  "skip": 5,
+  "total": 16,
+  "durationMs": 90,
+  "results": [
+    {
+      "status": "PASS",
+      "title": "API compression threshold 1024",
+      "detail": "compression threshold present"
+    },
+    {
+      "status": "PASS",
+      "title": "HttpModule timeout 120s",
+      "detail": "120s timeout present"
+    },
+    {
+      "status": "PASS",
+      "title": "Throttler configured (60req/min)",
+      "detail": "throttler 60/min"
+    },
+    {
+      "status": "PASS",
+      "title": "Compression ratio (gzip threshold)",
+      "detail": "compression wired"
+    },
+    {
+      "status": "PASS",
+      "title": "TTL cache utility exists",
+      "detail": "ttl-cache.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "Single-flight utility exists",
+      "detail": "single-flight.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "Next.js turbopack/bi",
+      "detail": "next config present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web package has build script",
+      "detail": "build script present"
+    },
+    {
+      "status": "PASS",
+      "title": "No heavy dep sharp (perf ok)",
+      "detail": "not in api deps"
+    },
+    {
+      "status": "PASS",
+      "title": "No heavy dep puppeteer (perf ok)",
+      "detail": "not in api deps"
+    },
+    {
+      "status": "PASS",
+      "title": "No heavy dep canvas (perf ok)",
+      "detail": "not in api deps"
+    },
+    {
+      "status": "SKIP",
+      "title": "API /health latency < 500ms (live)",
+      "detail": "http://localhost:3001/health not reachable"
+    },
+    {
+      "status": "SKIP",
+      "title": "WEB / latency < 500ms (live)",
+      "detail": "http://localhost:3535/ not reachable"
+    },
+    {
+      "status": "SKIP",
+      "title": "API /notices latency < 500ms (live)",
+      "detail": "http://localhost:3001/notices not reachable"
+    },
+    {
+      "status": "SKIP",
+      "title": "API compression respected (live)",
+      "detail": "no live API"
+    },
+    {
+      "status": "SKIP",
+      "title": "Concurrency burst 10× /health (live)",
+      "detail": "no live API"
+    }
+  ],
+  "timestamp": "2026-09-09T00:55:42.727Z"
+}

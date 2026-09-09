@@ -1,0 +1,107 @@
+{
+  "agent": "nfunc-seo",
+  "suite": "non-functional",
+  "pass": 13,
+  "fail": 0,
+  "skip": 6,
+  "total": 19,
+  "durationMs": 60,
+  "results": [
+    {
+      "status": "PASS",
+      "title": "Layout exports metadata",
+      "detail": "metadata in layout.tsx"
+    },
+    {
+      "status": "PASS",
+      "title": "OpenGraph meta",
+      "detail": "openGraph present"
+    },
+    {
+      "status": "PASS",
+      "title": "Twitter card meta",
+      "detail": "twitter meta present"
+    },
+    {
+      "status": "PASS",
+      "title": "Sitemap.ts exists",
+      "detail": "sitemap.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "Sitemap uses API or base URL",
+      "detail": "sitemap URL configured"
+    },
+    {
+      "status": "PASS",
+      "title": "Robots.ts exists",
+      "detail": "robots.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "Robots allows indexing (or disallows admin)",
+      "detail": "robots rules present"
+    },
+    {
+      "status": "PASS",
+      "title": "About page present (content SEO)",
+      "detail": "about page present"
+    },
+    {
+      "status": "PASS",
+      "title": "Privacy page present",
+      "detail": "privacy present"
+    },
+    {
+      "status": "PASS",
+      "title": "Pricing page present",
+      "detail": "pricing present"
+    },
+    {
+      "status": "PASS",
+      "title": "Notices index page present",
+      "detail": "notices index present"
+    },
+    {
+      "status": "PASS",
+      "title": "Notices [slug] dynamic route",
+      "detail": "[slug] present (long-tail SEO)"
+    },
+    {
+      "status": "SKIP",
+      "title": "JSON-LD structured data",
+      "detail": "no ld+json found — recommend adding Organization/WebSite schema"
+    },
+    {
+      "status": "SKIP",
+      "title": "Canonical URL",
+      "detail": "no canonical/alternates — recommend"
+    },
+    {
+      "status": "PASS",
+      "title": "API sitemap route (meta/sitemap)",
+      "detail": "API sitemap route present"
+    },
+    {
+      "status": "SKIP",
+      "title": "GET /robots.txt (live)",
+      "detail": "WEB not reachable at http://localhost:3535"
+    },
+    {
+      "status": "SKIP",
+      "title": "GET /sitemap.xml (live)",
+      "detail": "no live web"
+    },
+    {
+      "status": "SKIP",
+      "title": "GET /notices/meta/sitemap (live)",
+      "detail": "API not reachable at http://localhost:3001"
+    },
+    {
+      "status": "SKIP",
+      "title": "HTML has <title> & meta description (live)",
+      "detail": "no live web"
+    }
+  ],
+  "timestamp": "2026-09-09T00:55:42.744Z"
+}

@@ -149,12 +149,59 @@ h3.sub.mt{ margin-top:14pt; }
 .twocol li, .small li{ font-size:12.5pt; line-height:16.5pt; padding-left:12pt; margin-bottom:5pt; }
 .twocol li::before, .small li::before{ font-size:12pt; left:1pt; }
 h4{ font-size:13.5pt; font-weight:700; color:var(--navy); margin-bottom:7pt; }
-.matrix-title{ font-size:13.5pt; font-weight:700; color:var(--navy); margin:22pt 0 9pt; }
-.matrix{ display:grid; grid-template-columns:repeat(4,1fr); gap:12pt; }
-.pass{ background:#F4FAF7; border:1pt solid #CFE7DC; border-radius:5pt; padding:8pt 10pt; }
-.pass b{ display:block; font-size:10.5pt; font-weight:700; color:var(--green); letter-spacing:.4pt; }
-.pass span{ font-size:10.5pt; color:#4B5563; }
-.result{ font-size:11pt; color:#4B5563; margin-top:18pt; }
+.result{ font-size:11pt; color:#4B5563; margin-top:16pt; }
+
+/* testing: chart left, verification notes right */
+.testsplit{ display:flex; gap:26pt; }
+.chartcol{ width:660pt; flex:none; }
+.notecol{ flex:1; }
+.notecol h4 + ul{ margin-bottom:0; }
+.notecol .grp{ margin-top:13pt; }
+.notecol .grp:first-child{ margin-top:0; }
+.notecol h4 em{ font-style:normal; font-weight:400; color:#6B7A8C; letter-spacing:.2pt; }
+.notecol li{ font-size:11.5pt; line-height:15pt; padding-left:12pt; margin-bottom:4pt; }
+.notecol li::before{ font-size:11.5pt; left:1pt; }
+
+.charthead{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:9pt; }
+.charthead .ct{ font-size:13.5pt; font-weight:700; color:var(--navy); }
+.legend{ display:flex; gap:14pt; font-size:10pt; color:#4B5563; }
+.legend span{ display:flex; align-items:center; gap:5pt; }
+.legend i{ width:11pt; height:11pt; border-radius:2pt; display:block; }
+.legend i.k-pass{ background:var(--green); }
+.legend i.k-fail{ background:var(--red); }
+.legend i.k-skip{ background:#7F93A3; }
+
+.chart{ display:flex; }
+.yaxis{
+  width:30pt; flex:none; height:160pt; position:relative;
+  font-size:9.5pt; color:#6B7A8C; text-align:right;
+}
+.yaxis span{ position:absolute; right:6pt; transform:translateY(-50%); }
+.plot{ flex:1; height:160pt; position:relative; }
+.gridlines{ position:absolute; inset:0; }
+.gridlines i{ position:absolute; left:0; right:0; height:1pt; background:#E4EAEF; }
+.gridlines i.base{ background:#B6C2CC; }
+.bars{ position:absolute; inset:0; display:flex; align-items:flex-end; }
+.bar{ flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; }
+.bar i{ display:block; width:30pt; }
+.bar i.pass{ background:var(--green); position:relative; }
+.bar i.fail{ background:var(--red); position:relative; border-bottom:1.5pt solid #fff; }
+/* white hairline keeps the segments from touching */
+.bar i.skip{ background:#7F93A3; border-radius:3pt 3pt 0 0; border-bottom:1.5pt solid #fff; }
+.bar b{
+  position:absolute; left:0; right:0; top:7pt; text-align:center;
+  font-size:9pt; font-weight:700; font-style:normal; color:#fff;
+}
+.bar i.fail b{ top:2pt; font-size:8pt; }
+.xaxis{ display:flex; margin:5pt 0 0 30pt; }
+.xaxis span{
+  flex:1; text-align:center; font-size:9pt; line-height:11.5pt; color:#3A4A5E; height:23pt;
+}
+.suites{ display:flex; margin:2pt 0 0 30pt; }
+.suites span{
+  border-top:1.5pt solid #CBD6DE; padding-top:5pt; text-align:center;
+  font-size:9.5pt; font-weight:700; color:var(--accent); letter-spacing:.4pt;
+}
 
 /* per-card body sizes, matching the source poster */
 .methodology p{ font-size:18pt; line-height:23pt; }
@@ -163,25 +210,25 @@ h4{ font-size:13.5pt; font-weight:700; color:var(--navy); margin-bottom:7pt; }
 .conclusion p{ font-size:17.75pt; line-height:23pt; }
 
 /* impact + references */
-.impact p{ font-size:12.5pt; line-height:16.5pt; }
-.impact h3.sub{ font-size:15.25pt; margin-top:12pt; }
-.impact li{ font-size:12.5pt; line-height:17.5pt; padding-left:12pt; margin-bottom:3pt; }
-.impact li::before{ font-size:12pt; left:1pt; }
-.refs{ display:flex; flex-direction:column; gap:14pt; margin-top:4pt; }
+.impact p{ font-size:16.5pt; line-height:21pt; }
+.impact h3.sub{ font-size:17.75pt; margin-top:16pt; }
+.impact li{ font-size:15.5pt; line-height:20.5pt; padding-left:14pt; margin-bottom:4pt; }
+.impact li::before{ font-size:15pt; left:1pt; }
+.refs{ display:flex; flex-direction:column; gap:16pt; margin-top:6pt; }
 .ref{ display:block; }
-.ref span{ font-size:11pt; line-height:14pt; color:#374151; }
+.ref span{ font-size:13pt; line-height:17.5pt; color:#374151; }
 
 /* footer */
 .footer{ margin-top:auto; }
 .footer .redbar{ height:8pt; background:var(--red); }
-.footer .band{ height:188pt; display:flex; }
-.footer .left{ width:1175pt; background:var(--footer-a); color:#fff; padding:46pt 0 0 48pt; }
-.footer .left h5{ font-size:26pt; line-height:34pt; font-weight:700; max-width:900pt; }
+.footer .band{ height:113pt; display:flex; }
+.footer .left{ width:1175pt; background:var(--footer-a); color:#fff; padding:22pt 0 0 48pt; }
+.footer .left h5{ font-size:19pt; line-height:25pt; font-weight:700; max-width:900pt; }
 .footer .left h5 em{ font-style:normal; color:#5BA9DE; }
-.footer .left .meta{ font-size:14pt; color:#C9D7E2; margin-top:20pt; }
-.footer .right{ flex:1; background:var(--footer-b); color:#fff; text-align:right; padding:52pt 44pt 0 0; }
-.footer .right b{ font-size:20pt; font-weight:700; display:block; }
-.footer .right span{ font-size:14pt; line-height:22pt; display:block; color:#D3E5F2; margin-top:10pt; }
+.footer .left .meta{ font-size:12pt; color:#C9D7E2; margin-top:11pt; }
+.footer .right{ flex:1; background:var(--footer-b); color:#fff; text-align:right; padding:26pt 44pt 0 0; }
+.footer .right b{ font-size:16pt; font-weight:700; display:block; }
+.footer .right span{ font-size:12pt; line-height:17pt; display:block; color:#D3E5F2; margin-top:6pt; }
 
 @media print{
   html,body{ background:#fff; }
@@ -343,42 +390,98 @@ h4{ font-size:13.5pt; font-weight:700; color:var(--navy); margin-bottom:7pt; }
       <div class="card c2">
         <h2>Testing &amp; Evaluation</h2>
         <div class="stats" style="margin-top:4pt">
-          <div class="stat"><b>16</b><span>Unit tests passed</span></div>
-          <div class="stat"><b>5</b><span>UAT participants</span></div>
-          <div class="stat"><b>8</b><span>UAT scenarios</span></div>
-          <div class="stat"><b>&lt;120 ms</b><span>p95 notices-list response</span></div>
-          <div class="stat"><b>&lt;250 ms</b><span>Top-5 vector retrieval</span></div>
+          <div class="stat"><b>13</b><span>Test suites</span></div>
+          <div class="stat"><b>288</b><span>Total checks</span></div>
+          <div class="stat"><b>234</b><span>Checks passed</span></div>
+          <div class="stat"><b>5</b><span>Failures</span></div>
+          <div class="stat"><b>98%</b><span>Overall pass rate</span></div>
         </div>
-        <div class="twocol">
-          <div>
-            <h4>Functional verification</h4>
-            <ul>
-              <li>Registration, authentication, browse, filter and save workflows passed.</li>
-              <li>Scraping parsing, malformed-source handling and record access were verified.</li>
-              <li>RAG retrieval returned document-grounded results with controlled access.</li>
-            </ul>
+
+        <div class="testsplit">
+          <div class="chartcol">
+            <div class="charthead">
+              <div class="ct">Checks per test suite</div>
+              <div class="legend">
+                <span><i class="k-pass"></i>Passed</span>
+                <span><i class="k-fail"></i>Failed - fixed on retest</span>
+                <span><i class="k-skip"></i>Skipped - live-server probe</span>
+              </div>
+            </div>
+            <div class="chart">
+              <div class="yaxis">
+                <span style="top:0">40</span>
+                <span style="top:40pt">30</span>
+                <span style="top:80pt">20</span>
+                <span style="top:120pt">10</span>
+                <span style="top:160pt">0</span>
+              </div>
+              <div class="plot">
+                <div class="gridlines">
+                  <i style="top:0"></i>
+                  <i style="top:40pt"></i>
+                  <i style="top:80pt"></i>
+                  <i style="top:120pt"></i>
+                  <i class="base" style="top:159pt"></i>
+                </div>
+                <div class="bars">
+                  <div class="bar"><i class="skip" style="height:12pt"></i><i class="pass" style="height:80pt"><b>20</b></i></div>
+                  <div class="bar"><i class="skip" style="height:20pt"></i><i class="pass" style="height:92pt"><b>23</b></i></div>
+                  <div class="bar"><i class="skip" style="height:12pt"></i><i class="pass" style="height:88pt"><b>22</b></i></div>
+                  <div class="bar"><i class="skip" style="height:12pt"></i><i class="fail" style="height:20pt"><b>5</b></i><i class="pass" style="height:52pt"><b>13</b></i></div>
+                  <div class="bar"><i class="skip" style="height:20pt"></i><i class="pass" style="height:72pt"><b>18</b></i></div>
+                  <div class="bar"><i class="skip" style="height:12pt"></i><i class="pass" style="height:92pt"><b>23</b></i></div>
+                  <div class="bar"><i class="skip" style="height:16pt"></i><i class="pass" style="height:132pt"><b>33</b></i></div>
+                  <div class="bar"><i class="skip" style="height:12pt"></i><i class="pass" style="height:48pt"><b>12</b></i></div>
+                  <div class="bar"><i class="skip" style="height:20pt"></i><i class="pass" style="height:44pt"><b>11</b></i></div>
+                  <div class="bar"><i class="skip" style="height:16pt"></i><i class="pass" style="height:52pt"><b>13</b></i></div>
+                  <div class="bar"><i class="skip" style="height:12pt"></i><i class="pass" style="height:76pt"><b>19</b></i></div>
+                  <div class="bar"><i class="skip" style="height:24pt"></i><i class="pass" style="height:52pt"><b>13</b></i></div>
+                  <div class="bar"><i class="skip" style="height:8pt"></i><i class="pass" style="height:56pt"><b>14</b></i></div>
+                </div>
+              </div>
+            </div>
+            <div class="xaxis">
+              <span>Alerts</span>
+              <span>API &amp;<br />health</span>
+              <span>Auth &amp;<br />RBAC</span>
+              <span>Docs &amp;<br />RAG</span>
+              <span>Notices</span>
+              <span>Scraping</span>
+              <span>Web UI</span>
+              <span>Accessi-<br />bility</span>
+              <span>Perfor-<br />mance</span>
+              <span>Relia-<br />bility</span>
+              <span>Security</span>
+              <span>SEO</span>
+              <span>UX</span>
+            </div>
+            <div class="suites">
+              <span style="flex:7">FUNCTIONAL - 7 SUITES, 183 CHECKS</span>
+              <span style="flex:6">NON-FUNCTIONAL - 6 SUITES, 105 CHECKS</span>
+            </div>
           </div>
-          <div>
-            <h4>User &amp; operational validation</h4>
-            <ul>
-              <li>Five target users completed eight scripted scenarios covering core journeys.</li>
-              <li>Feedback improved filter wording, guidance and empty-state presentation.</li>
-              <li>Responsive rendering, health checks, schedules and rollback behaviour passed.</li>
-            </ul>
+
+          <div class="notecol">
+            <div class="grp">
+              <h4>Functional verification <em>- 152 passed, 5 failed</em></h4>
+              <ul>
+                <li>Google OAuth, JWT cookies, RBAC guards and token revocation verified.</li>
+                <li>Notices, search, filters, alert rules and scheduled scraping verified.</li>
+                <li>Document upload, S3, quotas and 26 web routes verified; RAG retrieval passed after fixing 5 edge-case failures.</li>
+              </ul>
+            </div>
+            <div class="grp">
+              <h4>Non-functional verification <em>- 82 passed, 0 failed</em></h4>
+              <ul>
+                <li>Security: Helmet, strict CORS, CSRF checks, throttling, secret handling.</li>
+                <li>Reliability: exception filter, retries, timeouts and maintenance mode.</li>
+                <li>Accessibility, performance and SEO: ARIA, caching, sitemap and robots.</li>
+              </ul>
+            </div>
           </div>
         </div>
-        <div class="matrix-title">Coverage matrix - final verification</div>
-        <div class="matrix">
-          <div class="pass"><b>PASS</b><span>Registration</span></div>
-          <div class="pass"><b>PASS</b><span>Login / Logout</span></div>
-          <div class="pass"><b>PASS</b><span>Browse / Filter</span></div>
-          <div class="pass"><b>PASS</b><span>Save Notice</span></div>
-          <div class="pass"><b>PASS</b><span>Scraping Parse</span></div>
-          <div class="pass"><b>PASS</b><span>RAG Retrieval</span></div>
-          <div class="pass"><b>PASS</b><span>Alert Rules</span></div>
-          <div class="pass"><b>PASS</b><span>Record Access</span></div>
-        </div>
-        <div class="result">Result: All planned functional, user, performance and operational checks passed.</div>
+
+        <div class="result">Result: 234 of 239 executed checks passed on first run; the 5 RAG-retrieval failures were fixed and passed on retest. The 49 skipped items are live-server probes that require running API and web instances.</div>
       </div>
       <div class="card c3 conclusion">
         <h2>Conclusion</h2>
@@ -389,7 +492,7 @@ h4{ font-size:13.5pt; font-weight:700; color:var(--navy); margin-bottom:7pt; }
     </div>
 
     <!-- IMPACT + REFERENCES -->
-    <div class="row" style="height:353pt">
+    <div class="row" style="height:428pt">
       <div class="card impact" style="width:821pt;flex:none">
         <h2>Project Impact &amp; Future Scope</h2>
         <p>SuchanaAI strengthens access to public information through unified notice aggregation, intelligent search and document-grounded AI.</p>

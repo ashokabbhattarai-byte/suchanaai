@@ -1,0 +1,197 @@
+{
+  "agent": "func-web-ui",
+  "suite": "functional",
+  "pass": 33,
+  "fail": 0,
+  "skip": 4,
+  "total": 37,
+  "durationMs": 74,
+  "results": [
+    {
+      "status": "PASS",
+      "title": "Web middleware exists",
+      "detail": "middleware.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "Middleware guards /admin/*",
+      "detail": "admin guard present"
+    },
+    {
+      "status": "PASS",
+      "title": "Middleware guards /dashboard/*",
+      "detail": "dashboard guard present"
+    },
+    {
+      "status": "PASS",
+      "title": "Middleware redirects to /login",
+      "detail": "login redirect present"
+    },
+    {
+      "status": "PASS",
+      "title": "Token expiry check (exp)",
+      "detail": "expiry check present"
+    },
+    {
+      "status": "PASS",
+      "title": "Alg HS256 check",
+      "detail": "alg check present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/login/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/notices/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/notices/[slug]/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/dashboard/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/dashboard/alerts/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/dashboard/billing/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/dashboard/settings/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/admin/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/admin/users/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/admin/notices/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/admin/sources/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/admin/scraping/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/admin/ai/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/admin/plans/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/admin/system/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/pricing/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/about/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/contact/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web route app/documents/page.tsx",
+      "detail": "present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web layout.tsx exists",
+      "detail": "layout present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web providers.tsx exists",
+      "detail": "providers present"
+    },
+    {
+      "status": "PASS",
+      "title": "Next config exists",
+      "detail": "next.config.mjs present"
+    },
+    {
+      "status": "PASS",
+      "title": "SEO: sitemap.ts exists",
+      "detail": "sitemap.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "SEO: robots.ts exists",
+      "detail": "robots.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web file proxy route present",
+      "detail": "file proxy present"
+    },
+    {
+      "status": "PASS",
+      "title": "WEB_BASE or API proxy configured",
+      "detail": "api wiring present"
+    },
+    {
+      "status": "SKIP",
+      "title": "GET / (web live)",
+      "detail": "WEB not reachable at http://localhost:3535"
+    },
+    {
+      "status": "SKIP",
+      "title": "GET /login (web live)",
+      "detail": "no live web"
+    },
+    {
+      "status": "SKIP",
+      "title": "GET /admin redirects when unauth (web live)",
+      "detail": "no live web"
+    },
+    {
+      "status": "SKIP",
+      "title": "GET /dashboard redirects when unauth (web live)",
+      "detail": "no live web"
+    }
+  ],
+  "timestamp": "2026-09-09T00:55:42.744Z"
+}

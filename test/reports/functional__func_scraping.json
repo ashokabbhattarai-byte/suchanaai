@@ -1,0 +1,142 @@
+{
+  "agent": "func-scraping",
+  "suite": "functional",
+  "pass": 23,
+  "fail": 0,
+  "skip": 3,
+  "total": 26,
+  "durationMs": 86,
+  "results": [
+    {
+      "status": "PASS",
+      "title": "Scraping controller exists",
+      "detail": "controller present"
+    },
+    {
+      "status": "PASS",
+      "title": "GET /scraping/sources",
+      "detail": "sources present"
+    },
+    {
+      "status": "PASS",
+      "title": "POST /scraping/sources",
+      "detail": "@Post('sources') present"
+    },
+    {
+      "status": "PASS",
+      "title": "PATCH /scraping/sources/:id",
+      "detail": "sources/:id present"
+    },
+    {
+      "status": "PASS",
+      "title": "DELETE /scraping/sources/:id",
+      "detail": "Delete present"
+    },
+    {
+      "status": "PASS",
+      "title": "POST /scraping/sources/:id/run",
+      "detail": ":id/run present"
+    },
+    {
+      "status": "PASS",
+      "title": "GET /scraping/items",
+      "detail": "Get('items') present"
+    },
+    {
+      "status": "PASS",
+      "title": "GET /scraping/runs",
+      "detail": "runs present"
+    },
+    {
+      "status": "PASS",
+      "title": "POST /scraping/quick-scrape",
+      "detail": "quick-scrape present"
+    },
+    {
+      "status": "PASS",
+      "title": "POST /scraping/discover-routes",
+      "detail": "discover-routes present"
+    },
+    {
+      "status": "PASS",
+      "title": "POST /scraping/sources/redetect-sitemaps",
+      "detail": "redetect-sitemaps present"
+    },
+    {
+      "status": "PASS",
+      "title": "Scraping guarded (JwtAuthGuard or Roles)",
+      "detail": "guard present"
+    },
+    {
+      "status": "PASS",
+      "title": "Scraping has scheduler endpoint",
+      "detail": "scheduler route"
+    },
+    {
+      "status": "PASS",
+      "title": "Scraping service exists",
+      "detail": "service present"
+    },
+    {
+      "status": "PASS",
+      "title": "Scraping uses HttpService/axios",
+      "detail": "http wiring"
+    },
+    {
+      "status": "PASS",
+      "title": "Scraping uses Prisma",
+      "detail": "prisma present"
+    },
+    {
+      "status": "PASS",
+      "title": "Handles extraction pipeline",
+      "detail": "extraction logic"
+    },
+    {
+      "status": "PASS",
+      "title": "ScrapingScheduler exists",
+      "detail": "scheduler svc present"
+    },
+    {
+      "status": "PASS",
+      "title": "Scheduler uses cron/schedule",
+      "detail": "cron present"
+    },
+    {
+      "status": "PASS",
+      "title": "Auto-scraping toggle",
+      "detail": "auto-scraping present"
+    },
+    {
+      "status": "PASS",
+      "title": "ScrapeSource model (or ScrapedItem)",
+      "detail": "scrape model present"
+    },
+    {
+      "status": "PASS",
+      "title": "ScrapeRun model",
+      "detail": "ScrapeRun model present"
+    },
+    {
+      "status": "PASS",
+      "title": "Internal scraping controller exists",
+      "detail": "internal controller present"
+    },
+    {
+      "status": "SKIP",
+      "title": "GET /scraping/sources unauth → 401 (live)",
+      "detail": "API not reachable at http://localhost:3001"
+    },
+    {
+      "status": "SKIP",
+      "title": "GET /scraping/items unauth → 401 (live)",
+      "detail": "no live server"
+    },
+    {
+      "status": "SKIP",
+      "title": "GET /scraping/runs unauth → 401 (live)",
+      "detail": "no live server"
+    }
+  ],
+  "timestamp": "2026-09-09T00:55:42.713Z"
+}

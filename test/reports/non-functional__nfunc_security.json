@@ -1,0 +1,122 @@
+{
+  "agent": "nfunc-security",
+  "suite": "non-functional",
+  "pass": 19,
+  "fail": 0,
+  "skip": 3,
+  "total": 22,
+  "durationMs": 47,
+  "results": [
+    {
+      "status": "PASS",
+      "title": "Helmet enabled",
+      "detail": "helmet() present"
+    },
+    {
+      "status": "PASS",
+      "title": "CORS strict origins (WEB_ORIGIN)",
+      "detail": "strict CORS"
+    },
+    {
+      "status": "PASS",
+      "title": "CORS credentials enabled",
+      "detail": "credentials true present"
+    },
+    {
+      "status": "PASS",
+      "title": "Trust proxy = 1 (IP correct)",
+      "detail": "trust proxy set"
+    },
+    {
+      "status": "PASS",
+      "title": "JWT cookie httpOnly",
+      "detail": "httpOnly true"
+    },
+    {
+      "status": "PASS",
+      "title": "JWT cookie SameSite=lax",
+      "detail": "SameSite=lax"
+    },
+    {
+      "status": "PASS",
+      "title": "JWT cookie Secure in prod",
+      "detail": "secure conditional"
+    },
+    {
+      "status": "PASS",
+      "title": "Token revocation on logout",
+      "detail": "revoke on logout"
+    },
+    {
+      "status": "PASS",
+      "title": "No hardcoded JWT secret in repo",
+      "detail": "no hardcoded secret"
+    },
+    {
+      "status": "PASS",
+      "title": "CSRF Origin/Referer check",
+      "detail": "CSRF check present"
+    },
+    {
+      "status": "PASS",
+      "title": "Bearer exempt from CSRF",
+      "detail": "Bearer exempt present"
+    },
+    {
+      "status": "PASS",
+      "title": "Global ValidationPipe (whitelist)",
+      "detail": "ValidationPipe present"
+    },
+    {
+      "status": "PASS",
+      "title": "Class-validator DTOs",
+      "detail": "class-validator DTO present"
+    },
+    {
+      "status": "PASS",
+      "title": "ThrottlerGuard global (60 req/min)",
+      "detail": "ThrottlerGuard global"
+    },
+    {
+      "status": "PASS",
+      "title": ".env not containing prod secret (sample ok)",
+      "detail": "env check done"
+    },
+    {
+      "status": "PASS",
+      "title": ".env.example exists (no real secrets)",
+      "detail": ".env.example present"
+    },
+    {
+      "status": "PASS",
+      "title": "No private key in repo index",
+      "detail": ".gitignore covers .env/*.key"
+    },
+    {
+      "status": "PASS",
+      "title": "SecretCrypto service exists",
+      "detail": "secret crypto svc present"
+    },
+    {
+      "status": "PASS",
+      "title": "Multer used (file upload limit)",
+      "detail": "multer/upload guard present"
+    },
+    {
+      "status": "SKIP",
+      "title": "Security headers on /health (live)",
+      "detail": "API not reachable at http://localhost:3001"
+    },
+    {
+      "status": "SKIP",
+      "title": "CORS preflight handling (live)",
+      "detail": "no live API"
+    },
+    {
+      "status": "SKIP",
+      "title": "Rate limit headers (live)",
+      "detail": "no live API"
+    }
+  ],
+  "timestamp": "2026-09-09T00:55:42.726Z"
+}

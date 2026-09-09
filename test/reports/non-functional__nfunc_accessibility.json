@@ -1,0 +1,87 @@
+{
+  "agent": "nfunc-accessibility",
+  "suite": "non-functional",
+  "pass": 12,
+  "fail": 0,
+  "skip": 3,
+  "total": 15,
+  "durationMs": 99,
+  "results": [
+    {
+      "status": "PASS",
+      "title": "Web app directory present",
+      "detail": "apps/web present"
+    },
+    {
+      "status": "PASS",
+      "title": "ARIA attributes used",
+      "detail": "15 file(s) use aria-*"
+    },
+    {
+      "status": "PASS",
+      "title": "Image alt attributes",
+      "detail": "2 file(s) set alt="
+    },
+    {
+      "status": "PASS",
+      "title": "aria-label for icon buttons",
+      "detail": "28 file(s) use aria-label"
+    },
+    {
+      "status": "PASS",
+      "title": "Radix primitives (accessible)",
+      "detail": "Radix deps present (a11y-built-in)"
+    },
+    {
+      "status": "PASS",
+      "title": "Keyboard handlers present",
+      "detail": "2 file(s) with onKeyDown"
+    },
+    {
+      "status": "PASS",
+      "title": "Focus ring styles",
+      "detail": "focus styles present"
+    },
+    {
+      "status": "PASS",
+      "title": "Layout has html lang attr",
+      "detail": "lang attribute present"
+    },
+    {
+      "status": "PASS",
+      "title": "Semantic landmarks (<nav>/<main>)",
+      "detail": "nav:4, main:1"
+    },
+    {
+      "status": "PASS",
+      "title": "H1 headings present",
+      "detail": "29 file(s) with <h1>"
+    },
+    {
+      "status": "PASS",
+      "title": "Accessible 404 page",
+      "detail": "not-found.tsx present"
+    },
+    {
+      "status": "PASS",
+      "title": "Accessible error page",
+      "detail": "error.tsx present"
+    },
+    {
+      "status": "SKIP",
+      "title": "WEB HTML has lang attr (live)",
+      "detail": "WEB not reachable at http://localhost:3535"
+    },
+    {
+      "status": "SKIP",
+      "title": "WEB HTML has <main> (live)",
+      "detail": "no live web"
+    },
+    {
+      "status": "SKIP",
+      "title": "WEB response is text/html (live)",
+      "detail": "no live web"
+    }
+  ],
+  "timestamp": "2026-09-09T00:55:42.776Z"
+}

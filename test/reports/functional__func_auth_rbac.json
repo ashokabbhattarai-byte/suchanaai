@@ -1,0 +1,137 @@
+{
+  "agent": "func-auth-rbac",
+  "suite": "functional",
+  "pass": 22,
+  "fail": 0,
+  "skip": 3,
+  "total": 25,
+  "durationMs": 85,
+  "results": [
+    {
+      "status": "PASS",
+      "title": "Auth controller exists",
+      "detail": "auth.controller.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "POST /auth/google",
+      "detail": "google login route"
+    },
+    {
+      "status": "PASS",
+      "title": "POST /auth/logout",
+      "detail": "logout route present"
+    },
+    {
+      "status": "PASS",
+      "title": "GET /auth/me (guarded)",
+      "detail": "me is guarded"
+    },
+    {
+      "status": "PASS",
+      "title": "GET /auth/admin/ping (Roles)",
+      "detail": "admin ping RBAC"
+    },
+    {
+      "status": "PASS",
+      "title": "Sets httpOnly cookie",
+      "detail": "httpOnly cookie set"
+    },
+    {
+      "status": "PASS",
+      "title": "SameSite=lax",
+      "detail": "SameSite lax"
+    },
+    {
+      "status": "PASS",
+      "title": "Secure in prod",
+      "detail": "secure flag conditional"
+    },
+    {
+      "status": "PASS",
+      "title": "SESSION_COOKIE constant",
+      "detail": "SESSION_COOKIE referenced"
+    },
+    {
+      "status": "PASS",
+      "title": "Auth service exists",
+      "detail": "auth.service.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "Google ID token verification",
+      "detail": "Google verify logic"
+    },
+    {
+      "status": "PASS",
+      "title": "JWT sign/issue",
+      "detail": "JWT signing present"
+    },
+    {
+      "status": "PASS",
+      "title": "toPublicUser sanitizes",
+      "detail": "toPublicUser method"
+    },
+    {
+      "status": "PASS",
+      "title": "JwtAuthGuard exists",
+      "detail": "guard file present"
+    },
+    {
+      "status": "PASS",
+      "title": "RolesGuard exists",
+      "detail": "RolesGuard present"
+    },
+    {
+      "status": "PASS",
+      "title": "Roles decorator",
+      "detail": "roles.decorator.ts"
+    },
+    {
+      "status": "PASS",
+      "title": "CurrentUser decorator",
+      "detail": "current-user decorator"
+    },
+    {
+      "status": "PASS",
+      "title": "Token revocation service",
+      "detail": "revocation svc present"
+    },
+    {
+      "status": "PASS",
+      "title": "Token revocation module",
+      "detail": "revocation module wired"
+    },
+    {
+      "status": "PASS",
+      "title": "extractToken helper",
+      "detail": "extractToken present"
+    },
+    {
+      "status": "PASS",
+      "title": "DTO google-login.dto.ts exists",
+      "detail": "google-login.dto.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "DTO create-admin-user.dto.ts exists",
+      "detail": "create-admin-user.dto.ts present"
+    },
+    {
+      "status": "SKIP",
+      "title": "GET /auth/me unauthenticated → 401 (live)",
+      "detail": "API not reachable at http://localhost:3001"
+    },
+    {
+      "status": "SKIP",
+      "title": "POST /auth/google without body → 400/401 (live)",
+      "detail": "no live server"
+    },
+    {
+      "status": "SKIP",
+      "title": "GET /auth/admin/ping unauth → 401 (live)",
+      "detail": "no live server"
+    }
+  ],
+  "timestamp": "2026-09-09T00:55:42.712Z"
+}

@@ -1,0 +1,117 @@
+{
+  "agent": "func-documents-rag",
+  "suite": "functional",
+  "pass": 18,
+  "fail": 0,
+  "skip": 3,
+  "total": 21,
+  "durationMs": 92,
+  "results": [
+    {
+      "status": "PASS",
+      "title": "Documents controller exists",
+      "detail": "controller present"
+    },
+    {
+      "status": "PASS",
+      "title": "Documents has upload route",
+      "detail": "upload route present"
+    },
+    {
+      "status": "PASS",
+      "title": "Documents uses S3",
+      "detail": "S3 usage present"
+    },
+    {
+      "status": "PASS",
+      "title": "Documents service deduplicates (fileHash)",
+      "detail": "dedup logic present"
+    },
+    {
+      "status": "PASS",
+      "title": "DocumentStatus enum wired",
+      "detail": "DocumentStatus present"
+    },
+    {
+      "status": "PASS",
+      "title": "RAG controller exists",
+      "detail": "rag.controller.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "RAG service exists",
+      "detail": "rag.service.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "RAG query DTO exists",
+      "detail": "rag-query dto present"
+    },
+    {
+      "status": "PASS",
+      "title": "RAG uses embeddings/vectors",
+      "detail": "embedding logic present"
+    },
+    {
+      "status": "PASS",
+      "title": "RAG quota guard",
+      "detail": "quota guard present (or quota service wiring)"
+    },
+    {
+      "status": "PASS",
+      "title": "Billing controller exists",
+      "detail": "billing controller present"
+    },
+    {
+      "status": "PASS",
+      "title": "Billing has checkout",
+      "detail": "checkout route"
+    },
+    {
+      "status": "PASS",
+      "title": "Billing has portal",
+      "detail": "portal route"
+    },
+    {
+      "status": "PASS",
+      "title": "Stripe webhook",
+      "detail": "stripe wiring present"
+    },
+    {
+      "status": "PASS",
+      "title": "Quota service exists",
+      "detail": "quota.service.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "Plans service exists",
+      "detail": "plans.service.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "Subscription model",
+      "detail": "Subscription model"
+    },
+    {
+      "status": "PASS",
+      "title": "UsageCounter model",
+      "detail": "usage tracking model"
+    },
+    {
+      "status": "SKIP",
+      "title": "GET /documents unauth → 401 (live)",
+      "detail": "API not reachable at http://localhost:3001"
+    },
+    {
+      "status": "SKIP",
+      "title": "POST /rag/query unauth → 401 (live)",
+      "detail": "no live server"
+    },
+    {
+      "status": "SKIP",
+      "title": "GET /billing/me unauth → 401 (live)",
+      "detail": "no live server"
+    }
+  ],
+  "timestamp": "2026-09-09T00:55:42.729Z"
+}

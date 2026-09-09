@@ -1,0 +1,152 @@
+{
+  "agent": "func-api-health",
+  "suite": "functional",
+  "pass": 23,
+  "fail": 0,
+  "skip": 5,
+  "total": 28,
+  "durationMs": 87,
+  "results": [
+    {
+      "status": "PASS",
+      "title": "API main.ts exists",
+      "detail": "main.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "Helmet security headers",
+      "detail": "helmet() wired"
+    },
+    {
+      "status": "PASS",
+      "title": "Compression middleware",
+      "detail": "compression enabled"
+    },
+    {
+      "status": "PASS",
+      "title": "Correlation middleware",
+      "detail": "correlation-id wired"
+    },
+    {
+      "status": "PASS",
+      "title": "Global ValidationPipe",
+      "detail": "ValidationPipe present"
+    },
+    {
+      "status": "PASS",
+      "title": "Swagger docs",
+      "detail": "Swagger wired"
+    },
+    {
+      "status": "PASS",
+      "title": "CSRF check logic",
+      "detail": "CSRF guard in main.ts"
+    },
+    {
+      "status": "PASS",
+      "title": "CORS origins configured",
+      "detail": "CORS origin gating present"
+    },
+    {
+      "status": "PASS",
+      "title": "Trust proxy set",
+      "detail": "trust proxy = 1"
+    },
+    {
+      "status": "PASS",
+      "title": "Throttler guard",
+      "detail": "ThrottlerModule/Guard wired"
+    },
+    {
+      "status": "PASS",
+      "title": "Schedule module",
+      "detail": "ScheduleModule present"
+    },
+    {
+      "status": "PASS",
+      "title": "Config global",
+      "detail": "ConfigModule global"
+    },
+    {
+      "status": "PASS",
+      "title": "All 11 modules imported",
+      "detail": "found 49 Module refs"
+    },
+    {
+      "status": "PASS",
+      "title": "Maintenance middleware routed",
+      "detail": "maintenance route wired"
+    },
+    {
+      "status": "PASS",
+      "title": "Health controller exists",
+      "detail": "health.controller.ts present"
+    },
+    {
+      "status": "PASS",
+      "title": "Health returns uptime",
+      "detail": "uptime field present"
+    },
+    {
+      "status": "PASS",
+      "title": "Health is unauthenticated",
+      "detail": "no JwtAuthGuard (public)"
+    },
+    {
+      "status": "PASS",
+      "title": "AllExceptionsFilter exists",
+      "detail": "filter present"
+    },
+    {
+      "status": "PASS",
+      "title": "Structured logger",
+      "detail": "structured logger present"
+    },
+    {
+      "status": "PASS",
+      "title": "Correlation trace-context",
+      "detail": "trace context present"
+    },
+    {
+      "status": "PASS",
+      "title": "Prisma schema has User model",
+      "detail": "User model present"
+    },
+    {
+      "status": "PASS",
+      "title": "Prisma has AlertRule",
+      "detail": "AlertRule model present"
+    },
+    {
+      "status": "PASS",
+      "title": "Prisma has ScrapedItem",
+      "detail": "ScrapedItem related"
+    },
+    {
+      "status": "SKIP",
+      "title": "Liveness probe (live)",
+      "detail": "API not reachable at http://localhost:3001 — static checks above still valid"
+    },
+    {
+      "status": "SKIP",
+      "title": "Health latency < 200ms (live)",
+      "detail": "no live server"
+    },
+    {
+      "status": "SKIP",
+      "title": "Health returns {status:\"ok\"} (live)",
+      "detail": "no live server"
+    },
+    {
+      "status": "SKIP",
+      "title": "Health has uptimeSeconds (live)",
+      "detail": "no live server"
+    },
+    {
+      "status": "SKIP",
+      "title": "404 for unknown route (live)",
+      "detail": "no live server"
+    }
+  ],
+  "timestamp": "2026-09-09T00:55:42.711Z"
+}

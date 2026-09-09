@@ -1,0 +1,92 @@
+{
+  "agent": "nfunc-ux-quality",
+  "suite": "non-functional",
+  "pass": 14,
+  "fail": 0,
+  "skip": 2,
+  "total": 16,
+  "durationMs": 381,
+  "results": [
+    {
+      "status": "PASS",
+      "title": "DESIGN.md exists",
+      "detail": "DESIGN.md present"
+    },
+    {
+      "status": "PASS",
+      "title": "Design tokens: primary color",
+      "detail": "primary token present"
+    },
+    {
+      "status": "PASS",
+      "title": "Typography scale defined",
+      "detail": "typography present"
+    },
+    {
+      "status": "PASS",
+      "title": "Tailwind/postcss configured",
+      "detail": "tailwind wiring present"
+    },
+    {
+      "status": "PASS",
+      "title": "Spacing baseline grid",
+      "detail": "spacing scale present"
+    },
+    {
+      "status": "PASS",
+      "title": "Skeleton/loading states",
+      "detail": "22 loading/animate-pulse/Suspense hits"
+    },
+    {
+      "status": "PASS",
+      "title": "Empty-state handling",
+      "detail": "8 file(s) with empty/EmptyState"
+    },
+    {
+      "status": "PASS",
+      "title": "Responsive breakpoints (Tailwind md:/lg:)",
+      "detail": "174 responsive hits"
+    },
+    {
+      "status": "PASS",
+      "title": "Scroll containment (overflow)",
+      "detail": "67 file(s) with overflow"
+    },
+    {
+      "status": "PASS",
+      "title": "Toast/feedback present",
+      "detail": "36 toast refs"
+    },
+    {
+      "status": "PASS",
+      "title": "Error boundaries",
+      "detail": "error.tsx present"
+    },
+    {
+      "status": "PASS",
+      "title": "Motion/transitions present",
+      "detail": "92 file(s) with motion/transition"
+    },
+    {
+      "status": "PASS",
+      "title": "Admin panel coverage (≥7 pages)",
+      "detail": "11/11 admin pages: users, notices, sources, scraping, ai, plans, system, settings, categories, alerts, contact"
+    },
+    {
+      "status": "PASS",
+      "title": "Dashboard user pages (≥3)",
+      "detail": "5 pages: alerts, billing, settings, saved, activity"
+    },
+    {
+      "status": "SKIP",
+      "title": "WEB HTML has viewport meta (live)",
+      "detail": "WEB not reachable at http://localhost:3535"
+    },
+    {
+      "status": "SKIP",
+      "title": "WEB HTML has favicon (live)",
+      "detail": "no live web"
+    }
+  ],
+  "timestamp": "2026-09-09T00:55:43.045Z"
+}

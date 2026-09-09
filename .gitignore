@@ -45,6 +45,7 @@ Thumbs.db
 *.njsproj
 *.sln
 *.swp
+*.mjs
 
 # Python
 *.py[cod]

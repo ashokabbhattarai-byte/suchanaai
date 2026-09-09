@@ -1,0 +1,97 @@
+{
+  "agent": "nfunc-reliability",
+  "suite": "non-functional",
+  "pass": 13,
+  "fail": 0,
+  "skip": 4,
+  "total": 17,
+  "durationMs": 79,
+  "results": [
+    {
+      "status": "PASS",
+      "title": "AllExceptionsFilter exists",
+      "detail": "filter file present"
+    },
+    {
+      "status": "PASS",
+      "title": "Filter logs with correlation id",
+      "detail": "correlation in filter"
+    },
+    {
+      "status": "PASS",
+      "title": "Structured logger exists",
+      "detail": "structured logger present"
+    },
+    {
+      "status": "PASS",
+      "title": "HttpAccessLog interceptor",
+      "detail": "access log interceptor present"
+    },
+    {
+      "status": "PASS",
+      "title": "Axios correlation interceptor",
+      "detail": "axios correlation present"
+    },
+    {
+      "status": "PASS",
+      "title": "Timeouts on HttpModule (120s)",
+      "detail": "timeout configured"
+    },
+    {
+      "status": "PASS",
+      "title": "Retry/backoff in scraping runs",
+      "detail": "retry present"
+    },
+    {
+      "status": "PASS",
+      "title": "Maintenance middleware exists",
+      "detail": "maintenance middleware present"
+    },
+    {
+      "status": "PASS",
+      "title": "Throttler global guard (DoS protection)",
+      "detail": "throttler guard global"
+    },
+    {
+      "status": "PASS",
+      "title": "Health route bypasses maintenance",
+      "detail": "health allow-list"
+    },
+    {
+      "status": "PASS",
+      "title": "Web error.tsx present",
+      "detail": "error.tsx present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web global-error.tsx present",
+      "detail": "global-error.tsx present"
+    },
+    {
+      "status": "PASS",
+      "title": "Web not-found.tsx present",
+      "detail": "not-found.tsx present"
+    },
+    {
+      "status": "SKIP",
+      "title": "Health is always 200 even under load (live)",
+      "detail": "API not reachable at http://localhost:3001"
+    },
+    {
+      "status": "SKIP",
+      "title": "Unknown route returns structured error (live)",
+      "detail": "no live API"
+    },
+    {
+      "status": "SKIP",
+      "title": "Throttler does not block 3 quick health probes (live)",
+      "detail": "no live API"
+    },
+    {
+      "status": "SKIP",
+      "title": "WEB root 200 (reliability live)",
+      "detail": "WEB not reachable at http://localhost:3535"
+    }
+  ],
+  "timestamp": "2026-09-09T00:55:42.748Z"
+}

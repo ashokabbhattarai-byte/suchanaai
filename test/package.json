@@ -1,0 +1,15 @@
+{
+  "name": "@pnm/test",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Multi-agent functional & non-functional test harness for Suchana AI",
+  "scripts": {
+    "test": "node runner.mjs",
+    "test:functional": "node runner.mjs --suite=functional",
+    "test:nfunc": "node runner.mjs --suite=nfunc",
+    "test:quick": "node runner.mjs --quick",
+    "report": "node utils/report.mjs"
+  },
+  "engines": { "node": ">=18" }
+}
