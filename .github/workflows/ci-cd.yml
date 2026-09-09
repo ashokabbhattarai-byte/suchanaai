@@ -251,3 +251,9 @@ jobs:
           # so the AI, not nginx, is the one that times out and returns a
           # JSON 504 with request_id.
           nginx-proxy-timeout: "600"
+          # The AI service downloads a ~1 GB embedding model on first boot and
+          # warms up for 30-90s. Without a grace period, the ALB health check
+          # marks the instance unhealthy before warmup finishes, EB replaces
+          # it, and the new instance hits the same Red loop. 120s covers model
+          # download + Qdrant validation + sparse model init.
+          health-check-grace-period: "120"

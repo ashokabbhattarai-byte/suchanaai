@@ -44,6 +44,15 @@ inputs:
       Value for client_body_buffer_size paired with client_max_body_size.
     required: false
     default: "16k"
+  health-check-grace-period:
+    description: >
+      Seconds after a new instance launches before the ALB health check is
+      allowed to mark it unhealthy. The AI service downloads a ~1 GB
+      embedding model on cold-start and warms up for 30-60s — during which
+      /health returns 200 but the ALB may not yet have a route to the
+      container. Set to 0 (the default) to skip the .ebextensions override.
+    required: false
+    default: "0"
 
 runs:
   using: composite
@@ -116,9 +125,37 @@ runs:
           fi
         fi
 
+        # Health-check tolerance: AI service needs a long grace period because
+        # the embedding model download + warmup can take 30-90s on cold start.
+        # Without this, the ALB marks the instance unhealthy before warmup
+        # finishes, EB replaces it, and the new instance hits the same loop.
+        # Also raises UnhealthyThresholdCount so transient 5xx spikes (LLM
+        # 429s, slow Qdrant) don't flip the whole environment Red.
+        GRACE="${{ inputs.health-check-grace-period }}"
+        if [ -n "$GRACE" ] && [ "$GRACE" != "0" ]; then
+          mkdir -p .ebextensions
+          cat > .ebextensions/healthcheck.config <<'EBEXT'
+        option_settings:
+          aws:elasticbeanstalk:environment:process:default:
+            HealthCheckInterval: "15"
+            HealthCheckTimeout: "10"
+            UnhealthyThresholdCount: "10"
+            HealthyThresholdCount: "2"
+          aws:autoscaling:asg:
+            Cooldown: "360"
+          aws:elasticbeanstalk:command:
+            IgnoreHealthCheck: "true"
+        EBEXT
+          # Strip the leading whitespace that the shell indentation adds —
+          # .ebextensions YAML must start at column 0.
+          sed -i 's/^        //' .ebextensions/healthcheck.config
+          echo "EB health-check grace: interval=15s, unhealthy-after=10 failures (~150s), deploy ignores health"
+        fi
+
         # Always zip Dockerrun + .platform — .platform now at minimum contains
         # client_max_body_size.conf, so every deploy carries the 413 fix.
-        zip -r deploy.zip Dockerrun.aws.json .platform
+        # .ebextensions is included when present (AI deploys with grace period).
+        zip -r deploy.zip Dockerrun.aws.json .platform $([ -d .ebextensions ] && echo .ebextensions)
         echo "deploy.zip contents:"
         unzip -l deploy.zip | head -n 40
 
