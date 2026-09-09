@@ -9,7 +9,9 @@ import {
 import { AdminLayout } from "@/components/admin/admin-layout"
 import { Header } from "@/components/layout/header"
 import { useAuth } from "@/lib/auth-context"
-import { mockNotices, mockUsers, mockDocuments, mockScrapingSources } from "@/lib/mock-data"
+import { fetchSystemStatus, fetchScrapeRuns, fetchScrapeSources, fetchAdminUsers } from "@/lib/api"
+import type { AdminUser } from "@/lib/api"
+import type { SystemStatus, ScrapeRun, ScrapeSource } from "@/lib/types"
 import Link from "next/link"
 import gsap from "gsap"
 
@@ -71,6 +73,36 @@ export default function AdminDashboard() {
   const { user } = useAuth()
   const gridRef = useRef<HTMLDivElement>(null)
 
+  const [status, setStatus] = React.useState<SystemStatus | null>(null)
+  const [runs, setRuns] = React.useState<ScrapeRun[]>([])
+  const [sources, setSources] = React.useState<ScrapeSource[]>([])
+  const [users, setUsers] = React.useState<AdminUser[]>([])
+  const [loading, setLoading] = React.useState(true)
+
+  const isAdmin = Boolean(user && user.role === "admin")
+
+  const load = React.useCallback(async () => {
+    if (!isAdmin) return
+    setLoading(true)
+    // Independent panels: one failing endpoint must not blank the whole
+    // dashboard, so each settles on its own and renders what it has.
+    const [s, r, src, u] = await Promise.allSettled([
+      fetchSystemStatus(),
+      fetchScrapeRuns({ page: 1, limit: 8 }),
+      fetchScrapeSources(),
+      fetchAdminUsers({ page: 1, limit: 4 }),
+    ])
+    if (s.status === "fulfilled") setStatus(s.value)
+    if (r.status === "fulfilled") setRuns(r.value.data)
+    if (src.status === "fulfilled") setSources(src.value)
+    if (u.status === "fulfilled") setUsers(u.value.data)
+    setLoading(false)
+  }, [isAdmin])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
   useEffect(() => {
     if (!gridRef.current) return
     const cards = gridRef.current.querySelectorAll(".cmd-card")
@@ -101,36 +133,47 @@ export default function AdminDashboard() {
     )
   }
 
-  const activeUsers = mockUsers.filter(u => u.status === "active").length
-  const scrapingErrors = mockScrapingSources.filter(s => s.status === "error")
-  const healthOk = scrapingErrors.length === 0
+  const counts = status?.counts
+  const failedRuns = status?.scraping.failedRunsLast24h ?? 0
+  // A source is "failing" when its most recent run errored — derived from real
+  // run history rather than a status column, which sources don't carry.
+  const latestRunBySource = new Map<string, ScrapeRun>()
+  for (const r of runs) {
+    if (r.sourceId && !latestRunBySource.has(r.sourceId)) latestRunBySource.set(r.sourceId, r)
+  }
+  const failingSources = sources.filter(
+    (s) => latestRunBySource.get(s.id)?.status === "FAILED",
+  )
+  const healthOk = status ? status.overall === "ok" && failedRuns === 0 : true
 
+  // No historical series endpoint exists yet, so the sparkline shows the real
+  // current value as a flat line instead of an invented trend.
+  const flat = (v: number) => [v, v, v, v, v, v, v]
   const metrics = [
-    { icon: FileText, label: "Total notices", value: mockNotices.length, spark: [3, 5, 4, 7, 6, 8, 10], trend: "+3 today", trendUp: true },
-    { icon: Users, label: "Active users", value: activeUsers, spark: [2, 2, 3, 3, 3, 4, 4], trend: "+1 this week", trendUp: true },
-    { icon: Database, label: "Documents", value: mockDocuments.length, spark: [4, 4, 5, 5, 6, 6, 6], trend: "Stable", trendUp: false },
-    { icon: Globe, label: "Active sources", value: mockScrapingSources.filter(s => s.status === "active").length, spark: [3, 3, 4, 4, 4, 4, 4], trend: `${scrapingErrors.length} errors`, trendUp: scrapingErrors.length === 0 },
+    { icon: FileText, label: "Total notices", value: counts?.notices ?? 0, spark: flat(counts?.notices ?? 0), trend: `${status?.scraping.runsLast24h ?? 0} runs / 24h`, trendUp: failedRuns === 0 },
+    { icon: Users, label: "Users", value: counts?.users ?? 0, spark: flat(counts?.users ?? 0), trend: `${status?.counts.alertRules ?? 0} alert rules`, trendUp: true },
+    { icon: Database, label: "Documents", value: counts?.documents ?? 0, spark: flat(counts?.documents ?? 0), trend: "Indexed", trendUp: true },
+    { icon: Globe, label: "Active sources", value: status?.scraping.enabledSources ?? 0, spark: flat(status?.scraping.enabledSources ?? 0), trend: `${failedRuns} failed / 24h`, trendUp: failedRuns === 0 },
   ]
 
-  const systemServices = [
-    { label: "API server", ok: true },
-    { label: "Scraper", ok: scrapingErrors.length === 0 },
-    { label: "Storage", ok: true },
-    { label: "Auth", ok: true },
-    { label: "RAG engine", ok: true },
-    { label: "Notifier", ok: true },
-  ]
+  // Straight from the API's own component health checks — no invented services.
+  const systemServices = (status?.components ?? []).map((c) => ({
+    label: c.label,
+    ok: c.status === "ok",
+  }))
 
-  const systemLogs = [
-    { time: "08:12", level: "info" as const, msg: "Nepal Gazette scraping done (12 items)" },
-    { time: "08:00", level: "info" as const, msg: "Procurement Portal scraping done (8 items)" },
-    { time: "07:45", level: "warn" as const, msg: "MoE Portal: timeout (retry 2/3)" },
-    { time: "06:30", level: "error" as const, msg: "MoE Portal: ECONNREFUSED" },
-    { time: "06:00", level: "info" as const, msg: "Daily scraping cycle started" },
-    { time: "05:00", level: "info" as const, msg: "Database backup completed (4.8 MB)" },
-  ]
+  const systemLogs = runs.map((r) => ({
+    time: new Date(r.startedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false }),
+    level: r.status === "FAILED" ? ("error" as const) : r.status === "RUNNING" ? ("warn" as const) : ("info" as const),
+    msg:
+      r.status === "FAILED"
+        ? `${r.sourceLabel}: ${r.error ?? "run failed"}`
+        : r.status === "RUNNING"
+          ? `${r.sourceLabel}: scraping in progress`
+          : `${r.sourceLabel} scraped — ${r.itemsNew} new of ${r.itemsFound} found`,
+  }))
 
-  const recentUsers = mockUsers.slice(0, 4)
+  const recentUsers = users
 
   return (
     <div className="min-h-screen bg-white font-poppins">
@@ -147,8 +190,12 @@ export default function AdminDashboard() {
             </h1>
           </div>
 
-          <button className="flex items-center gap-1.5 rounded-full border border-vez-line bg-white px-5 py-2.5 text-sm text-vez-ink transition-colors hover:bg-vez-surface">
-            <RefreshCw className="size-3.5" /> Refresh
+          <button
+            onClick={() => void load()}
+            disabled={loading}
+            className="flex items-center gap-1.5 rounded-full border border-vez-line bg-white px-5 py-2.5 text-sm text-vez-ink transition-colors hover:bg-vez-surface disabled:opacity-50"
+          >
+            <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
           </button>
         </div>
 
@@ -168,7 +215,7 @@ export default function AdminDashboard() {
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <span className={`flex items-center gap-1 rounded-full px-3 py-1 text-[10px] ${healthOk ? "bg-vez-sky/30 text-vez-navy" : "bg-red-50 text-red-600"}`}>
               {healthOk ? <CheckCircle className="size-3" /> : <AlertTriangle className="size-3" />}
-              {healthOk ? "All systems operational" : `${scrapingErrors.length} issue${scrapingErrors.length > 1 ? "s" : ""}`}
+              {healthOk ? "All systems operational" : `${failingSources.length} issue${failingSources.length > 1 ? "s" : ""}`}
             </span>
             <span className="flex items-center gap-1 rounded-full bg-vez-surface px-3 py-1 text-[10px] text-vez-mute">
               <Clock className="size-3" /> 99.9% uptime
@@ -185,14 +232,14 @@ export default function AdminDashboard() {
           </div>
 
           {/* Error banner */}
-          {scrapingErrors.length > 0 && (
+          {failingSources.length > 0 && (
             <div className="cmd-card flex items-center gap-4 rounded-[20px] bg-vez-navy p-5">
               <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white/10">
                 <AlertCircle className="size-4 text-vez-sky" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm text-white">{scrapingErrors.length} source{scrapingErrors.length > 1 ? "s" : ""} failing</p>
-                <p className="truncate text-xs text-white/60">{scrapingErrors.map(s => s.name).join(", ")}</p>
+                <p className="text-sm text-white">{failingSources.length} source{failingSources.length > 1 ? "s" : ""} failing</p>
+                <p className="truncate text-xs text-white/60">{failingSources.map(s => s.name).join(", ")}</p>
               </div>
               <Link
                 href="/admin/scraping"
@@ -214,6 +261,11 @@ export default function AdminDashboard() {
                 <span className="rounded-full bg-vez-surface px-3 py-1 text-[10px] text-vez-mute">Today</span>
               </div>
               <div className="space-y-1">
+                {systemLogs.length === 0 && (
+                  <p className="px-3 py-2 text-xs text-vez-mute">
+                    {loading ? "Loading activity…" : "No scrape runs recorded yet."}
+                  </p>
+                )}
                 {systemLogs.map((log, i) => (
                   <div key={i} className="flex items-center gap-3 rounded-[12px] px-3 py-2 text-xs transition-colors hover:bg-vez-surface">
                     {log.level === "info" ? (
@@ -261,13 +313,25 @@ export default function AdminDashboard() {
                   </Link>
                 </div>
                 <div className="space-y-2">
-                  {mockScrapingSources.map((src) => (
-                    <div key={src.id} className="flex items-center gap-3 rounded-[12px] bg-vez-surface px-3.5 py-2.5 transition-colors hover:bg-vez-sky/15">
-                      <StatusDot active={src.status === "active"} />
-                      <span className="flex-1 truncate text-xs text-vez-ink">{src.name}</span>
-                      <span className="shrink-0 text-[10px] text-vez-mute tabular-nums">{src.itemsScraped.toLocaleString()} items</span>
-                    </div>
-                  ))}
+                  {sources.length === 0 && (
+                    <p className="rounded-[12px] bg-vez-surface px-3.5 py-2.5 text-xs text-vez-mute">
+                      {loading ? "Loading sources…" : "No scraping sources configured yet."}
+                    </p>
+                  )}
+                  {sources.map((src) => {
+                    // Item counts come from the source's most recent run; there
+                    // is no lifetime total on the source itself to report.
+                    const last = latestRunBySource.get(src.id)
+                    return (
+                      <div key={src.id} className="flex items-center gap-3 rounded-[12px] bg-vez-surface px-3.5 py-2.5 transition-colors hover:bg-vez-sky/15">
+                        <StatusDot active={src.enabled && last?.status !== "FAILED"} />
+                        <span className="flex-1 truncate text-xs text-vez-ink">{src.name}</span>
+                        <span className="shrink-0 text-[10px] text-vez-mute tabular-nums">
+                          {last ? `${last.itemsFound.toLocaleString()} items` : "no runs yet"}
+                        </span>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
 
@@ -320,11 +384,11 @@ export default function AdminDashboard() {
                 <div key={u.id} className="flex items-center gap-3 rounded-[14px] bg-vez-surface px-4 py-3 transition-colors hover:bg-vez-sky/15">
                   <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-vez-sky">
                     <span className="text-xs text-vez-navy">
-                      {u.username.charAt(0).toUpperCase()}
+                      {(u.name || u.email).charAt(0).toUpperCase()}
                     </span>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs text-vez-ink">{u.username}</p>
+                    <p className="truncate text-xs text-vez-ink">{u.name || u.email}</p>
                     <div className="mt-0.5 flex items-center gap-1.5">
                       <span className={`size-1.5 rounded-full ${u.status === "active" ? "bg-vez-navy" : "bg-vez-mute/50"}`} />
                       <p className="text-[10px] capitalize text-vez-mute">{u.role}</p>
