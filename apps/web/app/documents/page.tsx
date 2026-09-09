@@ -645,7 +645,6 @@ export default function RagPage() {
   const [docs, setDocs] = useState<RagDocument[]>([])
   const [docsLoading, setDocsLoading] = useState(true)
   const [showUpload, setShowUpload] = useState(false)
-  const [selectedDocId, setSelectedDocId] = useState<string | undefined>()
   const [progressMap, setProgressMap] = useState<Record<string, DocumentProgress>>({})
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
   const [messages, setMessages] = useState<ChatMessage[]>([{
@@ -888,7 +887,7 @@ export default function RagPage() {
     setTyping(true)
 
     try {
-      const result = await ragQuery(q, docIdOverride ?? selectedDocId)
+      const result = await ragQuery(q, docIdOverride)
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -924,7 +923,6 @@ export default function RagPage() {
       timestamp: new Date().toISOString(),
     }])
     setRatings({})
-    setSelectedDocId(undefined)
   }
 
   // Clamp the library pane to a sane share of the split container.
@@ -981,7 +979,6 @@ export default function RagPage() {
   }, [clampLibWidth])
 
   const askAboutDoc = (doc: RagDocument) => {
-    setSelectedDocId(doc.id)
     sendMessage(`What are the key provisions of "${doc.title}"?`, doc.id)
     if (view === "library") setView("split")
     setMobileTab("chat")
@@ -1091,15 +1088,6 @@ export default function RagPage() {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-          {selectedDocId && (
-            <button
-              className="flex items-center gap-1.5 rounded-lg bg-vez-sky/20 px-3 py-1.5 text-xs font-medium text-vez-navy transition-colors hover:bg-vez-sky/30"
-              onClick={() => setSelectedDocId(undefined)}
-              title="Clear document filter"
-            >
-              Filtered <X className="size-3" />
-            </button>
-          )}
           <button
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-vez-mute transition-colors hover:bg-vez-surface hover:text-vez-navy"
             onClick={clearChat}

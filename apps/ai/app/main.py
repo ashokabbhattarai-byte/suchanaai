@@ -306,6 +306,36 @@ def _validate_qdrant_collection_schema() -> None:
         raise RuntimeError(f"Qdrant collection validation failed: {e}") from e
 
 
+# Last known Qdrant reachability, refreshed on a timer by _qdrant_watch so
+# /health never performs I/O. `checked_at` is monotonic seconds, 0 = never.
+_qdrant_state: dict = {"ok": False, "checked_at": 0.0}
+
+# Slow enough to be negligible load on Qdrant, fast enough that the admin
+# dashboard notices an outage within a poll or two.
+_QDRANT_PROBE_INTERVAL_S = 30
+
+
+async def _qdrant_watch() -> None:
+    """Keep _qdrant_state fresh, off the request path, forever.
+
+    Deliberately never raises: this task dying would freeze the reading at
+    whatever it last saw, which is a silently stale health report — the
+    failure mode hardest to notice.
+    """
+    while True:
+        try:
+            ok = await asyncio.to_thread(store.is_connected)
+            if ok != _qdrant_state["ok"]:
+                logger.warning("Qdrant reachability changed: %s -> %s", _qdrant_state["ok"], ok)
+            _qdrant_state["ok"] = ok
+            _qdrant_state["checked_at"] = time.monotonic()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Qdrant probe raised; leaving previous reading in place")
+        await asyncio.sleep(_QDRANT_PROBE_INTERVAL_S)
+
+
 async def _warmup() -> None:
     """Run startup validation in the background, after the port is listening."""
     _warmup_state["phase"] = "warming"
@@ -356,6 +386,7 @@ async def _warmup() -> None:
 async def _handle_lifespan(scope, receive, send):
     warmup_task: Optional[asyncio.Task] = None
     ai_config_task: Optional[asyncio.Task] = None
+    qdrant_task: Optional[asyncio.Task] = None
     while True:
         message = await receive()
         if message["type"] == "lifespan.startup":
@@ -379,6 +410,11 @@ async def _handle_lifespan(scope, receive, send):
             # secret isn't configured, so this is always safe to start.
             ai_config_task = asyncio.create_task(ai_config_sync.sync_loop())
 
+            # Owns the Qdrant reachability reading so /health stays a pure
+            # memory read and a slow dependency can't fail the load balancer's
+            # health check. Probes once immediately, then on a timer.
+            qdrant_task = asyncio.create_task(_qdrant_watch())
+
             await send({"type": "lifespan.startup.complete"})
         elif message["type"] == "lifespan.shutdown":
             logger.info("Shutting down pnm-ai")
@@ -386,6 +422,8 @@ async def _handle_lifespan(scope, receive, send):
                 warmup_task.cancel()
             if ai_config_task and not ai_config_task.done():
                 ai_config_task.cancel()
+            if qdrant_task and not qdrant_task.done():
+                qdrant_task.cancel()
             await browser_pool.shutdown()
             await send({"type": "lifespan.shutdown.complete"})
             return
@@ -534,20 +572,23 @@ async def _route(method: str, path: str, scope: dict, receive, send) -> tuple[in
 
 
 async def _health() -> tuple[int, dict]:
-    qdrant_ok = False
-    try:
-        # is_connected() is a blocking network call — off the event loop, so
-        # a slow/unreachable Qdrant degrades this one health check instead of
-        # freezing every other request this single-worker process is serving
-        # (progress polls, queries, other uploads) for the same duration.
-        qdrant_ok = await asyncio.to_thread(store.is_connected)
-    except Exception:
-        logger.exception("Health check: Qdrant probe raised")
+    # Pure in-memory read — no I/O on this path at all.
+    #
+    # This used to probe Qdrant inline. Qdrant is a different host across the
+    # public internet, the probe budgets 3s, and the load balancer's health
+    # check times out at 5s: one slow round trip failed the check and pulled a
+    # perfectly healthy instance out of service. A background task owns the
+    # probe now (see _qdrant_watch), so a slow dependency can never decide
+    # whether this instance is alive.
+    qdrant_ok, checked_at = _qdrant_state["ok"], _qdrant_state["checked_at"]
 
     phase = _warmup_state["phase"]
     body = {
         "status": "ok" if phase == "ready" else phase,
         "qdrant": qdrant_ok,
+        # How stale the Qdrant reading is, so a caller can tell "reachable"
+        # from "not checked recently" instead of trusting a cached true.
+        "qdrant_checked_age_s": round(time.monotonic() - checked_at, 1) if checked_at else None,
         "model_loaded": embeddings.is_loaded(),
     }
     if _warmup_state["error"]:

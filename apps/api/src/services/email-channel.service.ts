@@ -116,26 +116,57 @@ export class EmailChannelService {
 
   async getConfig(): Promise<EmailChannelConfig> {
     const stored = await this.readAll();
-    const host = stored.get(KEY.host) ?? '';
-    const port = Number(stored.get(KEY.port) ?? '587');
-    const username = stored.get(KEY.username) ?? '';
-    const fromAddress = stored.get(KEY.fromAddress) ?? '';
+    // DB (app_settings) is primary; env SMTP_* is fallback so `SMTP_HOST=…` on Beanstalk works without manual /admin/alerts
+    const envHost = (this.config.get<string>('SMTP_HOST') ?? '').trim().toLowerCase();
+    const envPort = this.config.get<string>('SMTP_PORT');
+    const envUser = (this.config.get<string>('SMTP_USER') ?? '').trim();
+    const envPass = this.config.get<string>('SMTP_PASSWORD') ?? '';
+    const envFrom = (this.config.get<string>('SMTP_FROM') ?? '').trim();
+    // Parse "Display <addr@>" → name/address
+    let envFromName = '';
+    let envFromAddress = '';
+    if (envFrom) {
+      const m = envFrom.match(/^(.*)<\s*([^>]+)\s*>$/);
+      if (m) {
+        envFromName = m[1].trim().replace(/^["']|["']$/g, '');
+        envFromAddress = m[2].trim();
+      } else {
+        envFromAddress = envFrom;
+      }
+    }
+    const host = (stored.get(KEY.host) ?? '') || envHost;
+    const port = Number(stored.get(KEY.port) ?? envPort ?? '587');
+    const username = (stored.get(KEY.username) ?? '') || envUser;
+    const fromAddress = (stored.get(KEY.fromAddress) ?? '') || envFromAddress;
     const encryptedPassword = stored.get(KEY.password);
-    const passwordConfigured = Boolean(encryptedPassword);
+    // DB encrypted password takes precedence; env plain password is fallback (not persisted)
+    const envPasswordConfigured = Boolean(envPass && envPass.trim().length >= 4);
+    const passwordConfigured = Boolean(encryptedPassword) || envPasswordConfigured;
     const lastTestOk = stored.get(KEY.lastTestOk);
 
+    const fromNameStored = stored.get(KEY.fromName) ?? '';
+    const fromName = fromNameStored || envFromName;
+    const secureRaw = stored.get(KEY.secure);
+    // env has no explicit secure flag — infer from port (465 = implicit TLS)
+    const secure = secureRaw !== undefined ? secureRaw === 'true' : port === 465;
+    // If nothing in DB yet, treat env-provided host as implicitly enabled
+    const enabledRaw = stored.get(KEY.enabled);
+    const enabled = enabledRaw !== undefined ? enabledRaw === 'true' : Boolean(envHost && envPasswordConfigured);
+
     return {
-      enabled: stored.get(KEY.enabled) === 'true',
+      enabled,
       host,
       port: Number.isFinite(port) ? port : 587,
-      secure: stored.get(KEY.secure) === 'true',
+      secure,
       username,
       fromAddress,
-      fromName: stored.get(KEY.fromName) ?? '',
+      fromName,
       passwordConfigured,
       passwordPreview: encryptedPassword
         ? this.crypto.preview(encryptedPassword)
-        : undefined,
+        : envPasswordConfigured
+          ? `••••${envPass.trim().slice(-4)}`
+          : undefined,
       configured: Boolean(host && username && fromAddress && passwordConfigured),
       lastTestedAt: stored.get(KEY.lastTestedAt) ?? null,
       lastTestOk: lastTestOk === undefined ? null : lastTestOk === 'true',
@@ -334,18 +365,21 @@ export class EmailChannelService {
   private async password(): Promise<string> {
     const rows = await this.readAll();
     const stored = rows.get(KEY.password);
-    if (!stored) {
-      throw new BadRequestException('No SMTP password is stored — save one first.');
+    if (stored) {
+      try {
+        return this.crypto.decrypt(stored);
+      } catch {
+        // Wrong/rotated SETTINGS_ENCRYPTION_KEY, or a tampered row. GCM catches
+        // both; re-entering the password is the only fix.
+        throw new ServiceUnavailableException(
+          'The stored SMTP password could not be decrypted (encryption key changed?) — re-enter it.',
+        );
+      }
     }
-    try {
-      return this.crypto.decrypt(stored);
-    } catch {
-      // Wrong/rotated SETTINGS_ENCRYPTION_KEY, or a tampered row. GCM catches
-      // both; re-entering the password is the only fix.
-      throw new ServiceUnavailableException(
-        'The stored SMTP password could not be decrypted (encryption key changed?) — re-enter it.',
-      );
-    }
+    // Fallback to env plain SMTP_PASSWORD (Beanstalk) when DB has no encrypted entry
+    const envPass = this.config.get<string>('SMTP_PASSWORD') ?? '';
+    if (envPass && envPass.trim().length >= 4) return envPass.trim();
+    throw new BadRequestException('No SMTP password is stored — save one first.');
   }
 
   private async buildTransport(): Promise<nodemailer.Transporter> {
