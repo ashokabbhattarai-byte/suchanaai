@@ -10,9 +10,12 @@ import {
   Bell,
   CheckCircle,
   CreditCard,
+  Download,
+  ExternalLink,
   FileText,
   Loader2,
   MessageSquare,
+  Receipt,
   RefreshCw,
   Send,
 } from "lucide-react"
@@ -22,9 +25,11 @@ import { ErrorState } from "@/components/ui/error-state"
 import { UsageMeterBar } from "@/components/billing/upgrade-prompt"
 import {
   fetchBillingSummary,
+  fetchInvoices,
   openBillingPortal,
   formatPlanPrice,
   type BillingSummary,
+  type Invoice,
 } from "@/lib/api"
 
 const STATUS_COPY: Record<BillingSummary["status"], { label: string; tone: string }> = {
@@ -48,6 +53,8 @@ function BillingPageContent() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
   const [openingPortal, setOpeningPortal] = useState(false)
+  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [invoicesLoading, setInvoicesLoading] = useState(false)
 
   // `silent` skips the loading state so background refreshes (post-checkout
   // polling, the manual Refresh button while data is already on screen)
@@ -59,6 +66,21 @@ function BillingPageContent() {
       const data = await fetchBillingSummary()
       setSummary(data)
       setError(null)
+      // Invoices only exist for paid customers - fetch alongside summary
+      if (data.plan.tier !== "FREE") {
+        if (!opts.silent) setInvoicesLoading(true)
+        try {
+          const inv = await fetchInvoices()
+          setInvoices(inv)
+        } catch {
+          // invoices are best-effort; billing summary is the source of truth
+          setInvoices([])
+        } finally {
+          if (!opts.silent) setInvoicesLoading(false)
+        }
+      } else {
+        setInvoices([])
+      }
     } catch (err) {
       if (!opts.silent) setError(err)
     } finally {
@@ -302,6 +324,143 @@ function BillingPageContent() {
           </div>
         </div>
       </section>
+
+      {/* Invoices — only for paid customers (Stripe invoices exist only after upgrade) */}
+      {isPaid && (
+        <section className="w-full max-w-full min-w-0 overflow-hidden rounded-[24px] border border-vez-line bg-white p-4 sm:p-6 lg:p-8">
+          <div className="mb-5 flex min-w-0 items-center justify-between gap-2 sm:mb-6">
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <h3 className="flex items-center gap-2 break-words text-base font-medium text-vez-ink">
+                <Receipt className="size-4 shrink-0 text-vez-navy" /> Invoices
+              </h3>
+              <p className="mt-0.5 break-words text-xs text-vez-mute">
+                Receipts from Stripe — download PDF or view hosted invoice
+              </p>
+            </div>
+            <button
+              onClick={async () => {
+                setInvoicesLoading(true)
+                try {
+                  setInvoices(await fetchInvoices())
+                } catch {
+                  // ignore
+                } finally {
+                  setInvoicesLoading(false)
+                }
+              }}
+              className="flex min-h-[36px] shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-vez-line px-3 py-1.5 text-xs font-medium text-vez-ink transition-colors hover:bg-vez-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vez-navy/20 sm:px-3.5"
+            >
+              <RefreshCw className={`size-3 shrink-0 ${invoicesLoading ? "animate-spin" : ""}`} /> Refresh
+            </button>
+          </div>
+
+          {invoicesLoading ? (
+            <div className="space-y-3 animate-pulse" aria-hidden="true">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4 rounded-[16px] bg-vez-surface/60 p-4">
+                  <div className="size-10 rounded-xl bg-white" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-32 rounded bg-white" />
+                    <div className="h-2 w-48 rounded bg-white/70" />
+                  </div>
+                  <div className="h-6 w-20 rounded-full bg-white" />
+                </div>
+              ))}
+            </div>
+          ) : invoices.length === 0 ? (
+            <div className="rounded-[16px] bg-vez-surface/60 p-6 text-center">
+              <Receipt className="mx-auto size-8 text-vez-mute/40" />
+              <p className="mt-3 text-sm font-medium text-vez-ink">No invoices yet</p>
+              <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-vez-mute">
+                Your first invoice will appear here after the next billing cycle. You can also
+                view and download all receipts in the Stripe billing portal.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {invoices.map((inv) => {
+                const isPaidInv = inv.status === "paid"
+                const amountCents = isPaidInv ? inv.amountPaid : inv.amountDue
+                const statusTone =
+                  inv.status === "paid"
+                    ? "bg-emerald-50 text-emerald-700"
+                    : inv.status === "open"
+                      ? "bg-amber-50 text-amber-700"
+                      : inv.status === "draft"
+                        ? "bg-vez-line/60 text-vez-mute"
+                        : "bg-red-50 text-red-600"
+                return (
+                  <div
+                    key={inv.id}
+                    className="flex flex-col gap-3 rounded-[16px] border border-vez-line/50 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-5"
+                  >
+                    <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
+                      <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-vez-surface">
+                        <Receipt className="size-4 text-vez-navy" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium text-vez-ink">
+                            {inv.number ?? `Invoice ${inv.id.slice(0, 8)}`}
+                          </span>
+                          <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium capitalize ${statusTone}`}>
+                            {inv.status ?? "unknown"}
+                          </span>
+                        </div>
+                        <p className="mt-1 break-words text-xs text-vez-mute">
+                          {inv.created ? new Date(inv.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : ""}
+                          {inv.periodStart && inv.periodEnd
+                            ? ` · ${new Date(inv.periodStart).toLocaleDateString()} – ${new Date(inv.periodEnd).toLocaleDateString()}`
+                            : ""}
+                        </p>
+                        {inv.billingReason && (
+                          <p className="mt-0.5 text-[11px] capitalize text-vez-mute/70">
+                            {inv.billingReason.replace(/_/g, " ")}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-2 sm:gap-3">
+                      <span className="text-sm font-medium text-vez-ink tabular-nums">
+                        {formatPlanPrice(amountCents, inv.currency)}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {inv.hostedInvoiceUrl && (
+                          <a
+                            href={inv.hostedInvoiceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex min-h-[32px] items-center gap-1 rounded-full border border-vez-line bg-white px-3 py-1.5 text-xs font-medium text-vez-ink transition-colors hover:bg-vez-surface"
+                          >
+                            <ExternalLink className="size-3" /> View
+                          </a>
+                        )}
+                        {inv.invoicePdf && (
+                          <a
+                            href={inv.invoicePdf}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex min-h-[32px] items-center gap-1 rounded-full bg-vez-navy px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                          >
+                            <Download className="size-3" /> PDF
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          <p className="mt-4 break-words text-xs text-vez-mute">
+            Need a different receipt? Open{" "}
+            <button onClick={handlePortal} className="underline underline-offset-2 hover:text-vez-ink">
+              Manage billing
+            </button>{" "}
+            to see the full Stripe history.
+          </p>
+        </section>
+      )}
     </div>
   )
 }

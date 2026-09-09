@@ -44,6 +44,86 @@ function StatusDot({ active }: { active: boolean }) {
   )
 }
 
+function MetricCardSkeleton() {
+  return (
+    <div className="rounded-[20px] bg-white p-4 sm:p-6 animate-pulse" aria-hidden="true">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
+        <div className="size-9 rounded-full bg-vez-surface" />
+        <div className="h-[20px] w-16 rounded bg-vez-surface" />
+      </div>
+      <div className="mb-3 h-8 w-20 rounded bg-vez-surface" />
+      <div className="flex items-center justify-between gap-2">
+        <div className="h-3 w-20 rounded bg-vez-surface" />
+        <div className="h-3 w-24 rounded bg-vez-surface" />
+      </div>
+    </div>
+  )
+}
+
+function SystemStatusSkeleton() {
+  return (
+    <div className="flex flex-wrap items-center gap-3 sm:gap-4 animate-pulse" aria-hidden="true">
+      <div className="h-3 w-20 rounded bg-vez-surface" />
+      <div className="h-4 w-px bg-vez-line" />
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <div className="size-2 rounded-full bg-vez-surface" />
+          <div className="h-3 w-20 rounded bg-vez-surface" />
+        </div>
+      ))}
+      <div className="ml-auto flex items-center gap-2">
+        <div className="h-5 w-32 rounded-full bg-vez-surface" />
+        <div className="h-5 w-24 rounded-full bg-vez-surface" />
+      </div>
+    </div>
+  )
+}
+
+function ListSkeleton({ rows = 5 }: { rows?: number }) {
+  return (
+    <div className="space-y-2 animate-pulse" aria-hidden="true">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 rounded-[12px] bg-vez-surface px-3.5 py-3">
+          <div className="size-2 rounded-full bg-white/60" />
+          <div className="h-3 flex-1 rounded bg-white/60" />
+          <div className="h-3 w-16 rounded bg-white/60" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function LogSkeleton({ rows = 6 }: { rows?: number }) {
+  return (
+    <div className="space-y-1 animate-pulse" aria-hidden="true">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 rounded-[12px] px-3 py-2">
+          <div className="size-3 rounded-full bg-vez-surface" />
+          <div className="h-3 w-10 rounded bg-vez-surface" />
+          <div className="h-3 flex-1 rounded bg-vez-surface" />
+          <div className="h-4 w-10 rounded-full bg-vez-surface" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function UsersSkeleton() {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 animate-pulse" aria-hidden="true">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 rounded-[14px] bg-vez-surface px-4 py-3">
+          <div className="size-9 rounded-full bg-white/60" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3 w-24 rounded bg-white/60" />
+            <div className="h-2 w-12 rounded bg-white/40" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function MetricCard({ icon: Icon, label, value, spark, trend, trendUp }: {
   icon: React.ElementType; label: string; value: number
   spark: number[]; trend: string; trendUp: boolean
@@ -135,6 +215,11 @@ export default function AdminDashboard() {
 
   const counts = status?.counts
   const failedRuns = status?.scraping.failedRunsLast24h ?? 0
+  // Show skeletons only on first load — subsequent refreshes keep stale data visible
+  const isInitialLoading = loading && !status
+  const isSourcesInitialLoading = loading && sources.length === 0
+  const isRunsInitialLoading = loading && runs.length === 0
+  const isUsersInitialLoading = loading && users.length === 0
   // A source is "failing" when its most recent run errored — derived from real
   // run history rather than a status column, which sources don't carry.
   const latestRunBySource = new Map<string, ScrapeRun>()
@@ -201,34 +286,40 @@ export default function AdminDashboard() {
 
         {/* System health strip - wraps on mobile, scrolls if needed */}
         <div className="cmd-card mb-6 flex flex-wrap items-center gap-3 sm:gap-4 overflow-x-auto rounded-[16px] border border-vez-line bg-white p-4 sm:p-5">
-          <div className="flex shrink-0 items-center gap-2">
-            <Activity className="size-4 text-vez-navy" />
-            <span className="text-xs text-vez-ink">System status</span>
-          </div>
-          <div className="h-4 w-px shrink-0 bg-vez-line" />
-          {systemServices.map((svc) => (
-            <div key={svc.label} className="flex shrink-0 items-center gap-1.5">
-              <StatusDot active={svc.ok} />
-              <span className="text-xs text-vez-mute">{svc.label}</span>
-            </div>
-          ))}
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            <span className={`flex items-center gap-1 rounded-full px-3 py-1 text-[10px] ${healthOk ? "bg-vez-sky/30 text-vez-navy" : "bg-red-50 text-red-600"}`}>
-              {healthOk ? <CheckCircle className="size-3" /> : <AlertTriangle className="size-3" />}
-              {healthOk ? "All systems operational" : `${failingSources.length} issue${failingSources.length > 1 ? "s" : ""}`}
-            </span>
-            <span className="flex items-center gap-1 rounded-full bg-vez-surface px-3 py-1 text-[10px] text-vez-mute">
-              <Clock className="size-3" /> 99.9% uptime
-            </span>
-          </div>
+          {isInitialLoading ? (
+            <SystemStatusSkeleton />
+          ) : (
+            <>
+              <div className="flex shrink-0 items-center gap-2">
+                <Activity className="size-4 text-vez-navy" />
+                <span className="text-xs text-vez-ink">System status</span>
+              </div>
+              <div className="h-4 w-px shrink-0 bg-vez-line" />
+              {systemServices.map((svc) => (
+                <div key={svc.label} className="flex shrink-0 items-center gap-1.5">
+                  <StatusDot active={svc.ok} />
+                  <span className="text-xs text-vez-mute">{svc.label}</span>
+                </div>
+              ))}
+              <div className="ml-auto flex shrink-0 items-center gap-2">
+                <span className={`flex items-center gap-1 rounded-full px-3 py-1 text-[10px] ${healthOk ? "bg-vez-sky/30 text-vez-navy" : "bg-red-50 text-red-600"}`}>
+                  {healthOk ? <CheckCircle className="size-3" /> : <AlertTriangle className="size-3" />}
+                  {healthOk ? "All systems operational" : `${failingSources.length} issue${failingSources.length > 1 ? "s" : ""}`}
+                </span>
+                <span className="flex items-center gap-1 rounded-full bg-vez-surface px-3 py-1 text-[10px] text-vez-mute">
+                  <Clock className="size-3" /> 99.9% uptime
+                </span>
+              </div>
+            </>
+          )}
         </div>
 
         <div ref={gridRef} className="space-y-6">
           {/* Metric cards - responsive grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-            {metrics.map((m) => (
-              <MetricCard key={m.label} {...m} />
-            ))}
+            {isInitialLoading
+              ? Array.from({ length: 4 }).map((_, i) => <MetricCardSkeleton key={i} />)
+              : metrics.map((m) => <MetricCard key={m.label} {...m} />)}
           </div>
 
           {/* Error banner */}
@@ -261,12 +352,12 @@ export default function AdminDashboard() {
                 <span className="rounded-full bg-vez-surface px-3 py-1 text-[10px] text-vez-mute">Today</span>
               </div>
               <div className="space-y-1">
-                {systemLogs.length === 0 && (
-                  <p className="px-3 py-2 text-xs text-vez-mute">
-                    {loading ? "Loading activity…" : "No scrape runs recorded yet."}
-                  </p>
-                )}
-                {systemLogs.map((log, i) => (
+                {isRunsInitialLoading ? (
+                  <LogSkeleton rows={6} />
+                ) : systemLogs.length === 0 ? (
+                  <p className="px-3 py-2 text-xs text-vez-mute">No scrape runs recorded yet.</p>
+                ) : (
+                  systemLogs.map((log, i) => (
                   <div key={i} className="flex items-center gap-3 rounded-[12px] px-3 py-2 text-xs transition-colors hover:bg-vez-surface">
                     {log.level === "info" ? (
                       <CheckCircle className="size-3 shrink-0 text-vez-navy" />
@@ -287,7 +378,8 @@ export default function AdminDashboard() {
                       {log.level}
                     </span>
                   </div>
-                ))}
+                ))
+                )}
               </div>
               <Link
                 href="/admin/system"
@@ -313,12 +405,14 @@ export default function AdminDashboard() {
                   </Link>
                 </div>
                 <div className="space-y-2">
-                  {sources.length === 0 && (
+                  {isSourcesInitialLoading ? (
+                    <ListSkeleton rows={5} />
+                  ) : sources.length === 0 ? (
                     <p className="rounded-[12px] bg-vez-surface px-3.5 py-2.5 text-xs text-vez-mute">
-                      {loading ? "Loading sources…" : "No scraping sources configured yet."}
+                      No scraping sources configured yet.
                     </p>
-                  )}
-                  {sources.map((src) => {
+                  ) : (
+                    sources.map((src) => {
                     // Item counts come from the source's most recent run; there
                     // is no lifetime total on the source itself to report.
                     const last = latestRunBySource.get(src.id)
@@ -331,7 +425,7 @@ export default function AdminDashboard() {
                         </span>
                       </div>
                     )
-                  })}
+                  }))}
                 </div>
               </div>
 
@@ -379,24 +473,30 @@ export default function AdminDashboard() {
                 All users <ArrowRight className="size-3" />
               </Link>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-              {recentUsers.map((u) => (
-                <div key={u.id} className="flex items-center gap-3 rounded-[14px] bg-vez-surface px-4 py-3 transition-colors hover:bg-vez-sky/15">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-vez-sky">
-                    <span className="text-xs text-vez-navy">
-                      {(u.name || u.email).charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs text-vez-ink">{u.name || u.email}</p>
-                    <div className="mt-0.5 flex items-center gap-1.5">
-                      <span className={`size-1.5 rounded-full ${u.status === "active" ? "bg-vez-navy" : "bg-vez-mute/50"}`} />
-                      <p className="text-[10px] capitalize text-vez-mute">{u.role}</p>
+            {isUsersInitialLoading ? (
+              <UsersSkeleton />
+            ) : recentUsers.length === 0 ? (
+              <p className="text-xs text-vez-mute">No users yet.</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+                {recentUsers.map((u) => (
+                  <div key={u.id} className="flex items-center gap-3 rounded-[14px] bg-vez-surface px-4 py-3 transition-colors hover:bg-vez-sky/15">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-vez-sky">
+                      <span className="text-xs text-vez-navy">
+                        {(u.name || u.email).charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs text-vez-ink">{u.name || u.email}</p>
+                      <div className="mt-0.5 flex items-center gap-1.5">
+                        <span className={`size-1.5 rounded-full ${u.status === "active" ? "bg-vez-navy" : "bg-vez-mute/50"}`} />
+                        <p className="text-[10px] capitalize text-vez-mute">{u.role}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </AdminLayout>

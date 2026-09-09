@@ -22,10 +22,10 @@ const footerLinks = {
     { label: "System Status", href: "#" },
   ],
   Legal: [
-    { label: "Privacy Policy", href: "#" },
-    { label: "Terms of Service", href: "#" },
-    { label: "Data Retention Policy", href: "#" },
-    { label: "Accessibility", href: "#" },
+    { label: "Privacy Policy", href: "/privacy" },
+    { label: "Terms of Service", href: "/terms" },
+    { label: "Data Retention Policy", href: "/privacy" },
+    { label: "Accessibility", href: "/privacy" },
   ],
 }
 

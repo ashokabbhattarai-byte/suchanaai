@@ -288,13 +288,13 @@ export function FloatingChat() {
           style={isDesktop && size ? { width: size.width, height: size.height, maxHeight: "none" } : undefined}
           className={cn(
             "fixed z-[60] flex flex-col overflow-hidden border border-vez-line bg-card/95 backdrop-blur-xl shadow-2xl rounded-xl sm:rounded-2xl",
-            "inset-x-4 bottom-4 h-[85vh] max-h-[80vh] w-auto rounded-2xl",
+            "inset-x-3 bottom-3 h-[80vh] rounded-2xl",
             // Smaller footprint than before (was 400x540, ~75vh) — it was
             // covering page controls (action buttons, title) on narrower or
             // shorter desktop viewports. max-h keeps it well clear of the
             // top of the page even on short windows. Overridden by `style`
             // above once the user has dragged/maximized to a custom size.
-            "sm:inset-x-auto sm:bottom-4 sm:right-4 sm:h-[65vh] sm:max-h-[80vh] sm:w-[380px]",
+            "sm:inset-x-auto sm:bottom-4 sm:right-4 sm:h-[65vh] sm:max-h-[80vh] sm:w-[380px] max-sm:max-h-[80vh]",
           )}
         >
           {/* Resize grip — floating-card layout only; drag to grow toward the
@@ -507,23 +507,23 @@ export function FloatingChat() {
           </div>
 
           {/* Input */}
-          <div className="p-3 sm:p-4 border-t border-vez-line" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
+          <div className="p-2.5 sm:p-4 border-t border-vez-line" style={{ paddingBottom: "max(0.625rem, env(safe-area-inset-bottom))" }}>
             {quota && (
               <div className="mb-2">
                 <UpgradePrompt quota={quota} compact onDismiss={() => setQuota(null)} />
               </div>
             )}
-            <form onSubmit={(e) => { e.preventDefault(); handleSend() }} className="flex gap-2 sm:gap-3">
+            <form onSubmit={(e) => { e.preventDefault(); handleSend() }} className="flex items-center gap-2">
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={contextNotice ? "Ask about this notice…" : "Ask about notices..."}
-                className="flex-1 h-9 sm:h-10 rounded-lg border border-vez-line bg-background px-3 sm:px-4 text-sm sm:text-base font-poppins tracking-tight outline-none focus:border-primary/50 transition-colors min-h-[44px] sm:min-h-0"
+                className="min-w-0 flex-1 h-10 rounded-lg border border-vez-line bg-background px-3 text-sm font-poppins tracking-tight outline-none focus:border-primary/50 transition-colors"
                 disabled={loading}
               />
-              <Button type="submit" size="icon" className="size-9 sm:size-10 rounded-lg shrink-0 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0" disabled={!input.trim() || loading}>
-                <Send className="size-3.5" />
+              <Button type="submit" size="icon" className="size-10 rounded-lg shrink-0" disabled={!input.trim() || loading}>
+                <Send className="size-4" />
               </Button>
             </form>
           </div>
@@ -539,10 +539,10 @@ export function FloatingChat() {
           ref={fabRef}
           onClick={() => setOpen(true)}
           aria-label="Open chat"
-          className="fixed right-4 sm:right-6 z-[60] size-14 sm:size-16 min-h-[44px] min-w-[44px] rounded-full shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 bg-white text-gray-900 ring-4 ring-white/30 touch-manipulation"
+          className="fixed right-3 sm:right-6 z-[60] size-12 sm:size-14 rounded-full shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 bg-white text-gray-900 ring-4 ring-white/30 touch-manipulation"
           style={{
             boxShadow: "0 0 20px rgba(255,255,255,0.3), 0 8px 32px rgba(0,0,0,0.4)",
-            bottom: "max(1rem, env(safe-area-inset-bottom))",
+            bottom: "max(0.75rem, env(safe-area-inset-bottom))",
           }}
         >
           <MessageCircle className="size-5 sm:size-6" />

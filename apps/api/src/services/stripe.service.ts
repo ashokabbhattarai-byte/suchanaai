@@ -152,6 +152,16 @@ export class StripeService {
     });
   }
 
+  /** List recent invoices for a Stripe customer (latest first). */
+  async listInvoices(customerId: string, limit = 12): Promise<StripeInvoice[]> {
+    if (!customerId) return [];
+    const res = await this.request<{ data: StripeInvoice[] }>(
+      'GET',
+      `/invoices?customer=${encodeURIComponent(customerId)}&limit=${Math.min(Math.max(limit, 1), 100)}`,
+    );
+    return res.data ?? [];
+  }
+
   async retrieveSubscription(subscriptionId: string): Promise<StripeSubscription> {
     return this.request<StripeSubscription>('GET', `/subscriptions/${subscriptionId}`);
   }
@@ -227,4 +237,22 @@ export interface StripeSubscription {
   canceled_at: number | null;
   items: { data: Array<{ price: { id: string } }> };
   metadata?: Record<string, string>;
+}
+
+/** Minimal Stripe invoice shape we surface to the frontend. */
+export interface StripeInvoice {
+  id: string;
+  number: string | null;
+  status: string | null;
+  currency: string;
+  amount_due: number;
+  amount_paid: number;
+  amount_remaining: number;
+  created: number;
+  hosted_invoice_url: string | null;
+  invoice_pdf: string | null;
+  period_start: number | null;
+  period_end: number | null;
+  billing_reason: string | null;
+  description?: string | null;
 }

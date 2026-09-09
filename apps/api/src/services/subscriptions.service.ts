@@ -203,6 +203,37 @@ export class SubscriptionsService {
     return subscription;
   }
 
+  /** List Stripe invoices for a user — empty for Free / admin-granted plans. */
+  async listInvoicesForUser(userId: string, limit = 12) {
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { userId },
+      select: { stripeCustomerId: true, grantedByAdmin: true },
+    });
+    if (!subscription?.stripeCustomerId) return [];
+    if (!this.stripe.isConfigured) return [];
+    try {
+      const invoices = await this.stripe.listInvoices(subscription.stripeCustomerId, limit);
+      return invoices.map((inv) => ({
+        id: inv.id,
+        number: inv.number,
+        status: inv.status,
+        currency: inv.currency,
+        amountDue: inv.amount_due,
+        amountPaid: inv.amount_paid,
+        amountRemaining: inv.amount_remaining,
+        created: inv.created ? new Date(inv.created * 1000).toISOString() : null,
+        hostedInvoiceUrl: inv.hosted_invoice_url,
+        invoicePdf: inv.invoice_pdf,
+        periodStart: inv.period_start ? new Date(inv.period_start * 1000).toISOString() : null,
+        periodEnd: inv.period_end ? new Date(inv.period_end * 1000).toISOString() : null,
+        billingReason: inv.billing_reason,
+      }));
+    } catch (err) {
+      this.logger.warn(`Failed to list invoices for user ${userId}: ${(err as Error).message}`);
+      return [];
+    }
+  }
+
   /** Admin: revoke a manual grant, returning the user to Free. */
   async revokeGrant(userId: string) {
     const existing = await this.prisma.subscription.findUnique({ where: { userId } });

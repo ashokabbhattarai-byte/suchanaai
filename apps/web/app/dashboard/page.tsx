@@ -5,7 +5,7 @@ import Link from "next/link"
 import {
   Eye, Bookmark, Bell, TrendingUp, FileText, Search,
   ArrowRight, AlertCircle, Zap, CheckCircle,
-  CalendarClock, Activity, BarChart3, CreditCard,
+  CalendarClock, Activity, BarChart3, CreditCard, Receipt, Download, ExternalLink,
 } from "lucide-react"
 import { Header } from "@/components/layout/header"
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
@@ -14,6 +14,7 @@ import { useAlerts } from "@/lib/alerts-context"
 import { toast } from "sonner"
 import { mockNotices, mockActivities } from "@/lib/mock-data"
 import { CATEGORY_ORDER, categoryLabel, ScrapedItemCategory } from "@/lib/types"
+import { fetchBillingSummary, fetchInvoices, formatPlanPrice, type Invoice, type BillingSummary } from "@/lib/api"
 import gsap from "gsap"
 
 function StatCard({
@@ -53,6 +54,9 @@ export default function DashboardPage() {
   const { alerts, addAlert, error: alertError, quotaError } = useAlerts()
   const [wizardData, setWizardData] = useState({ name: "", categories: [] as ScrapedItemCategory[] })
   const gridRef = useRef<HTMLDivElement>(null)
+  const [billing, setBilling] = useState<BillingSummary | null>(null)
+  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [invoicesLoading, setInvoicesLoading] = useState(false)
 
   useEffect(() => {
     if (!gridRef.current) return
@@ -76,6 +80,35 @@ export default function DashboardPage() {
       toast.error(alertError)
     }
   }, [alertError, quotaError])
+
+  // Load billing + invoices when signed in — only for paid users do we show invoices
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const summary = await fetchBillingSummary()
+        if (cancelled) return
+        setBilling(summary)
+        if (summary.plan.tier !== "FREE") {
+          setInvoicesLoading(true)
+          try {
+            const inv = await fetchInvoices()
+            if (!cancelled) setInvoices(inv)
+          } catch {
+            if (!cancelled) setInvoices([])
+          } finally {
+            if (!cancelled) setInvoicesLoading(false)
+          }
+        }
+      } catch {
+        // billing is best-effort on the dashboard; don't surface as toast
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   if (!user) {
     return (
@@ -384,6 +417,116 @@ export default function DashboardPage() {
                   })}
                 </div>
               </div>
+
+              {/* Invoices — visible only after upgrade */}
+              {billing && billing.plan.tier !== "FREE" && (
+                <div className="dash-card w-full max-w-full min-w-0 overflow-hidden rounded-[20px] bg-white p-4 sm:p-6">
+                  <div className="mb-4 flex min-w-0 items-center justify-between gap-2">
+                    <h3 className="flex items-center gap-2 text-sm font-medium text-vez-ink sm:text-base">
+                      <Receipt className="size-4 text-vez-navy" /> Invoices
+                    </h3>
+                    <Link
+                      href="/dashboard/billing"
+                      className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs text-vez-mute transition-colors hover:bg-vez-surface hover:text-vez-navy"
+                    >
+                      All invoices <ArrowRight className="size-3" />
+                    </Link>
+                  </div>
+
+                  {invoicesLoading ? (
+                    <div className="space-y-3 animate-pulse" aria-hidden="true">
+                      {Array.from({ length: 2 }).map((_, i) => (
+                        <div key={i} className="flex items-center gap-3 rounded-[14px] bg-vez-surface px-4 py-3">
+                          <div className="size-9 rounded-xl bg-white" />
+                          <div className="flex-1 space-y-2">
+                            <div className="h-3 w-28 rounded bg-white" />
+                            <div className="h-2 w-40 rounded bg-white/70" />
+                          </div>
+                          <div className="h-5 w-16 rounded-full bg-white" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : invoices.length === 0 ? (
+                    <div className="rounded-[14px] bg-vez-surface px-4 py-6 text-center">
+                      <Receipt className="mx-auto size-6 text-vez-mute/40" />
+                      <p className="mt-2 text-sm text-vez-ink">No invoices yet</p>
+                      <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-vez-mute">
+                        Your Stripe receipts will appear here after the first billing cycle.
+                      </p>
+                      <Link
+                        href="/dashboard/billing"
+                        className="mt-3 inline-flex items-center gap-1 rounded-full bg-vez-navy px-4 py-2 text-xs text-white hover:opacity-90"
+                      >
+                        Go to billing <ArrowRight className="size-3" />
+                      </Link>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {invoices.slice(0, 3).map((inv) => {
+                        const isPaidInv = inv.status === "paid"
+                        const amt = isPaidInv ? inv.amountPaid : inv.amountDue
+                        return (
+                          <div
+                            key={inv.id}
+                            className="flex flex-col gap-2 rounded-[14px] border border-vez-line/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4"
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-vez-surface">
+                                <Receipt className="size-3.5 text-vez-navy" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-vez-ink">
+                                  {inv.number ?? `Invoice ${inv.id.slice(0, 8)}`} · {formatPlanPrice(amt, inv.currency)}
+                                </p>
+                                <p className="truncate text-xs text-vez-mute">
+                                  {inv.created ? new Date(inv.created).toLocaleDateString() : ""} ·{" "}
+                                  <span className="capitalize">{inv.status}</span>
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1.5 self-start sm:self-auto">
+                              {inv.hostedInvoiceUrl && (
+                                <a
+                                  href={inv.hostedInvoiceUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1 rounded-full border border-vez-line px-3 py-1.5 text-xs text-vez-ink hover:bg-vez-surface"
+                                >
+                                  <ExternalLink className="size-3" /> View
+                                </a>
+                              )}
+                              {inv.invoicePdf && (
+                                <a
+                                  href={inv.invoicePdf}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1 rounded-full bg-vez-navy px-3 py-1.5 text-xs text-white hover:opacity-90"
+                                >
+                                  <Download className="size-3" /> PDF
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                      {invoices.length > 3 && (
+                        <Link
+                          href="/dashboard/billing"
+                          className="block pt-1 text-center text-xs text-vez-mute hover:text-vez-navy"
+                        >
+                          +{invoices.length - 3} more on billing page
+                        </Link>
+                      )}
+                    </div>
+                  )}
+                  <p className="mt-3 text-xs text-vez-mute">
+                    Plan: <span className="font-medium text-vez-ink">{billing.plan.name}</span> ·{" "}
+                    <Link href="/dashboard/billing" className="underline underline-offset-2 hover:text-vez-ink">
+                      Manage billing
+                    </Link>
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Right - 1 col */}

@@ -241,6 +241,26 @@ export async function openBillingPortal(): Promise<{ url: string }> {
   return apiFetch("/billing/portal", { method: "POST", body: JSON.stringify({}) })
 }
 
+export interface Invoice {
+  id: string
+  number: string | null
+  status: string | null
+  currency: string
+  amountDue: number
+  amountPaid: number
+  amountRemaining: number
+  created: string | null
+  hostedInvoiceUrl: string | null
+  invoicePdf: string | null
+  periodStart: string | null
+  periodEnd: string | null
+  billingReason: string | null
+}
+
+export async function fetchInvoices(): Promise<Invoice[]> {
+  return apiFetch("/billing/invoices")
+}
+
 export interface AdminPlan extends Omit<PublicPlan, "features" | "purchasable"> {
   id: string
   features: string[] | null

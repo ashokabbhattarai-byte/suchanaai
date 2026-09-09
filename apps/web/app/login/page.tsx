@@ -87,6 +87,10 @@ function LoginForm() {
 
             <p className="text-center text-xs text-vez-mute">
               By signing in, you agree to our{" "}
+              <Link href="/terms" className="underline underline-offset-2 hover:text-vez-ink">
+                Terms and Conditions
+              </Link>{" "}
+              and{" "}
               <Link href="/privacy" className="underline underline-offset-2 hover:text-vez-ink">
                 Privacy Policy
               </Link>

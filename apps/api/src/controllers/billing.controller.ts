@@ -62,6 +62,13 @@ export class BillingController {
     return { ...entitlements, paymentsConfigured: this.stripe.isConfigured };
   }
 
+  /** Recent Stripe invoices for the signed-in user (empty if Free or not a Stripe customer). */
+  @Get('invoices')
+  @ApiOperation({ summary: 'Recent invoices for the current user' })
+  async invoices(@CurrentUser() user: User) {
+    return this.subscriptions.listInvoicesForUser(user.id);
+  }
+
   /** Begin an upgrade: returns a Stripe Checkout URL to redirect to. */
   @Post('checkout')
   @ApiOperation({ summary: 'Create a Stripe Checkout session' })
