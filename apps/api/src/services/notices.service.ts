@@ -661,11 +661,11 @@ export class NoticesService {
         else if (cls === 'messy') messy++;
         else broken++;
 
-        let shouldQueue = false;
-        if (scope === 'all') shouldQueue = hasAttachment;
-        else if (scope === 'broken') shouldQueue = cls === 'broken' && hasAttachment;
-        else if (scope === 'messy') shouldQueue = cls === 'messy' && hasAttachment;
-        else shouldQueue = cls !== 'clean' && hasAttachment; // garbled = messy+broken
+        const shouldQueue =
+          scope === 'all' ? hasAttachment
+          : scope === 'broken' ? cls === 'broken' && hasAttachment
+          : scope === 'messy' ? cls === 'messy' && hasAttachment
+          : cls !== 'clean' && hasAttachment; // garbled = messy+broken
 
         if (shouldQueue) queuedIds.push(n.id);
       }
@@ -742,9 +742,6 @@ export class NoticesService {
       };
     }
 
-    const queuedLabel =
-      scope === 'broken' ? 'broken' : scope === 'messy' ? 'messy' : scope === 'all' ? 'with attachment' : 'messy/broken';
-
     return {
       jobId,
       scope,
@@ -809,7 +806,9 @@ export class NoticesService {
                     this.logger.warn(`Bulk job ${jobId ?? ''}: queue still full after pause — pausing additional ${QUEUE_FULL_PAUSE_MS}ms`);
                     await new Promise((r) => setTimeout(r, QUEUE_FULL_PAUSE_MS));
                   }
-                } catch {}
+                } catch {
+                  // health re-check failed, continue with re-extract anyway
+                }
               }
             }
           } catch (err: any) {
