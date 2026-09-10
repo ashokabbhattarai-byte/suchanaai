@@ -1175,8 +1175,35 @@ def _circuit_record(slug: str | None, ok: bool) -> None:
     _HEALTH_CIRCUIT[slug] = (fail_count, new_open_until)
 
 
+def _provider_error_message(body: str) -> str | None:
+    """Pull the human-readable reason out of an error body, if there is one.
+
+    Covers both shapes vendors use: {"error": {"message": ...}} and a bare
+    {"message": ...}. Returns None for HTML/empty bodies so the caller can
+    fall back to its own wording.
+    """
+    try:
+        parsed = json.loads(body)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    error = parsed.get("error")
+    message = (error.get("message") if isinstance(error, dict) else None) or parsed.get("message")
+    if isinstance(message, str) and message.strip():
+        return message.strip()[:200]
+    return None
+
+
 def _describe_http_failure(status: int, body: str) -> str:
     if status in (401, 403):
+        # Not every 401 is a bad key: OpenCode returns one for a missing
+        # x-session-id and another for an empty credit balance. Flattening
+        # those to "invalid or revoked" sends an admin off rotating a key
+        # that was fine, so the provider's own reason wins when it gives one.
+        reason = _provider_error_message(body)
+        if reason:
+            return f"Rejected (HTTP {status}): {reason}"
         return "Authentication failed — the API key is invalid or revoked."
     if status == 404:
         return "Not found — check the model name and endpoint URL."
@@ -1227,6 +1254,12 @@ async def _probe_one_model(provider: dict) -> tuple[bool, str | None]:
         probe_headers = {"Content-Type": "application/json"}
         if provider.get("api_key"):
             probe_headers["Authorization"] = f"Bearer {provider['api_key']}"
+        # The probe is a real chat call, so it needs the same gateway headers
+        # the chat adapter sends. Without them OpenCode answers 401
+        # MissingSessionID, which _describe_http_failure reports as "the API
+        # key is invalid or revoked" — a working key looking permanently dead.
+        if _is_opencode(provider):
+            probe_headers.update(_opencode_headers())
         # Health probe: self-hosted (Ollama/vLLM, _key_optional) uses 25s not 60s.
         # Chat path still uses 60s where CPU 7B genuinely needs it; health 60s
         # blocked the whole snapshot via indefinite gather. 25s still tolerates
