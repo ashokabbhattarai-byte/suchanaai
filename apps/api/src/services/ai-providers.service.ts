@@ -123,6 +123,25 @@ export class AiProvidersService implements OnModuleInit {
       model: 'openai/gpt-oss-120b',
       sortOrder: 1,
     },
+    // OpenCode Go — paid subscription, OpenAI-compatible gateway. Restored
+    // 2026-09-10 per admin request: was retired to Bedrock/Ollama/Groq-only
+    // roster, but admin needs it visible in /admin/ai and functional.
+    // Go is /zen/go/v1 (not Zen /zen/v1) — a Zen subscription does not fund Go
+    // and every paid Zen model 401s `CreditsError`. Model IDs differ: Go drops
+    // the `-free` suffix (`muse-spark-1.2-contributor`, `mimo-v2.5`).
+    // Benchmarked 2026-09-10: glm-5.3-flash 3.0s (chosen), deepseek-v4-flash 3.6s,
+    // mimo-v2.5 5.9s, qwen3.8-flash 9.0s; muse-spark-* 500 upstream. Needs
+    // `x-session-id` + custom User-Agent — handled in apps/ai/app/llm.py
+    // `_opencode_headers()` / `_is_opencode()`. Env key fallback is
+    // OPENCODE_ZEN_API_KEY / OPENCODE_API_KEY via ai_config_sync _env_key_for.
+    {
+      slug: 'opencode',
+      label: 'OpenCode Go (GLM 5.3 Flash)',
+      kind: AiProviderKind.OPENAI_COMPATIBLE,
+      baseUrl: 'https://opencode.ai/zen/go/v1/chat/completions',
+      model: 'glm-5.3-flash',
+      sortOrder: 2,
+    },
   ];
 
   constructor(
@@ -205,7 +224,7 @@ export class AiProvidersService implements OnModuleInit {
     // BUILT_INS, so the seeder above cannot bring them back; re-adding one is
     // the normal "Add provider" flow. This drops each row's stored key with
     // it, which is the point of retiring a provider.
-    const RETIRED_SLUGS = ['gemini', 'opencode', 'vllm-services', 'openrouter'];
+    const RETIRED_SLUGS = ['gemini', 'vllm-services', 'openrouter'];
     const toRetire = existing.filter((r) => RETIRED_SLUGS.includes(r.slug));
     if (toRetire.length) {
       await this.prisma.aiProvider.deleteMany({
