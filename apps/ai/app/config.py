@@ -114,12 +114,36 @@ GEMINI_API_KEY: str = _env("GEMINI_API_KEY")
 # gemini-2.0-flash was retired; Google's own 404 response names the successor.
 GEMINI_MODEL: str = _env("GEMINI_MODEL", "gemini-3.6-flash")
 
-# OpenCode Zen — free-tier OpenAI-compatible chat completions gateway. Third
-# fallback tier, tried after Gemini and Groq both fail (e.g. Gemini's billing
-# is exhausted, or Groq is rate-limited across all rotated keys).
-OPENCODE_ZEN_API_KEY: str = _env("OPENCODE_ZEN_API_KEY")
-OPENCODE_ZEN_BASE_URL: str = _env("OPENCODE_ZEN_BASE_URL", "https://opencode.ai/zen/v1/chat/completions")
-OPENCODE_ZEN_MODEL: str = _env("OPENCODE_ZEN_MODEL", "deepseek-v4-flash-free")
+# OpenCode Zen/Go — OpenAI-compatible chat completions gateway, and the
+# primary provider now that Bedrock is de-authorized on this AWS account.
+#
+# Two non-obvious requirements, both verified 2026-09-10 against a live key:
+#  * Free-tier models 401 with `MissingSessionID` ("OpenCode's free tier can
+#    only be used in OpenCode") unless an `x-session-id` header is sent.
+#  * Cloudflare answers `error code: 1010` to the default python-httpx/urllib
+#    User-Agent, so one must be set explicitly.
+# Both are applied in llm._opencode_headers().
+OPENCODE_ZEN_API_KEY: str = _env("OPENCODE_API_KEY") or _env("OPENCODE_ZEN_API_KEY")
+# OpenCode *Go* (the paid subscription), not Zen. They are separate products
+# on separate paths: Zen is `/zen/v1` and is pay-as-you-go against a credit
+# balance — with a Go subscription every paid Zen model 401s with
+# `CreditsError: Insufficient balance`, and Zen's free models are rate-limited
+# within a handful of requests. Go is `/zen/go/v1` and is what the
+# subscription actually entitles. Model IDs differ between the two: Go drops
+# the `-free` suffix (`muse-spark-1.2-contributor`, `mimo-v2.5`).
+OPENCODE_ZEN_BASE_URL: str = _env("OPENCODE_BASE_URL") or _env(
+    "OPENCODE_ZEN_BASE_URL", "https://opencode.ai/zen/go/v1/chat/completions"
+)
+# Benchmarked 2026-09-10 on the Go endpoint with a real notice-summary prompt:
+#   glm-5.3-flash      3.0s  117 out  ← chosen: fastest and most concise
+#   deepseek-v4-flash  3.6s  180 out
+#   mimo-v2.5          5.9s  221 out
+#   qwen3.8-flash      9.0s  426 out  (slow, verbose)
+#   kimi-k2.7-code     invalid_request_error
+# muse-spark-1.2-contributor and -1.3-contributor both return
+# "Internal server error" from OpenCode — broken upstream, not here. Point
+# this at muse-spark-1.2-contributor once OpenCode fixes it.
+OPENCODE_ZEN_MODEL: str = _env("OPENCODE_MODEL") or _env("OPENCODE_ZEN_MODEL", "glm-5.3-flash")
 
 # AWS Bedrock (Claude) — the primary provider. Authenticates with a Bedrock
 # bearer token (AWS_BEARER_TOKEN_BEDROCK) rather than SigV4 keys, so it fits

@@ -5,6 +5,7 @@ import json
 import random
 import re
 import time
+import uuid
 from collections import OrderedDict
 from urllib.parse import urlparse
 
@@ -345,7 +346,16 @@ RUNTIME_PROVIDERS: list[dict] = []
 def _env_fallback_providers() -> list[dict]:
     """Built-ins from environment variables, used until the registry syncs."""
     out = []
-    # First — Bedrock is the primary provider (see the primary branch in _llm_chat).
+    # First — OpenCode is the primary provider (see the primary branch in
+    # _llm_chat). It leads because Bedrock is currently de-authorized on this
+    # AWS account: every model, including Amazon's own, returns
+    # "Operation not allowed" and all 305 inference quotas read 0.
+    if config.OPENCODE_ZEN_API_KEY:
+        out.append({
+            "slug": "opencode", "label": "OpenCode Go (GLM 5.3 Flash)", "kind": "OPENAI_COMPATIBLE",
+            "base_url": config.OPENCODE_ZEN_BASE_URL, "model": config.OPENCODE_ZEN_MODEL,
+            "api_key": config.OPENCODE_ZEN_API_KEY, "enabled": True,
+        })
     if config.BEDROCK_API_KEY:
         out.append({
             "slug": "bedrock", "label": "AWS Bedrock (Claude Haiku 4.5)", "kind": "BEDROCK",
@@ -420,6 +430,35 @@ def _is_openrouter(provider: dict) -> bool:
     not of whatever label happens to be on it."""
     base_url = provider.get("base_url") or ""
     return urlparse(base_url).netloc == "openrouter.ai"
+
+
+def _is_opencode(provider: dict) -> bool:
+    """Host-based check like _is_openrouter — the extra headers below are a
+    property of the OpenCode gateway, not of the row's label."""
+    base_url = provider.get("base_url") or ""
+    return urlparse(base_url).netloc == "opencode.ai"
+
+
+def _opencode_headers() -> dict:
+    """The two headers OpenCode's gateway refuses to work without.
+
+    `x-session-id` unlocks the free tier, which otherwise rejects every
+    request with `MissingSessionID`. A fresh id per request is what was
+    verified to work, and it avoids any per-session rate limiting.
+
+    The User-Agent is not cosmetic: Cloudflare serves `error code: 1010` (a
+    plain-text body, not JSON) to httpx's default agent, which surfaces as an
+    unparseable response rather than an HTTP error.
+    """
+    return {
+        "x-session-id": f"ses_{uuid.uuid4().hex[:26]}",
+        "User-Agent": "suchana-ai/1.0",
+    }
+
+
+def _is_metered_primary(provider: dict) -> bool:
+    """Providers whose allowance a hedged race would waste — see _llm_chat."""
+    return provider.get("kind") == "BEDROCK" or _is_opencode(provider)
 
 
 def _is_groq(provider: dict) -> bool:
@@ -585,11 +624,11 @@ async def _llm_chat(
         logger.info("No LLM provider is configured")
         return None
 
-    # Bedrock as designated primary: when it sorts first it is called alone,
-    # before any race. Racing it would bill a paid request on every question
-    # even when a free tier answers first, and Haiku 4.5 returns in well under
-    # a second, so the race would buy no latency to justify that cost.
-    if providers[0].get("kind") == "BEDROCK":
+    # A metered primary is called alone, before any race. Racing it would
+    # spend allowance on every question even when a free tier answers first:
+    # Bedrock bills per request, and OpenCode's free tier has 5-hour/weekly/
+    # monthly caps that a race would burn through for no latency gain.
+    if _is_metered_primary(providers[0]):
         primary = providers[0]
         result = await _call_provider(primary, messages, max_tokens, temperature)
         if result:
@@ -611,9 +650,10 @@ async def _llm_chat(
     # Cap concurrency: top 7 agents cover Ollama + vLLM + OpenRouter(x2) + Groq(x2) + Gemini.
     # 7 ensures Gemini is raced even when both vendors have 2 keys (Ollama,vLLM,OR,OR2,Groq,Groq2 =6, Gemini=7).
     # More keys => more hedged agents doubles free-tier quota without extra latency.
-    # Bedrock (paid, rarely needed) stays sequential fallback to avoid
-    # spending on every request.
-    hedged = [p for p in providers if p.get("kind") != "BEDROCK"][:7]
+    # Metered providers (Bedrock, OpenCode) stay a sequential fallback to
+    # avoid spending allowance on every request — same rule as the primary
+    # branch above, applied when they sort below a free provider instead.
+    hedged = [p for p in providers if not _is_metered_primary(p)][:7]
     sequential_tail = [p for p in providers if p not in hedged]
 
     # Fire hedged agents concurrently.
@@ -924,10 +964,16 @@ async def _openai_compatible_chat(
     # prompt (measured on the qwen2.5:7b EC2 box), so they get a much longer
     # budget rather than being timed out for being what they are.
     is_or = _is_openrouter(provider)
+    is_oc = _is_opencode(provider)
     if is_or:
         timeout = 7.0
     elif _key_optional(provider):
         timeout = 60.0
+    elif is_oc:
+        # glm-5.3-flash measured 3.0s on a notice summary, but these are
+        # reasoning models — they think before writing, so a long prompt can
+        # push well past the 15s the generic branch allows.
+        timeout = 30.0
     else:
         timeout = 15.0
 
@@ -936,6 +982,8 @@ async def _openai_compatible_chat(
             headers = {"Content-Type": "application/json"}
             if provider.get("api_key"):
                 headers["Authorization"] = f"Bearer {provider['api_key']}"
+            if is_oc:
+                headers.update(_opencode_headers())
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(url, headers=headers, json=payload)
         except httpx.HTTPError as e:

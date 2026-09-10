@@ -1,21 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { AlertCircle, Eye, EyeOff, Loader2, RefreshCw, X } from "lucide-react"
 import { fetchAiProviderModels } from "@/lib/api"
+import { formatContext } from "@/components/admin/model-select"
 import type {
   AiProvider,
   AiProviderInput,
   AiProviderKind,
   AiProviderModel,
 } from "@/lib/types"
-
-/** 262144 → "262k", 1048576 → "1M" — model lists are dense enough already. */
-function formatContext(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_048_576).toFixed(tokens % 1_048_576 ? 1 : 0)}M`
-  if (tokens >= 1000) return `${Math.round(tokens / 1024)}k`
-  return String(tokens)
-}
 
 /** Detects self-hosted endpoints (vLLM, Ollama, LM Studio) that need no API key. */
 const SELF_HOSTED_RE =
@@ -67,6 +61,18 @@ const PRESETS: Array<{
     // this row will 404 model — that's OK, chain continues to next provider.
     baseUrl: "http://3.80.188.210:8001/v1/chat/completions",
     model: "Qwen/Qwen2.5-0.5B-Instruct",
+  },
+  {
+    label: "OpenCode Go (GLM 5.3 Flash) [PRIMARY — 3.0s, paid subscription]",
+    kind: "OPENAI_COMPATIBLE",
+    // Go (/zen/go/v1), NOT Zen (/zen/v1) — a Go subscription does not fund
+    // Zen, where every paid model 401s with CreditsError. Model IDs differ
+    // between the two: Go drops the "-free" suffix.
+    baseUrl: "https://opencode.ai/zen/go/v1/chat/completions",
+    // Benchmarked 2026-09-10: glm-5.3-flash 3.0s, deepseek-v4-flash 3.6s,
+    // mimo-v2.5 5.9s, qwen3.8-flash 9.0s. muse-spark-*-contributor 500s
+    // upstream. "Load" lists all 35 Go models.
+    model: "glm-5.3-flash",
   },
   {
     label: "AWS Bedrock (Claude Haiku 4.5)",
@@ -190,6 +196,15 @@ export function ProviderDialog({
       setLoadingModels(false)
     }
   }
+
+  // Editing an existing provider: the endpoint and key are already stored, so
+  // fetch the catalogue straight away instead of making the admin click Load
+  // before they can see what they may switch to. A new provider has no
+  // endpoint yet, so it still waits for one.
+  useEffect(() => {
+    if (kind !== "BEDROCK" && provider?.id && baseUrl) void loadModels()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider?.id])
 
   const visibleModels = models.filter((m) =>
     m.id.toLowerCase().includes(modelQuery.trim().toLowerCase()),

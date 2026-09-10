@@ -36,6 +36,7 @@ import { AdminLayout } from "@/components/admin/admin-layout"
 import { useConfirm } from "@/components/ui/confirm-dialog"
 import { Header } from "@/components/layout/header"
 import { ProviderDialog } from "@/components/admin/provider-dialog"
+import { ModelSelect } from "@/components/admin/model-select"
 import { AiTemperatureCard } from "@/components/admin/ai-temperature-card"
 import {
   fetchAiProviders,
@@ -286,6 +287,14 @@ export default function AdminAiPage() {
     }
   }
 
+  // Saved straight from the card's dropdown — no dialog round-trip, since
+  // swapping models is the one provider edit that gets made repeatedly.
+  const selectModel = async (p: AiProvider, model: string) => {
+    const updated = await updateAiProvider(p.id, { model })
+    setProviders((list) => list.map((x) => (x.id === p.id ? updated : x)))
+    setNotice({ ok: true, text: `${updated.label} now uses ${model}.` })
+  }
+
   const remove = async (p: AiProvider) => {
     if (
       !(await confirm({
@@ -449,6 +458,7 @@ export default function AdminAiPage() {
                         setDialogOpen(true)
                       }}
                       onDelete={() => remove(p)}
+                      onSelectModel={(model) => selectModel(p, model)}
                     />
                   ))}
                 </div>
@@ -489,6 +499,7 @@ function ProviderCard({
   onToggle,
   onEdit,
   onDelete,
+  onSelectModel,
 }: {
   provider: AiProvider
   rank: number
@@ -499,6 +510,7 @@ function ProviderCard({
   onToggle: () => void
   onEdit: () => void
   onDelete: () => void
+  onSelectModel: (model: string) => Promise<void>
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: provider.id,
@@ -541,13 +553,13 @@ function ProviderCard({
           </span>
         )}
 
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span
             className={`text-[15px] ${provider.enabled ? "text-vez-ink" : "text-vez-mute line-through"}`}
           >
             {provider.label}
           </span>
-          <span className="font-mono text-[11px] text-vez-mute">{provider.model}</span>
+          <ModelSelect provider={provider} onSelect={onSelectModel} />
         </div>
 
         {inUse && (
