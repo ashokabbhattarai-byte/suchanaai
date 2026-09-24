@@ -133,6 +133,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      packages: write
     concurrency:
       # Never cancel a deploy mid-flight — a killed Beanstalk update can
       # leave the environment mid-rollout. Scoped to web only, so a slow AI
@@ -184,6 +185,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      packages: write
     concurrency:
       group: deploy-api-${{ github.ref }}
       cancel-in-progress: false
@@ -225,6 +227,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      packages: write
     concurrency:
       group: deploy-ai-${{ github.ref }}
       cancel-in-progress: false
