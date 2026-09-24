@@ -100,7 +100,7 @@ const emptyForm: SourceFormState = {
   sitemapUrl: "",
 }
 
-const PROGRESS_POLL_MS = 1200
+const PROGRESS_POLL_MS = 3000
 
 const TAB_PREFS_KEY = "pnm_admin_scraping_tab"
 const QUICK_HISTORY_KEY = "pnm_admin_quick_scrape_history"
@@ -616,11 +616,15 @@ function AdminScrapingPageContent() {
     stopPolling(sourceId)
     let cancelled = false
     let timer: ReturnType<typeof setTimeout>
+    let consecutiveFailures = 0
+    let backoffMs = PROGRESS_POLL_MS
 
     const tick = async () => {
       try {
         const progress = await fetchScrapeRunProgress(runId)
         if (cancelled) return
+        consecutiveFailures = 0
+        backoffMs = PROGRESS_POLL_MS
         setProgressBySource((prev) => ({ ...prev, [sourceId]: progress }))
         if (progress.stage === "done" || progress.stage === "failed") {
           stopPolling(sourceId)
@@ -633,17 +637,31 @@ function AdminScrapingPageContent() {
           onDone?.(progress.stage)
           return
         }
-      } catch {
-        // Transient poll failure — keep trying until polling is stopped.
+      } catch (e: any) {
+        consecutiveFailures += 1
+        if (e?.status === 429) {
+          backoffMs = Math.min(backoffMs * 1.5, 12000)
+        } else {
+          backoffMs = Math.min(backoffMs * 1.3, 10000)
+        }
+        if (consecutiveFailures > 30) {
+          stopPolling(sourceId)
+          setRunningIds((prev) => {
+            const next = new Set(prev)
+            next.delete(sourceId)
+            return next
+          })
+          return
+        }
       }
-      if (!cancelled) timer = setTimeout(tick, PROGRESS_POLL_MS)
+      if (!cancelled) timer = setTimeout(tick, backoffMs)
     }
 
     pollTimers.current[sourceId] = () => {
       cancelled = true
       clearTimeout(timer)
     }
-    timer = setTimeout(tick, PROGRESS_POLL_MS)
+    timer = setTimeout(tick, backoffMs)
   }
 
   /** `deep` walks every page of every listing instead of the newest few. */

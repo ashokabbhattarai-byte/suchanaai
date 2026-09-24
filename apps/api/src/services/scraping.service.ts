@@ -420,6 +420,16 @@ export class ScrapingService {
    * isn't already (freshly) RUNNING. Each source goes through the same
    * runSource() path — the DB-backed lock prevents overlap, and disabled or
    * busy sources are reported rather than erroring the whole batch.
+   *
+   * Stampede guard: "Run all" used to kick off all ~38 sources within
+   * seconds, and every one of them did a FULL listing crawl + per-item
+   * detail fetch + LLM summarize on the single AI worker at once — so all
+   * of them hit the 600s axios timeout together. Kickoffs are therefore
+   * bounded to the admin-tunable `scraping.concurrency` budget (default 3)
+   * via an inline worker pool (p-limit style, no new deps). Combined with
+   * the cheap-first order in executeRun — most runs now short-circuit in
+   * seconds on a sitemap/listing check without ever starting a full crawl
+   * — the AI worker never sees dozens of concurrent full crawls.
    */
   async runAllSources(
     categories?: ('NOTICE' | 'NEWS' | 'PRESS_RELEASE')[],
@@ -440,12 +450,24 @@ export class ScrapingService {
     });
     const activeSourceIds = new Set(activeRuns.map((r) => r.sourceId!));
 
-    const results: {
+    // Admin-tunable (SettingsService, with the env fallback the scheduler
+    // uses) — how many sources "Run all" may kick off at once. Floored at 1
+    // so a misconfigured 0/negative value degrades to sequential, never to
+    // a pool that schedules nothing.
+    const configuredConcurrency = await this.settings.getNumber(
+      'scraping.concurrency',
+      Number(this.config.get<string>('SCRAPING_CONCURRENCY')) || 3,
+    );
+    const concurrency = Math.max(1, Math.floor(configuredConcurrency));
+
+    type RunAllResult = {
       sourceId: string;
       sourceName: string;
       runId: string | null;
       status: 'scheduled' | 'already-running' | 'disabled';
-    }[] = [];
+    };
+    const results: RunAllResult[] = [];
+    const eligible: { index: number; id: string; name: string }[] = [];
 
     for (const source of sources) {
       if (!source.enabled) {
@@ -456,17 +478,29 @@ export class ScrapingService {
         results.push({ sourceId: source.id, sourceName: source.name, runId: null, status: 'already-running' });
         continue;
       }
-      try {
-        const { runId } = await this.runSource(source.id, categories, deep);
-        results.push({ sourceId: source.id, sourceName: source.name, runId, status: 'scheduled' });
-        // Mark as active immediately to avoid double-scheduling within this same batch loop
-        activeSourceIds.add(source.id);
-      } catch {
-        // A source could race into a RUNNING state between the check above
-        // and runSource — never fail the whole batch for that.
-        results.push({ sourceId: source.id, sourceName: source.name, runId: null, status: 'already-running' });
-      }
+      eligible.push({ index: results.length, name: source.name, id: source.id });
+      // Placeholder keeps result order stable (createdAt) regardless of
+      // which worker finishes first; filled in below.
+      results.push({ sourceId: source.id, sourceName: source.name, runId: null, status: 'already-running' });
+      // Mark as active immediately to avoid double-scheduling within this same batch loop
+      activeSourceIds.add(source.id);
     }
+
+    const queue = [...eligible];
+    const workerCount = Math.min(concurrency, queue.length);
+    const workers = Array.from({ length: workerCount }, async () => {
+      for (let next = queue.shift(); next; next = queue.shift()) {
+        try {
+          const { runId } = await this.runSource(next.id, categories, deep);
+          results[next.index] = { sourceId: next.id, sourceName: next.name, runId, status: 'scheduled' };
+        } catch {
+          // A source could race into a RUNNING state between the check above
+          // and runSource — never fail the whole batch for that.
+          results[next.index] = { sourceId: next.id, sourceName: next.name, runId: null, status: 'already-running' };
+        }
+      }
+    });
+    await Promise.all(workers);
 
     return {
       scheduled: results.filter((r) => r.status === 'scheduled').length,
@@ -718,7 +752,18 @@ export class ScrapingService {
     };
   }
 
-  /** The actual crawl + persistence, run detached from the triggering request. */
+  /** The actual crawl + persistence, run detached from the triggering request.
+   *
+   * Cheap-first order for incremental (non-deep) runs: a sitemap check
+   * (seconds, no browser) and then a single-page listing probe (seconds,
+   * no detail pages/OCR/LLM) run BEFORE any full crawl, and the full
+   * max_pages crawl only happens when a probe proves something is new.
+   * Previously the full crawl ran first on every poll — with "Run all"
+   * firing ~38 of them at once, every run did the expensive work
+   * simultaneously and all of them hit the 600s timeout together.
+   * Deep runs are archive backfills and skip the probes entirely: they walk
+   * everything below, exactly as before.
+   */
   private async executeRun(
     runId: string,
     source: ScrapeSource,
@@ -763,6 +808,85 @@ export class ScrapingService {
       if (source.newsSchema) cachedSchemas.NEWS = source.newsSchema;
       if (source.pressReleaseSchema) cachedSchemas.PRESS_RELEASE = source.pressReleaseSchema;
 
+      if (!deep) {
+        // 1. Sitemap fast-path first: crawl ONLY the sitemap's new URLs
+        // directly (usually seconds-minutes), then the run is done — no
+        // listing crawl at all.
+        if (source.sitemapUrl) {
+          try {
+            const check = await this.checkSitemap(source.id);
+            const newUrls: string[] = check.new_urls ?? [];
+            if (newUrls.length) {
+              this.logger.log(
+                `Sitemap for ${source.name} shows ${newUrls.length} new URL(s) — crawling them directly`,
+              );
+              const sitemapResponse = await firstValueFrom(
+                this.httpService.post(
+                  `${this.aiServiceUrl}/scrape/sitemap-crawl`,
+                  {
+                    base_url: source.baseUrl,
+                    urls: newUrls,
+                    known_urls: knownUrls,
+                    summarize_concurrency: summarizeConcurrency,
+                    run_id: runId,
+                    auto_finish: false,
+                  },
+                  { timeout: 600000 },
+                ),
+              );
+              const sitemapItems: RawScrapedItem[] = sitemapResponse.data.items ?? [];
+              const sitemapFailures: ScrapeFailure[] = sitemapResponse.data.failed_urls ?? [];
+              await this.finalizeRun(runId, source, sitemapItems, {}, sitemapFailures, {});
+              return;
+            }
+            this.logger.log(`Sitemap for ${source.name} shows no new URLs — probing listing`);
+          } catch (err: any) {
+            // A broken probe degrades to the old behaviour (full crawl
+            // below) rather than silently starving the source.
+            this.logger.warn(
+              `Sitemap check failed for ${source.name} (${err.message}) — falling back to listing probe`,
+            );
+          }
+        }
+
+        // 2. Light listing probe (POST /scrape/listing/check on the AI
+        // service — one page per category, no detail/OCR/LLM). A full crawl
+        // runs ONLY when the probe proves new content; otherwise the run
+        // closes here as a cheap SUCCESS without ever touching the browser
+        // pool. Closed inline rather than via finalizeRun: finishStreamedRun
+        // would fire a diagnose-with-discovery (expensive navigation
+        // re-crawl) for the itemsFound===0 case, which is exactly the cost
+        // this fast-path exists to avoid.
+        try {
+          const listing = await this.checkListing(source.id);
+          const newCount = listing.new_urls?.length ?? 0;
+          if (newCount === 0) {
+            this.logger.log(`Listing probe for ${source.name} shows no new URLs — skipping full crawl`);
+            await this.prisma.scrapeRun.update({
+              where: { id: runId },
+              data: { status: ScrapeRunStatus.SUCCESS, finishedAt: new Date() },
+            });
+            await this.prisma.scrapeSource.update({
+              where: { id: source.id },
+              data: {
+                lastRunAt: new Date(),
+                lastStatus: ScrapeRunStatus.SUCCESS,
+                lastError: null,
+                lastFailedUrls: Prisma.JsonNull,
+              },
+            });
+            return;
+          }
+          this.logger.log(
+            `Listing probe for ${source.name} shows ${newCount} new URL(s) — running full crawl`,
+          );
+        } catch (err: any) {
+          this.logger.warn(
+            `Listing probe failed for ${source.name} (${err.message}) — falling back to full crawl`,
+          );
+        }
+      }
+
       // auto_finish: false on both calls below — this method alone decides
       // when the run's book is closed (see finishStreamedRun's docstring),
       // because it might still fall back to a sitemap crawl for the same
@@ -804,10 +928,11 @@ export class ScrapingService {
       const failedUrls: ScrapeFailure[] = response.data.failed_urls ?? [];
       const stats: Record<string, unknown> = response.data.stats ?? {};
 
-      // Listing crawl produced nothing but a sitemap exists — some sites'
+      // Safety net for the listing crawl producing nothing: some sites'
       // category URLs 404 while the sitemap stays healthy (mohp.gov.np).
-      // Fall back to crawling the sitemap's new URLs directly so a manual
-      // "Run now" still yields data for these sources.
+      // Usually unreachable now — the cheap-first probes above already
+      // sitemap-crawled any new URLs — but kept for the racy case (sitemap
+      // updated between the probe and the crawl, or the probe errored).
       if (items.length === 0 && source.sitemapUrl) {
         this.logger.log(
           `Listing crawl for ${source.name} yielded 0 items; falling back to sitemap URLs`,
@@ -1768,17 +1893,68 @@ export class ScrapingService {
     }
   }
 
-  /** Proxy live status messages from the AI service for a run in progress. */
+  /**
+   * Proxy live status messages from the AI service for a run in progress.
+   *
+   * On AI proxy failure (e.g. a loaded box dropping the probe) this used to
+   * return the empty `{run_id, stage: null, messages: []}` shape, leaving
+   * the UI blank. It now falls back to the DB ScrapeRun row — same
+   * `{run_id, stage, messages}` shape and the AI service's own stage
+   * vocabulary (`running`/`done`/`failed`) — so a RUNNING run still shows
+   * progress and a finished run still shows its outcome.
+   */
   async getRunProgress(runId: string) {
     try {
       const response = await firstValueFrom(
         this.httpService.get(`${this.aiServiceUrl}/scrape/progress/${runId}`, {
-          timeout: 5000,
+          timeout: 10000,
         }),
       );
       return response.data;
     } catch {
-      return { run_id: runId, stage: null, messages: [] };
+      try {
+        const run = await this.prisma.scrapeRun.findUnique({ where: { id: runId } });
+        if (!run) return { run_id: runId, stage: null, messages: [] };
+        if (run.status === ScrapeRunStatus.RUNNING) {
+          const fresh =
+            Date.now() - run.startedAt.getTime() < this.staleRunTimeoutSeconds * 1000;
+          if (!fresh) return { run_id: runId, stage: null, messages: [] };
+          return {
+            run_id: runId,
+            stage: 'running',
+            messages: [{ text: `Crawling ${run.sourceLabel}…` }],
+          };
+        }
+        const finishedAt = run.finishedAt?.toISOString() ?? null;
+        if (run.status === ScrapeRunStatus.SUCCESS) {
+          return {
+            run_id: runId,
+            stage: 'done',
+            messages: [
+              {
+                text:
+                  `Finished crawling ${run.sourceLabel}` +
+                  ` — ${run.itemsNew} new of ${run.itemsFound} found` +
+                  (finishedAt ? ` at ${finishedAt}` : ''),
+              },
+            ],
+          };
+        }
+        return {
+          run_id: runId,
+          stage: 'failed',
+          messages: [
+            {
+              text:
+                `Crawl failed for ${run.sourceLabel}` +
+                (run.error ? `: ${run.error}` : '') +
+                (finishedAt ? ` at ${finishedAt}` : ''),
+            },
+          ],
+        };
+      } catch {
+        return { run_id: runId, stage: null, messages: [] };
+      }
     }
   }
 

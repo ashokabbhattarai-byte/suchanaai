@@ -14,6 +14,14 @@ out/
 .next/**
 app/.next
 
+# FYP submission artifacts — do not commit
+BHATTARAI_ASHOK_MR_NP069811_NP3F2509IT_CLOUD_FYP_SOURCE_CODE/
+BHATTARAI_ASHOK_MR_NP069811_NP3F2509IT_CLOUD_FYP_SOURCE_CODE.zip
+BHATTARAI_*.docx
+BHATTARAI_*.zip
+NP069811*.pdf
+NP069811*.zip
+Submission.zip
 # Vite / build outputs
 dist/
 build/
@@ -83,3 +91,10 @@ apps/api/uploads.cache/puppeteer
 # *.png removed — public assets need tracking
 *.mmd
 *.docx
+
+# Unused ECS scaffolding — we deploy on Elastic Beanstalk, not ECS.
+# (taskdef JSONs carried real secrets and stale single-AZ networking.)
+infra/
+
+# TypeScript incremental build info — local-only, churns on every build.
+*.tsbuildinfo

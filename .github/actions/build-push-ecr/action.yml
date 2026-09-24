@@ -6,8 +6,17 @@ description: >
 
 inputs:
   aws-role-arn:
-    description: IAM role ARN to assume via GitHub OIDC
-    required: true
+    description: IAM role ARN to assume via GitHub OIDC (preferred; leave empty to use static keys)
+    required: false
+    default: ""
+  aws-access-key-id:
+    description: Static AWS access key (fallback when OIDC is unavailable, e.g. org SCP denies the OIDC provider)
+    required: false
+    default: ""
+  aws-secret-access-key:
+    description: Static AWS secret key (paired with aws-access-key-id)
+    required: false
+    default: ""
   aws-region:
     required: true
   ecr-repo:
@@ -37,9 +46,18 @@ runs:
     # inherits the job it runs inside.
 
     - name: Configure AWS credentials (OIDC)
+      if: inputs.aws-role-arn != ''
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ inputs.aws-role-arn }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Configure AWS credentials (static keys)
+      if: inputs.aws-role-arn == '' && inputs.aws-access-key-id != ''
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
         aws-region: ${{ inputs.aws-region }}
 
     - name: Log in to Amazon ECR

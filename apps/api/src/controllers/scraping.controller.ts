@@ -26,6 +26,7 @@ import {
   DiscoverRoutesDto,
 } from '../dto/scrape-source.dto';
 import { ScrapedItemCategory } from '@prisma/client';
+import { SkipThrottle } from '@nestjs/throttler';
 
 @Controller('admin/scraping')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -38,6 +39,7 @@ export class ScrapingController {
   ) {}
 
   /** Effective scheduler configuration + last tick, for the admin UI. */
+  @SkipThrottle()
   @Get('scheduler')
   async schedulerStatus() {
     return this.scheduler.getSchedulerStatus();
@@ -63,6 +65,7 @@ export class ScrapingController {
     return this.scrapingService.runAllSources(categories, deep === true);
   }
 
+  @SkipThrottle()
   @Get('sources')
   async listSources() {
     return this.scrapingService.listSources();
@@ -147,6 +150,7 @@ export class ScrapingController {
     return this.scrapingService.checkSitemap(id);
   }
 
+  @SkipThrottle()
   @Get('items')
   async listItems(
     @Query('sourceId') sourceId?: string,
@@ -182,6 +186,7 @@ export class ScrapingController {
    * Scans the entire catalogue dynamically (cursor pagination), so it stays
    * accurate as the corpus grows past 2800. No side effects.
    */
+  @SkipThrottle()
   @Get('items/extraction-health')
   async extractionHealth() {
     return this.noticesService.getExtractionHealth();
@@ -212,6 +217,7 @@ export class ScrapingController {
   }
 
   /** Bulk re-extract progress — in-memory like scrape_progress. Poll for live status. */
+  @SkipThrottle()
   @Get('items/reextract/progress')
   async bulkProgressList() {
     return {
@@ -220,6 +226,7 @@ export class ScrapingController {
     };
   }
 
+  @SkipThrottle()
   @Get('items/reextract/progress/:jobId')
   async bulkProgressById(@Param('jobId') jobId: string) {
     const job = this.noticesService.getBulkProgress(jobId);
@@ -258,6 +265,7 @@ export class ScrapingController {
     return this.noticesService.reextract(id);
   }
 
+  @SkipThrottle()
   @Get('runs')
   async listRuns(
     @Query('sourceId') sourceId?: string,
@@ -273,6 +281,7 @@ export class ScrapingController {
     });
   }
 
+  @SkipThrottle()
   @Get('runs/:id/progress')
   async runProgress(@Param('id', ParseUUIDPipe) id: string) {
     return this.scrapingService.getRunProgress(id);

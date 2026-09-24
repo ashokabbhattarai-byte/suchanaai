@@ -356,11 +356,24 @@ def _env_fallback_providers() -> list[dict]:
             "base_url": config.OPENCODE_ZEN_BASE_URL, "model": config.OPENCODE_ZEN_MODEL,
             "api_key": config.OPENCODE_ZEN_API_KEY, "enabled": True,
         })
+    # Bedrock: bearer-token mode (BEDROCK_API_KEY) for local/dev, or IAM-role
+    # mode (SigV4 via task/pod role) for professional AWS deployments (ECS/EKS).
+    # When no bearer token is set but we're on AWS (ENVIRONMENT=production or
+    # ECS metadata), register the provider with api_key=None so it can ride the
+    # default credential chain via AnthropicBedrock(aws_region=...).
+    import os as _os
+    _is_aws = _os.environ.get("ENVIRONMENT") == "production" or _os.environ.get("AWS_EXECUTION_ENV") or _os.environ.get("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") or _os.environ.get("ECS_CONTAINER_METADATA_URI_V4")
     if config.BEDROCK_API_KEY:
         out.append({
             "slug": "bedrock", "label": "AWS Bedrock (Claude Haiku 4.5)", "kind": "BEDROCK",
             "base_url": None, "region": config.BEDROCK_REGION, "model": config.BEDROCK_MODEL,
             "api_key": config.BEDROCK_API_KEY, "enabled": True,
+        })
+    elif _is_aws:
+        out.append({
+            "slug": "bedrock", "label": "AWS Bedrock (Claude Haiku 4.5 via IAM)", "kind": "BEDROCK",
+            "base_url": None, "region": config.BEDROCK_REGION, "model": config.BEDROCK_MODEL,
+            "api_key": None, "enabled": True,
         })
     # OpenRouter is retired — the roster is Bedrock, Ollama and Groq. The
     # _is_openrouter host checks elsewhere stay put and simply never match;
@@ -395,10 +408,22 @@ def all_providers() -> list[dict]:
 def _key_optional(provider: dict) -> bool:
     """OPENAI_COMPATIBLE covers self-hosted endpoints (Ollama, vLLM, LM
     Studio) that take no Authorization header at all, not just hosted
-    vendors — GEMINI and BEDROCK always need a key to shape the request, but
-    an OPENAI_COMPATIBLE row with no key is "self-hosted, no auth", not
+    vendors — GEMINI always needs a key, but BEDROCK can authenticate via
+    IAM role (SigV4) when no bearer token is present on AWS, and
+    OPENAI_COMPATIBLE with no key is "self-hosted, no auth", not
     "unconfigured"."""
-    return provider.get("kind") == "OPENAI_COMPATIBLE"
+    kind = provider.get("kind")
+    if kind == "OPENAI_COMPATIBLE":
+        return True
+    if kind == "BEDROCK":
+        # Allow IAM-role mode (api_key=None) on AWS; otherwise require bearer.
+        import os as _os2
+        if provider.get("api_key"):
+            return False  # key present => needs it, but we treat as optional false so caller checks
+            # Actually for active_providers we check (api_key or _key_optional). For BEDROCK with IAM we return True.
+        is_aws = _os2.environ.get("ENVIRONMENT") == "production" or _os2.environ.get("AWS_EXECUTION_ENV") or _os2.environ.get("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
+        return bool(is_aws)
+    return False
 
 
 def active_providers() -> list[dict]:
@@ -780,11 +805,18 @@ def _bedrock_client(provider: dict):
     if _is_legacy_bedrock_model(model):
         from anthropic import AnthropicBedrock
 
-        return AnthropicBedrock(api_key=api_key, aws_region=region)
+        # Bearer-token mode (local/dev) vs IAM-role mode (ECS/EKS production)
+        if api_key:
+            return AnthropicBedrock(api_key=api_key, aws_region=region)
+        # IAM role via default credential chain (SigV4) — professional AWS deployment
+        return AnthropicBedrock(aws_region=region)
 
     from anthropic import Anthropic
 
-    return Anthropic(api_key=api_key, base_url=_bedrock_base_url(region))
+    if api_key:
+        return Anthropic(api_key=api_key, base_url=_bedrock_base_url(region))
+    # Fallback for IAM on Messages endpoint — rarely used (legacy IDs cover most models)
+    return Anthropic(base_url=_bedrock_base_url(region), api_key="bedrock-iam-placeholder")
 
 
 async def _bedrock_call(

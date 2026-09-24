@@ -1,5 +1,6 @@
 import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 
 /**
  * Unauthenticated liveness endpoint, allow-listed in MaintenanceMiddleware so
@@ -12,6 +13,7 @@ export class HealthController {
   private readonly startedAt = Date.now();
 
   @Get()
+  @SkipThrottle()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Liveness probe — process is up and serving' })
   live() {

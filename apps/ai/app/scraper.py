@@ -22,13 +22,16 @@ better than a per-site body selector would.
 """
 
 import asyncio
+import contextlib
 import gzip
 import random
 import json
 import re
+import tempfile
 import zlib
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
 from xml.etree import ElementTree as ET
 
@@ -38,7 +41,7 @@ from bs4 import BeautifulSoup
 from crawl4ai import AsyncWebCrawler, CacheMode, CrawlerRunConfig
 from crawl4ai.extraction_strategy import JsonCssExtractionStrategy
 
-from app import browser_pool, config, llm
+from app import browser_pool, config, extractor, llm, secure_http
 from app.logger import get_logger
 
 logger = get_logger(__name__)
@@ -304,6 +307,120 @@ def _css_selector_for_signature(tag, signature: str) -> str:
 
 
 _FILE_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".gif", ".doc", ".docx", ".xls", ".xlsx", ".zip")
+
+
+def is_file_url(url: str) -> bool:
+    """True when the URL points directly at a downloadable file (PDF, image,
+    office doc, archive) rather than an HTML page.
+
+    Detection is extension-based on the URL path (query string and fragment
+    stripped), using the `_FILE_EXTENSIONS` set above — the same set the
+    listing/detail code uses to tell attachment links apart from article
+    links. A file URL must never touch the browser: Chromium cannot render
+    it faster than a direct download, and a PDF handed to crawl4ai hangs
+    until the caller's timeout — admin "Scrape a link" on a direct PDF sat
+    at "Crawling..." for the full 600s axios timeout.
+    """
+    try:
+        path = urlparse(url).path.lower()
+    except Exception:
+        return False
+    return path.endswith(_FILE_EXTENSIONS)
+
+
+# File kinds with a content-validating secure_http downloader (magic-byte
+# checked, SSRF-protected) and extractor support, so they can be fetched with
+# no browser at all. The remaining _FILE_EXTENSIONS members (.doc/.docx/
+# .xls/.xlsx/.zip) have no such downloader and keep the previous browser path.
+_DIRECT_FETCH_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".gif")
+
+
+def _is_direct_fetchable(url: str) -> bool:
+    """True when the URL is a file URL of a kind downloadable directly."""
+    try:
+        return urlparse(url).path.lower().endswith(_DIRECT_FETCH_EXTENSIONS)
+    except Exception:
+        return False
+
+
+async def _fetch_file_text_direct(
+    source_url: str, report, failures: list[dict] | None
+) -> str | None:
+    """Download a direct file URL and extract its text with no browser.
+
+    Mirrors the /notices/extract-pdf route (main.py `_notices_extract_pdf`):
+    SSRF-protected download via `secure_http` — which re-validates the URL
+    and every redirect hop, so callers' pre-flight checks stay exactly as
+    they are — then `extractor.extract_text`, the same entry point the
+    /documents ingest path uses.
+
+    Returns the extracted text (possibly "" when the file holds no readable
+    text — the caller still builds an item from the filename, exactly like
+    the browser path does when a detail page has no content), or None when
+    the download/extraction itself failed (recorded in `failures`).
+    """
+    lower_path = urlparse(source_url).path.lower()
+    is_image = lower_path.endswith((".jpg", ".jpeg", ".png", ".gif"))
+
+    try:
+        if is_image:
+            report(f"Fetching image directly (no browser): {source_url[:90]}")
+            file_bytes, mime = await secure_http.secure_download_image(
+                source_url,
+                connect_timeout=5.0,
+                read_timeout=30.0,
+                max_size_bytes=20 * 1024 * 1024,
+            )
+        else:
+            report(f"Fetching PDF directly (no browser): {source_url[:90]}")
+            file_bytes = await secure_http.secure_download_pdf(
+                source_url,
+                connect_timeout=5.0,
+                read_timeout=30.0,
+                max_size_bytes=50 * 1024 * 1024,
+            )
+            mime = "application/pdf"
+    except ValueError as e:
+        logger.warning("Secure file download failed for %s: %s", source_url, e)
+        _record_failure(failures, source_url, "detail", str(e))
+        return None
+    except Exception as e:
+        logger.warning("File download failed for %s: %s", source_url, e)
+        _record_failure(failures, source_url, "detail", f"Could not download file: {e}")
+        return None
+
+    if is_image:
+        ext = lower_path.rsplit(".", 1)[-1] if "." in lower_path.rsplit("/", 1)[-1] else ""
+        suffix = f".{ext}" if f".{ext}" in (".jpg", ".jpeg", ".png", ".gif") else ".jpg"
+    else:
+        suffix = ".pdf"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(file_bytes)
+        tmp_path = tmp.name
+
+    try:
+        result = await asyncio.to_thread(
+            extractor.extract_text,
+            tmp_path,
+            mime,
+            # OCR page callback runs in the extractor worker thread;
+            # scrape_progress.log is lock-protected, so this is safe.
+            on_progress=lambda done, total: report(f"Extracting file page {done}/{total}…"),
+        )
+    except Exception as e:
+        logger.warning("File extraction failed for %s: %s", source_url, e)
+        _record_failure(failures, source_url, "detail", f"Extraction failed: {e}")
+        return None
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+    text = (result.get("text") or "").strip()
+    tables = result.get("tables") or []
+    if tables:
+        # Same layout as /notices/extract-pdf: prose first, tables appended.
+        text = text + "\n\n" + "\n\n".join(tables) if text else "\n\n".join(tables)
+    report(f"Extracted {len(text)} chars from file: {source_url[:60]}")
+    return text
 
 
 def _nth_child_selector(el) -> str | None:
@@ -2528,18 +2645,26 @@ async def scrape_source(
                     # usable title — the detail page's <h1> is the last and most
                     # reliable source of one.
                     if fetch_detail and (source_url not in known_urls or not _looks_like_title(title)):
-                        report(f"Fetching detail: {(title or source_url)[:60]}")
-                        detail = await _crawl_detail_generic(crawler, source_url, base_url, failures)
-                        if detail:
-                            content_text = detail.get("content_text")
-                            content_html = detail.get("content_html")
-                            if not published_at:
-                                published_at = _parse_published(detail.get("published_raw"))
-                            if not _looks_like_title(title) and _looks_like_title(detail.get("title")):
-                                title = _clean_text(detail["title"])
-                            if not attachment_url and detail.get("attachment_url"):
-                                attachment_url = detail["attachment_url"]
-                            detail_attachments = detail.get("attachments") or []
+                        if _is_direct_fetchable(source_url):
+                            # Same direct-file fast path as scrape_sitemap_urls:
+                            # the row itself is a PDF/image, so there is no
+                            # HTML detail page to crawl for it.
+                            file_text = await _fetch_file_text_direct(source_url, report, failures)
+                            if file_text:
+                                content_text = file_text
+                        else:
+                            report(f"Fetching detail: {(title or source_url)[:60]}")
+                            detail = await _crawl_detail_generic(crawler, source_url, base_url, failures)
+                            if detail:
+                                content_text = detail.get("content_text")
+                                content_html = detail.get("content_html")
+                                if not published_at:
+                                    published_at = _parse_published(detail.get("published_raw"))
+                                if not _looks_like_title(title) and _looks_like_title(detail.get("title")):
+                                    title = _clean_text(detail["title"])
+                                if not attachment_url and detail.get("attachment_url"):
+                                    attachment_url = detail["attachment_url"]
+                                detail_attachments = detail.get("attachments") or []
 
                     # Build attachment list
                     attachments: list[AttachmentInfo] = []
@@ -2746,7 +2871,12 @@ async def scrape_sitemap_urls(
     # semaphore so it does not queue behind long listing crawls that otherwise
     # leave the UI stuck on "Crawling..." with no progress.
     is_priority = len(urls) == 1
-    async with browser_pool.crawler_session(priority=is_priority) as crawler:
+    # The browser session opens lazily on the first non-file URL: direct file
+    # URLs are downloaded + extracted below without ever launching Chromium —
+    # handing a PDF to crawl4ai hangs until the caller's timeout, which left
+    # admin "Scrape a link" stuck at "Crawling..." for 600s on direct PDFs.
+    async with contextlib.AsyncExitStack() as stack:
+        crawler = None
         for index, source_url in enumerate(urls):
             if not source_url:
                 continue
@@ -2776,26 +2906,45 @@ async def scrape_sitemap_urls(
             attachments: list[AttachmentInfo] = []
             meta = None
 
-            report(f"Fetching detail ({index + 1}/{len(urls)}): {source_url[:90]}")
-            detail = await _crawl_detail_generic(crawler, source_url, base_url, failures)
-            if detail:
-                if _looks_like_title(detail.get("title")):
-                    title = _clean_text(detail["title"])
-                published_at = _parse_published(detail.get("published_raw"))
-                content_text = detail.get("content_text")
-                content_html = detail.get("content_html")
-                attachment_url = detail.get("attachment_url")
-                seen_att_urls: set[str] = set()
-                if attachment_url:
-                    attachments.append(AttachmentInfo(url=attachment_url))
-                    seen_att_urls.add(attachment_url)
-                for att in detail.get("attachments") or []:
-                    if att["url"] not in seen_att_urls:
-                        attachments.append(AttachmentInfo(url=att["url"], label=att.get("label")))
-                        seen_att_urls.add(att["url"])
+            if _is_direct_fetchable(source_url):
+                # Direct-file fast path — no browser (see
+                # `_fetch_file_text_direct`). The shared tail below (title
+                # fallback, category, summarize scheduling) is reused
+                # unchanged, so the item shape matches browser-crawled items.
+                file_text = await _fetch_file_text_direct(source_url, report, failures)
+                if file_text is None:
+                    continue
+                content_text = file_text
+                attachment_url = source_url
+                attachments = [AttachmentInfo(url=source_url)]
                 meta = _extract_metadata(title or "", content_text)
                 if meta:
                     meta["sitemapUrl"] = source_url
+            else:
+                if crawler is None:
+                    crawler = await stack.enter_context(
+                        browser_pool.crawler_session(priority=is_priority)
+                    )
+                report(f"Fetching detail ({index + 1}/{len(urls)}): {source_url[:90]}")
+                detail = await _crawl_detail_generic(crawler, source_url, base_url, failures)
+                if detail:
+                    if _looks_like_title(detail.get("title")):
+                        title = _clean_text(detail["title"])
+                    published_at = _parse_published(detail.get("published_raw"))
+                    content_text = detail.get("content_text")
+                    content_html = detail.get("content_html")
+                    attachment_url = detail.get("attachment_url")
+                    seen_att_urls: set[str] = set()
+                    if attachment_url:
+                        attachments.append(AttachmentInfo(url=attachment_url))
+                        seen_att_urls.add(attachment_url)
+                    for att in detail.get("attachments") or []:
+                        if att["url"] not in seen_att_urls:
+                            attachments.append(AttachmentInfo(url=att["url"], label=att.get("label")))
+                            seen_att_urls.add(att["url"])
+                    meta = _extract_metadata(title or "", content_text)
+                    if meta:
+                        meta["sitemapUrl"] = source_url
 
             if not _looks_like_title(title):
                 title = _title_from_attachment(attachment_url)
