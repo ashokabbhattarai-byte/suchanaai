@@ -35,7 +35,7 @@ import { AdminSystemController } from './controllers/admin-system.controller';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: process.env.THROTTLE_LIMIT ? parseInt(process.env.THROTTLE_LIMIT, 10) : 300 }]),
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: process.env.THROTTLE_LIMIT ? parseInt(process.env.THROTTLE_LIMIT, 10) : 3000 }]),
     // Global axios default. Per-route overrides (notices search/ask 120s) handle slow LLM legs; keep global above those but below nginx 300s so the AI, not the proxy, owns the timeout message. Was 45s — too short for Ollama 1.5b cold fallbacks and caused "(canceled)" in tandem with the frontend's 20s timer.
     HttpModule.register({ timeout: 120000 }),
     LoggerModule,

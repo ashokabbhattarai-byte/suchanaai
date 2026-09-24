@@ -136,7 +136,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <RequireAuth admin>
-      <div className="flex flex-col lg:flex-row h-[calc(100vh-5rem)] w-full max-w-full overflow-hidden">
+      <div className="flex flex-col lg:flex-row h-screen pt-16 sm:pt-20 w-full max-w-full overflow-hidden">
       {/* Mobile top bar hamburger */}
       <div className="flex items-center justify-between gap-2 border-b border-vez-line bg-white px-4 py-3 lg:hidden">
         <button

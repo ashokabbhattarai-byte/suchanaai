@@ -15,6 +15,7 @@ import {
   Wrench,
 } from "lucide-react"
 import type { ScrapeDiagnosis, ScrapeFailure, ScrapeSource } from "@/lib/types"
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 
 /**
  * Why a source's last run failed, and what to do about it.
@@ -208,59 +209,81 @@ export function SourceDiagnosis({
     const { Icon } = style
 
     return (
-      <div className={`mb-4 rounded-[12px] border px-3 py-2.5 text-xs ${style.wrap}`}>
-        <p className={`flex items-start gap-1.5 font-medium ${style.title}`}>
-          <Icon className="mt-0.5 size-3.5 shrink-0" />
-          <span className="break-words">
-            {human?.title ??
-              (failed
-                ? raw || "The scrape run failed."
-                : `${hardFailures.length} page(s) failed during the last run`)}
-          </span>
-        </p>
-        {human && <p className={`mt-1.5 ${style.body}`}>{human.detail}</p>}
-        {human && (
-          <p className={`mt-1.5 flex gap-1.5 ${style.title}`}>
-            <Wrench className="mt-0.5 size-3 shrink-0" />
-            <span>{human.fix}</span>
-          </p>
-        )}
-        {human && raw && (
-          <p className="mt-1.5 text-[11px] text-vez-mute">
-            Reported as: <span className="break-words">{raw}</span>
-          </p>
-        )}
-
-        <div className="mt-2.5 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={onDiagnose}
-            disabled={diagnosing}
-            className="flex items-center gap-1.5 rounded-full bg-vez-navy px-3 py-1.5 text-[11px] text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
-            {diagnosing ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : (
-              <Stethoscope className="size-3" />
+      <Dialog>
+        <DialogTrigger asChild>
+          <button className="mt-2 flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-[11px] font-medium text-red-600 transition-colors hover:bg-red-100">
+            <AlertCircle className="size-3.5 shrink-0" />
+            {failed ? "Scrape failed — view diagnosis" : "Issues detected — view details"}
+          </button>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Source Diagnosis</DialogTitle>
+          </DialogHeader>
+          <div className={`mb-4 rounded-[12px] border px-3 py-2.5 text-xs ${style.wrap}`}>
+            <p className={`flex items-start gap-1.5 font-medium ${style.title}`}>
+              <Icon className="mt-0.5 size-3.5 shrink-0" />
+              <span className="break-words">
+                {human?.title ??
+                  (failed
+                    ? raw || "The scrape run failed."
+                    : `${hardFailures.length} page(s) failed during the last run`)}
+              </span>
+            </p>
+            {human && <p className={`mt-1.5 ${style.body}`}>{human.detail}</p>}
+            {human && (
+              <p className={`mt-1.5 flex gap-1.5 ${style.title}`}>
+                <Wrench className="mt-0.5 size-3 shrink-0" />
+                <span>{human.fix}</span>
+              </p>
             )}
-            {diagnosing ? "Analysing the site…" : "Diagnose & recommend a fix"}
-          </button>
-          <button
-            type="button"
-            onClick={onRun}
-            className="rounded-full border border-black/10 bg-white/70 px-3 py-1.5 text-[11px] text-vez-ink transition-colors hover:bg-white"
-          >
-            Run again
-          </button>
-        </div>
-
-        <TechnicalDetails failures={failures} />
-      </div>
+            {human && raw && (
+              <p className="mt-1.5 text-[11px] text-vez-mute">
+                Reported as: <span className="break-words">{raw}</span>
+              </p>
+            )}
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={onDiagnose}
+                disabled={diagnosing}
+                className="flex items-center gap-1.5 rounded-full bg-vez-navy px-3 py-1.5 text-[11px] text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {diagnosing ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <Stethoscope className="size-3" />
+                )}
+                {diagnosing ? "Analysing the site…" : "Diagnose & recommend a fix"}
+              </button>
+              <button
+                type="button"
+                onClick={onRun}
+                className="rounded-full border border-black/10 bg-white/70 px-3 py-1.5 text-[11px] text-vez-ink transition-colors hover:bg-white"
+              >
+                Run again
+              </button>
+            </div>
+            <TechnicalDetails failures={failures} />
+          </div>
+        </DialogContent>
+      </Dialog>
     )
   }
 
   return (
-    <div className="mb-4 space-y-2">
+    <Dialog>
+      <DialogTrigger asChild>
+        <button className="mt-2 flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-100">
+          <AlertTriangle className="size-3.5 shrink-0" />
+          View recommendations
+        </button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Diagnosis & Recommendations</DialogTitle>
+        </DialogHeader>
+        <div className="mb-4 space-y-2 mt-4">
       {diagnoses.map((d) => {
         const style = SEVERITY_STYLES[d.severity] ?? SEVERITY_STYLES.info
         const { Icon } = style
@@ -298,7 +321,7 @@ export function SourceDiagnosis({
 
             {d.urls.length > 0 && (
               <ul className="mt-2 space-y-0.5">
-                {d.urls.map((u) => (
+                {d.urls.slice(0, 5).map((u) => (
                   <li key={u} className="flex items-start gap-1">
                     <Link2 className="mt-0.5 size-3 shrink-0 text-vez-mute" />
                     <a
@@ -311,6 +334,11 @@ export function SourceDiagnosis({
                     </a>
                   </li>
                 ))}
+                {d.urls.length > 5 && (
+                  <li className="text-[11px] text-vez-mute pl-4 mt-1 font-medium">
+                    + {d.urls.length - 5} more URLs
+                  </li>
+                )}
               </ul>
             )}
 
@@ -393,6 +421,8 @@ export function SourceDiagnosis({
         </div>
         <TechnicalDetails failures={failures} />
       </div>
-    </div>
+      </div>
+      </DialogContent>
+    </Dialog>
   )
 }

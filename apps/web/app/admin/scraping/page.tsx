@@ -56,6 +56,7 @@ import {
   quickScrapeUrl,
   discoverScrapeRoutes,
   diagnoseScrapeSource,
+  ApiError,
 } from "@/lib/api"
 import { getStoredJSON, setStoredJSON } from "@/lib/local-store"
 import { toast } from "sonner"
@@ -637,9 +638,9 @@ function AdminScrapingPageContent() {
           onDone?.(progress.stage)
           return
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         consecutiveFailures += 1
-        if (e?.status === 429) {
+        if (e instanceof ApiError && e.status === 429) {
           backoffMs = Math.min(backoffMs * 1.5, 12000)
         } else {
           backoffMs = Math.min(backoffMs * 1.3, 10000)
@@ -914,8 +915,8 @@ function AdminScrapingPageContent() {
         </div>
 
         {error && (
-          <div className="mb-6 flex items-center gap-2 rounded-[14px] bg-red-50 px-4 py-3 text-sm text-red-600">
-            <AlertCircle className="size-4 shrink-0" /> {error}
+          <div className="mb-6 flex items-start gap-2 rounded-[14px] bg-red-50 px-4 py-3 text-sm text-red-600 overflow-hidden">
+            <AlertCircle className="size-4 shrink-0 mt-0.5" /> <span className="break-words line-clamp-4 hover:line-clamp-none">{error}</span>
           </div>
         )}
 
@@ -984,7 +985,7 @@ function AdminScrapingPageContent() {
 
           {runAllNotice && (
             <p
-              className={`w-full text-xs ${
+              className={`w-full text-xs break-words line-clamp-3 hover:line-clamp-none ${
                 runAllNotice.tone === "error" ? "text-red-600" : runAllNotice.tone === "ok" ? "text-vez-ink" : "text-vez-mute"
               }`}
             >
@@ -1273,7 +1274,7 @@ function AdminScrapingPageContent() {
                         </div>
                       )}
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {!source.isAdHoc && (
                           <>
                             <button
@@ -1975,7 +1976,7 @@ function AdminScrapingPageContent() {
                       </div>
                       {sitemapNotice && (
                         <p
-                          className={`mt-1.5 text-[11px] leading-relaxed ${
+                          className={`mt-1.5 text-[11px] leading-relaxed break-words line-clamp-3 hover:line-clamp-none ${
                             sitemapNotice.tone === "error"
                               ? "text-red-600"
                               : sitemapNotice.tone === "ok"
@@ -2073,9 +2074,9 @@ function AdminScrapingPageContent() {
                 {/* Footer — sticky, error + actions */}
                 <div className="flex items-center justify-between gap-4 border-t border-vez-line bg-vez-surface/40 px-6 py-3.5">
                   {formError ? (
-                    <p className="flex items-center gap-1.5 text-xs text-red-600">
-                      <AlertCircle className="size-3.5 shrink-0" />
-                      {formError}
+                    <p className="flex items-start gap-1.5 text-xs text-red-600 overflow-hidden">
+                      <AlertCircle className="size-3.5 shrink-0 mt-0.5" />
+                      <span className="break-words line-clamp-3 hover:line-clamp-none">{formError}</span>
                     </p>
                   ) : (
                     <span className="text-xs text-vez-mute">
@@ -2157,7 +2158,7 @@ function AdminScrapingPageContent() {
                 </form>
 
                 {quickNotice && (
-                  <p className={`mt-2 text-xs ${quickNotice.tone === "error" ? "text-red-600" : "text-vez-mute"}`}>
+                  <p className={`mt-2 text-xs break-words line-clamp-3 hover:line-clamp-none ${quickNotice.tone === "error" ? "text-red-600" : "text-vez-mute"}`}>
                     {quickNotice.text}
                   </p>
                 )}
