@@ -27,7 +27,25 @@ const PRESETS: Array<{
   region?: string
 }> = [
   {
-    label: "⚡ Ollama (Qwen2.5-1.5B) — EC2 services [TOP PRIORITY — CPU proven 2-4s]",
+    label: "Google Gemini 2.5 Flash-Lite [Cheapest / Top Priority]",
+    kind: "GEMINI",
+    baseUrl: "",
+    model: "gemini-2.5-flash-lite",
+  },
+  {
+    label: "Google Gemini 3.5 Flash-Lite [Cheapest Preview]",
+    kind: "GEMINI",
+    baseUrl: "",
+    model: "gemini-3.5-flash-lite",
+  },
+  {
+    label: "Google Gemini 2.5 Flash [Fast & Multimodal]",
+    kind: "GEMINI",
+    baseUrl: "",
+    model: "gemini-2.5-flash",
+  },
+  {
+    label: "⚡ Ollama (Qwen2.5-1.5B) — EC2 services [CPU proven 2-4s]",
     kind: "OPENAI_COMPATIBLE",
     // Public IP (3.80.188.210) NATs to private 172.31.95.204.
     // Ollama runs on t3.large CPU-only (llama.cpp) at 11434 — PROVEN on CPU.
@@ -202,9 +220,9 @@ export function ProviderDialog({
   // before they can see what they may switch to. A new provider has no
   // endpoint yet, so it still waits for one.
   useEffect(() => {
-    if (kind !== "BEDROCK" && provider?.id && baseUrl) void loadModels()
+    if (kind !== "BEDROCK" && provider?.id && (baseUrl || kind === "GEMINI")) void loadModels()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider?.id])
+  }, [provider?.id, kind])
 
   const visibleModels = models.filter((m) =>
     m.id.toLowerCase().includes(modelQuery.trim().toLowerCase()),

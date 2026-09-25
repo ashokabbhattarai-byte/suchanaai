@@ -346,10 +346,18 @@ RUNTIME_PROVIDERS: list[dict] = []
 def _env_fallback_providers() -> list[dict]:
     """Built-ins from environment variables, used until the registry syncs."""
     out = []
-    # First — OpenCode is the primary provider (see the primary branch in
-    # _llm_chat). It leads because Bedrock is currently de-authorized on this
-    # AWS account: every model, including Amazon's own, returns
-    # "Operation not allowed" and all 305 inference quotas read 0.
+    # TOP PRIORITY — Google Gemini Flash-Lite (cheapest and fastest model)
+    if config.GEMINI_API_KEY:
+        out.append({
+            "slug": "gemini",
+            "label": "Google Gemini (Flash-Lite)",
+            "kind": "GEMINI",
+            "base_url": None,
+            "model": config.GEMINI_MODEL,
+            "api_key": config.GEMINI_API_KEY,
+            "enabled": True,
+        })
+    # Secondary fallbacks
     if config.OPENCODE_ZEN_API_KEY:
         out.append({
             "slug": "opencode", "label": "OpenCode Go (GLM 5.3 Flash)", "kind": "OPENAI_COMPATIBLE",
@@ -483,7 +491,7 @@ def _opencode_headers() -> dict:
 
 def _is_metered_primary(provider: dict) -> bool:
     """Providers whose allowance a hedged race would waste — see _llm_chat."""
-    return provider.get("kind") == "BEDROCK" or _is_opencode(provider)
+    return provider.get("kind") in ("BEDROCK", "GEMINI") or _is_opencode(provider)
 
 
 def _is_groq(provider: dict) -> bool:
@@ -922,7 +930,8 @@ async def _gemini_chat(
             "parts": [{"text": "\n\n".join(system_parts)}]
         }
 
-    url = GEMINI_API_URL.format(model=provider["model"]) + f"?key={provider['api_key']}"
+    clean_model = str(provider["model"]).replace("models/", "")
+    url = GEMINI_API_URL.format(model=clean_model) + f"?key={provider['api_key']}"
 
     for attempt in range(2):
         try:
@@ -1266,7 +1275,8 @@ async def _probe_one_model(provider: dict) -> tuple[bool, str | None]:
     # and on models too weak to follow an instruction — so the panel showed
     # green while the chatbot returned nothing but fallbacks.
     if provider.get("kind") == "GEMINI":
-        url = GEMINI_API_URL.format(model=provider["model"]) + f"?key={provider['api_key']}"
+        clean_model = str(provider["model"]).replace("models/", "")
+        url = GEMINI_API_URL.format(model=clean_model) + f"?key={provider['api_key']}"
         payload = {
             "contents": [{"role": "user", "parts": [{"text": _PROBE_PROMPT}]}],
             "generationConfig": {"maxOutputTokens": _PROBE_MAX_TOKENS, "temperature": 0.0},

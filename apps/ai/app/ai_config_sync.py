@@ -171,6 +171,12 @@ async def refresh_once() -> bool:
             for p in providers
             if p.get("slug") and p.get("model")
         ]
+        for p in normalised:
+            if p["slug"] == "gemini":
+                if p.get("api_key"):
+                    config.GEMINI_API_KEY = p["api_key"]
+                if p.get("model"):
+                    config.GEMINI_MODEL = p["model"]
         llm.set_runtime_providers(normalised)
         usable = [
             p["slug"] for p in normalised

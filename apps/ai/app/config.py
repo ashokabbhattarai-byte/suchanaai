@@ -111,8 +111,8 @@ GROQ_API_KEYS: list[str] = [k.strip() for k in _env("GROQ_API_KEYS", "").split("
 GROQ_MODEL: str = _env("GROQ_MODEL", "openai/gpt-oss-120b")
 
 GEMINI_API_KEY: str = _env("GEMINI_API_KEY")
-# gemini-2.0-flash was retired; Google's own 404 response names the successor.
-GEMINI_MODEL: str = _env("GEMINI_MODEL", "gemini-3.6-flash")
+# Default to Google's cheapest Flash-Lite model; admin can switch via dropdown in /admin/ai
+GEMINI_MODEL: str = _env("GEMINI_MODEL", "gemini-2.5-flash-lite")
 
 # OpenCode Zen/Go — OpenAI-compatible chat completions gateway, and the
 # primary provider now that Bedrock is de-authorized on this AWS account.
@@ -169,7 +169,7 @@ BEDROCK_MODEL: str = _env(
 LLM_PROVIDER_PRIORITY: list[str] = [
     p.strip()
     for p in _env(
-        "LLM_PROVIDER_PRIORITY", "openrouter,gemini,groq,opencode,bedrock"
+        "LLM_PROVIDER_PRIORITY", "gemini,bedrock,ollama,groq,opencode"
     ).split(",")
     if p.strip()
 ]

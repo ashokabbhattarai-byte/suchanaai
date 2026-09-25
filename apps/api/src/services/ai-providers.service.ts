@@ -71,7 +71,16 @@ export class AiProvidersService implements OnModuleInit {
     Pick<AiProvider, 'slug' | 'label' | 'kind' | 'baseUrl' | 'model' | 'sortOrder'> &
       Partial<Pick<AiProvider, 'region'>>
   > = [
-    // PRIMARY. Paid but fast and reliable: Haiku 4.5 is the cheapest Claude
+    // TOP PRIORITY: Google Gemini Flash-Lite (cheapest and fastest Google model)
+    {
+      slug: 'gemini',
+      label: 'Google Gemini (Flash-Lite)',
+      kind: AiProviderKind.GEMINI,
+      baseUrl: null,
+      model: 'gemini-2.5-flash-lite',
+      sortOrder: -100,
+    },
+    // Paid but fast and reliable: Haiku 4.5 is the cheapest Claude
     // and answers in ~0.8s in-region, so it carries normal traffic and
     // everything below is fallback. llm.py calls a first-sorted BEDROCK
     // provider alone rather than racing it, so this costs one paid request per
@@ -217,14 +226,40 @@ export class AiProvidersService implements OnModuleInit {
       }
     }
 
-    // 2026-09-09: admin decision — active roster is Bedrock, Ollama, Groq.
-    // Deleted, not disabled: a disabled row still renders (struck through) in
-    // the panel and in the fallback-order chips, and the ask was to remove
-    // them from the UI entirely. Safe to delete because they are gone from
-    // BUILT_INS, so the seeder above cannot bring them back; re-adding one is
-    // the normal "Add provider" flow. This drops each row's stored key with
-    // it, which is the point of retiring a provider.
-    const RETIRED_SLUGS = ['gemini', 'vllm-services', 'openrouter'];
+    // Ensure Google Gemini is the first priority provider
+    const geminiBuiltIn = AiProvidersService.BUILT_INS.find((p) => p.slug === 'gemini')!;
+    const geminiRow = existing.find((p) => p.slug === 'gemini');
+    const defaultGeminiKey = this.config.get<string>('GEMINI_API_KEY')?.trim() || '';
+    if (!geminiRow) {
+      await this.prisma.aiProvider.create({
+        data: {
+          slug: 'gemini',
+          label: geminiBuiltIn.label,
+          kind: geminiBuiltIn.kind,
+          baseUrl: null,
+          model: geminiBuiltIn.model,
+          sortOrder: geminiBuiltIn.sortOrder,
+          enabled: true,
+          isBuiltIn: true,
+          apiKeyEnc: defaultGeminiKey ? this.crypto.encrypt(defaultGeminiKey) : null,
+        },
+      });
+      this.logger.log(`Created primary Gemini provider with default model ${geminiBuiltIn.model}`);
+    } else {
+      const patch: Record<string, unknown> = {};
+      if (geminiRow.sortOrder > -100) patch.sortOrder = -100;
+      if (!geminiRow.apiKeyEnc && defaultGeminiKey) {
+        patch.apiKeyEnc = this.crypto.encrypt(defaultGeminiKey);
+      }
+      if (!geminiRow.enabled) patch.enabled = true;
+      if (Object.keys(patch).length) {
+        await this.prisma.aiProvider.update({ where: { slug: 'gemini' }, data: patch });
+        this.logger.log(`Gemini provider promoted to top priority: ${JSON.stringify(patch)}`);
+      }
+    }
+
+    // Retired providers
+    const RETIRED_SLUGS = ['vllm-services', 'openrouter'];
     const toRetire = existing.filter((r) => RETIRED_SLUGS.includes(r.slug));
     if (toRetire.length) {
       await this.prisma.aiProvider.deleteMany({
@@ -540,6 +575,15 @@ export class AiProvidersService implements OnModuleInit {
   }
 
   private async fetchGeminiModels(apiKey: string): Promise<ProviderModel[]> {
+    const fallbackModels: ProviderModel[] = [
+      { id: 'gemini-2.5-flash-lite', contextLength: 1048576, free: true, modality: 'cheapest' },
+      { id: 'gemini-3.5-flash-lite', contextLength: 1048576, free: true, modality: 'cheapest' },
+      { id: 'gemini-flash-lite-latest', contextLength: 1048576, free: true, modality: 'cheapest' },
+      { id: 'gemini-2.5-flash', contextLength: 1048576, free: false, modality: 'fast' },
+      { id: 'gemini-flash-latest', contextLength: 1048576, free: false, modality: 'fast' },
+      { id: 'gemini-2.5-pro', contextLength: 1048576, free: false, modality: 'pro' },
+    ];
+
     const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
     let data: any;
     try {
@@ -547,26 +591,36 @@ export class AiProvidersService implements OnModuleInit {
       data = res.data;
     } catch (err: any) {
       const status = err?.response?.status;
-      throw new BadRequestException(
-        status === 400 || status === 401 || status === 403
-          ? 'Google rejected that key. Gemini needs an API key from aistudio.google.com (starts with "AIza"), not an OAuth token.'
-          : `Could not list Gemini models: ${err?.message ?? err}`,
-      );
+      if (status === 400 || status === 401 || status === 403) {
+        throw new BadRequestException(
+          'Google rejected that key. Please verify your Gemini API key from aistudio.google.com.',
+        );
+      }
+      this.logger.warn(`Could not list live Gemini models: ${err?.message ?? err}. Returning standard catalog.`);
+      return fallbackModels;
     }
 
     const rows: any[] = Array.isArray(data?.models) ? data.models : [];
-    return rows
+    const models = rows
       .filter((m) => (m?.supportedGenerationMethods ?? []).includes('generateContent'))
-      .map((m) => ({
-        id: String(m?.name ?? '').replace(/^models\//, ''),
-        contextLength: Number(m?.inputTokenLimit) || null,
-        // Gemini's free tier is per-key, not per-model, so nothing here is
-        // marked free — the model list can't tell us the caller's tier.
-        free: false,
-        modality: null,
-      }))
+      .map((m) => {
+        const id = String(m?.name ?? '').replace(/^models\//, '');
+        const isLite = id.includes('flash-lite');
+        const isFlash = id.includes('flash');
+        return {
+          id,
+          contextLength: Number(m?.inputTokenLimit) || null,
+          free: isLite,
+          modality: isLite ? 'cheapest' : isFlash ? 'fast' : null,
+        };
+      })
       .filter((m) => m.id)
-      .sort((a, b) => (b.contextLength ?? 0) - (a.contextLength ?? 0));
+      .sort((a, b) => {
+        const score = (id: string) => (id.includes('flash-lite') ? 3 : id.includes('flash') ? 2 : 1);
+        return score(b.id) - score(a.id) || (b.contextLength ?? 0) - (a.contextLength ?? 0);
+      });
+
+    return models.length ? models : fallbackModels;
   }
 
   // ── Writes ─────────────────────────────────────────────────────────────

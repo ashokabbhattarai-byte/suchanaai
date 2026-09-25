@@ -161,13 +161,14 @@ runs:
         ROOT_SIZE="${{ inputs.root-volume-size }}"
         if [ -n "$ROOT_SIZE" ]; then
           mkdir -p .ebextensions
-          cat > .ebextensions/root_volume.config <<EBEXT
-option_settings:
-  aws:autoscaling:launchconfiguration:
-    RootVolumeSize: "$ROOT_SIZE"
-    RootVolumeType: "gp3"
-EBEXT
+          cat > .ebextensions/root_volume.config <<'EBEXT'
+        option_settings:
+          aws:autoscaling:launchconfiguration:
+            RootVolumeSize: "__ROOT_SIZE__"
+            RootVolumeType: "gp3"
+        EBEXT
           sed -i 's/^        //' .ebextensions/root_volume.config
+          sed -i "s/__ROOT_SIZE__/$ROOT_SIZE/" .ebextensions/root_volume.config
           echo "EB root volume configured to ${ROOT_SIZE} GB gp3"
         fi
 
