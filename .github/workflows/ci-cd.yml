@@ -109,18 +109,21 @@ jobs:
           filters: |
             web:
               - 'apps/web/**'
+              - '.github/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
               - 'turbo.json'
             api:
               - 'apps/api/**'
+              - '.github/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
               - 'turbo.json'
             ai:
               - 'apps/ai/**'
+              - '.github/**'
 
   # ── Deploy — one job per app, each independently skippable ────────────
   deploy-web:
@@ -149,7 +152,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
           ecr-repo: ${{ vars.ECR_WEB_REPO || 'suchanaai-web' }}
           dockerfile: apps/web/Dockerfile
           image-tag: ${{ github.sha }}
@@ -170,7 +173,7 @@ jobs:
         with:
           application-name: ${{ vars.EB_APPLICATION_NAME || 'suchanaai' }}
           environment-name: ${{ vars.EB_WEB_ENV || 'suchanaai-web-prod' }}
-          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
           image-uri: ${{ steps.image.outputs.image-uri }}
           container-port: 3535
           version-label: web-${{ github.run_number }}-${{ github.sha }}
@@ -198,7 +201,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
           ecr-repo: ${{ vars.ECR_API_REPO || 'suchanaai-api' }}
           dockerfile: apps/api/Dockerfile
           image-tag: ${{ github.sha }}
@@ -212,9 +215,9 @@ jobs:
         with:
           application-name: ${{ vars.EB_APPLICATION_NAME || 'suchanaai' }}
           environment-name: ${{ vars.EB_API_ENV || 'suchanaai-api-prod' }}
-          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
           image-uri: ${{ steps.image.outputs.image-uri }}
-          container-port: 3001
+          container-port: 5005
           version-label: api-${{ github.run_number }}-${{ github.sha }}
 
   deploy-ai:
@@ -240,7 +243,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
           ecr-repo: ${{ vars.ECR_AI_REPO || 'suchanaai-ai-service' }}
           dockerfile: apps/ai/Dockerfile
           image-tag: ${{ github.sha }}
@@ -252,8 +255,8 @@ jobs:
         uses: ./.github/actions/deploy-beanstalk
         with:
           application-name: ${{ vars.EB_APPLICATION_NAME || 'suchanaai' }}
-          environment-name: ${{ vars.EB_AI_ENV || 'suchanaai-ai-service-prod' }}
-          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+          environment-name: ${{ vars.EB_AI_ENV || 'suchanaai-ai-prod' }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
           image-uri: ${{ steps.image.outputs.image-uri }}
           container-port: 8000
           version-label: ai-${{ github.run_number }}-${{ github.sha }}

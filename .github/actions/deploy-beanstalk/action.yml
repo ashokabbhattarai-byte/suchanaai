@@ -183,6 +183,10 @@ runs:
             echo "Environment is Ready (after $attempt check(s))."
             exit 0
           fi
+          if [ "$status" = "None" ]; then
+            echo "::error::Environment '${{ inputs.environment-name }}' was not found in application '${{ inputs.application-name }}' in region '${{ inputs.aws-region }}'."
+            exit 1
+          fi
           echo "Environment status is '$status' — waiting 15s ($attempt/80)…"
           sleep 15
         done
