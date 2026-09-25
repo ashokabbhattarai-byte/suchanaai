@@ -275,3 +275,5 @@ jobs:
           # it, and the new instance hits the same Red loop. 120s covers model
           # download + Qdrant validation + sparse model init.
           health-check-grace-period: "120"
+          # AI service requires 30 GB EBS gp3 volume to pull and run its 3.5 GB Docker image.
+          root-volume-size: "30"

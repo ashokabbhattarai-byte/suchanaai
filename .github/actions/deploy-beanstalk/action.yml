@@ -53,6 +53,12 @@ inputs:
       container. Set to 0 (the default) to skip the .ebextensions override.
     required: false
     default: "0"
+  root-volume-size:
+    description: >
+      EBS root volume size in GB. The AI service requires at least 30 GB to pull
+      and run its 3.5 GB Docker image without running out of disk space.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -150,6 +156,19 @@ runs:
           # .ebextensions YAML must start at column 0.
           sed -i 's/^        //' .ebextensions/healthcheck.config
           echo "EB health-check grace: interval=15s, unhealthy-after=10 failures (~150s), deploy ignores health"
+        fi
+
+        ROOT_SIZE="${{ inputs.root-volume-size }}"
+        if [ -n "$ROOT_SIZE" ]; then
+          mkdir -p .ebextensions
+          cat > .ebextensions/root_volume.config <<EBEXT
+option_settings:
+  aws:autoscaling:launchconfiguration:
+    RootVolumeSize: "$ROOT_SIZE"
+    RootVolumeType: "gp3"
+EBEXT
+          sed -i 's/^        //' .ebextensions/root_volume.config
+          echo "EB root volume configured to ${ROOT_SIZE} GB gp3"
         fi
 
         # Always zip Dockerrun + .platform — .platform now at minimum contains
