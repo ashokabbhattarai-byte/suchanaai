@@ -65,15 +65,19 @@ _DATE_FORMATS = [
     "%B %d, %Y",                  # June 02, 2026
     "%d %B %Y",                   # 02 June 2026
     "%d %B, %Y",                  # 02 June, 2026
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
     "%d-%m-%Y",
     "%d/%m/%Y",
     "%Y-%m-%d",
+    "%Y/%m/%d",
+    "%Y.%m.%d",
 ]
 _DATE_LIKE_RE = re.compile(
     r"(\d{1,2}\s+[A-Za-z]+\s+\d{4})"
     r"|([A-Za-z]+\s+\d{1,2},?\s+\d{4})"
-    r"|(\d{4}-\d{2}-\d{2})"
-    r"|(\d{1,2}[/-]\d{1,2}[/-]\d{4})"
+    r"|(\d{4}[-/.][०-९\d]{1,2}[-/.][०-९\d]{1,2})"
+    r"|([०-९\d]{1,2}[-/.][०-९\d]{1,2}[-/.][०-९\d]{4})"
 )
 
 # Many Nepali government sites (mofa.gov.np included) serve a CDN-cached
@@ -82,25 +86,39 @@ _DATE_LIKE_RE = re.compile(
 # calendars must be parseable rather than avoided.
 _DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
 _NEPALI_MONTHS = {
-    "बैशाख": 1, "बैसाख": 1,
-    "जेठ": 2, "जेष्ठ": 2,
-    "असार": 3, "आषाढ": 3,
-    "श्रावण": 4, "साउन": 4,
-    "भदौ": 5, "भाद्र": 5,
-    "असोज": 6, "आश्विन": 6,
-    "कार्तिक": 7,
-    "मंसिर": 8, "मार्गशीर्ष": 8,
-    "पुष": 9, "पौष": 9,
+    # Devanagari
+    "बैशाख": 1, "बैसाख": 1, "वैशाख": 1,
+    "जेठ": 2, "जेष्ठ": 2, "ज्येष्ठ": 2,
+    "असार": 3, "आषाढ": 3, "आषाढ़": 3,
+    "श्रावण": 4, "साउन": 4, "सावन": 4,
+    "भदौ": 5, "भाद्र": 5, "भाद्रपद": 5,
+    "असोज": 6, "आश्विन": 6, "आस्विन": 6,
+    "कार्तिक": 7, "कात्तिक": 7,
+    "मंसिर": 8, "मार्गशीर्ष": 8, "मङ्गसिर": 8, "मंगसिर": 8,
+    "पुष": 9, "पौष": 9, "पूस": 9,
     "माघ": 10,
-    "फागुन": 11, "फाल्गुन": 11,
+    "फागुन": 11, "फाल्गुन": 11, "फाल्गुण": 11,
     "चैत": 12, "चैत्र": 12,
+    # English Romanized Bikram Sambat months
+    "baishakh": 1, "baisakh": 1, "vaishakh": 1,
+    "jestha": 2, "jetha": 2, "jeth": 2, "jyestha": 2,
+    "ashadh": 3, "ashad": 3, "asar": 3, "aashadh": 3,
+    "shrawan": 4, "srawan": 4, "saun": 4, "shravan": 4,
+    "bhadra": 5, "bhadau": 5, "bhado": 5, "bhadrapad": 5,
+    "ashwin": 6, "aswin": 6, "ashoj": 6, "asoj": 6, "aashwin": 6,
+    "kartik": 7, "kattik": 7,
+    "mangsir": 8, "mangshir": 8, "margasir": 8, "margashirsha": 8,
+    "poush": 9, "paush": 9, "push": 9, "pous": 9,
+    "magh": 10,
+    "falgun": 11, "phagun": 11, "phalgun": 11, "phalguna": 11,
+    "chaitra": 12, "chait": 12,
 }
 # Government templates disagree on token order ("जेठ २४, २०८३" month-first vs
 # "२३ असार, २०८३" day-first); both the month name and the day are captured
 # generically here and disambiguated afterwards via the month-name lookup.
 _BS_DATE_RE = re.compile(
-    r"([ऀ-ॿ]+|[०-९\d]{1,2})\s+([ऀ-ॿ]+|[०-९\d]{1,2}),?\s*([०-९\d]{4})"
-    r"(?:,?\s*[ऀ-ॿ]+\s+([०-९\d]{1,2}):([०-९\d]{1,2}))?"
+    r"([ऀ-ॿa-zA-Z]+|[०-९\d]{1,2})\s+([ऀ-ॿa-zA-Z]+|[०-९\d]{1,2}),?\s*([०-९\d]{4})"
+    r"(?:,?\s*[ऀ-ॿa-zA-Z]+\s+([०-९\d]{1,2}):([०-९\d]{1,2}))?"
 )
 
 
@@ -109,10 +127,12 @@ def _parse_bs_date(raw: str) -> str | None:
     if not match:
         return None
     token_a, token_b, year_str, hour_str, minute_str = match.groups()
-    month = _NEPALI_MONTHS.get(token_a)
+    token_a_str = token_a.lower() if isinstance(token_a, str) else token_a
+    token_b_str = token_b.lower() if isinstance(token_b, str) else token_b
+    month = _NEPALI_MONTHS.get(token_a_str)
     day_str = token_b
     if month is None:
-        month = _NEPALI_MONTHS.get(token_b)
+        month = _NEPALI_MONTHS.get(token_b_str)
         day_str = token_a
     if not month:
         return None
@@ -189,16 +209,19 @@ def _parse_published(raw: str | None) -> str | None:
     if not raw:
         return None
     cleaned = re.sub(r"\s+", " ", raw).strip().strip(",")
+    trans_cleaned = cleaned.translate(_DEVANAGARI_DIGITS)
     for fmt in _DATE_FORMATS:
         try:
-            parsed = datetime.strptime(cleaned, fmt)
+            parsed = datetime.strptime(trans_cleaned, fmt)
         except ValueError:
             continue
         if _plausible_gregorian(parsed):
             return parsed.isoformat()
         # Year is out of range for a real publication date — try reading the
         # same numbers as Bikram Sambat before giving up on them.
-        return _reinterpret_as_bs(parsed)
+        res = _reinterpret_as_bs(parsed)
+        if res:
+            return res
     bs_parsed = _parse_bs_date(cleaned)
     if bs_parsed:
         return bs_parsed
@@ -1271,6 +1294,40 @@ def _infer_category_from_slug(url: str) -> tuple[str | None, str | None]:
             if key in clean and len(clean) < 30:
                 return cat, segment
     return None, None
+
+
+def _normalize_category(cat: str | None) -> str:
+    """Normalize route/slug category names into standard schema categories."""
+    if not cat:
+        return "NOTICE"
+    clean = cat.strip().upper()
+    prefix = clean.split("_")[0]
+    mapping = {
+        "NOTICE": "NOTICE",
+        "NOTICES": "NOTICE",
+        "BULLETIN": "NOTICE",
+        "SUCHANA": "NOTICE",
+        "NEWS": "NEWS",
+        "SAMACHAAR": "NEWS",
+        "SAMACHAR": "NEWS",
+        "PRESS": "PRESS_RELEASE",
+        "PRESS_RELEASE": "PRESS_RELEASE",
+        "PRESSRELEASE": "PRESS_RELEASE",
+        "CIRCULAR": "CIRCULAR",
+        "PARIPATRA": "CIRCULAR",
+        "TENDER": "TENDER",
+        "BID": "TENDER",
+        "BOLI": "TENDER",
+        "VACANCY": "VACANCY",
+        "JOB": "JOB",
+        "CAREER": "JOB",
+        "RECRUITMENT": "JOB",
+        "INTERN": "INTERNSHIP",
+        "INTERNSHIP": "INTERNSHIP",
+        "TRAINEE": "INTERNSHIP",
+        "OTHER": "OTHER",
+    }
+    return mapping.get(clean, mapping.get(prefix, "NOTICE"))
 
 
 # ---------------------------------------------------------------------------
@@ -2631,11 +2688,8 @@ async def scrape_source(
 
                     # Slug-based category inference
                     slug_category, source_slug = _infer_category_from_slug(source_url)
-                    resolved_category = category
-                    category_confidence = None
-                    if slug_category and slug_category != category:
-                        resolved_category = slug_category
-                        category_confidence = 0.8
+                    resolved_category = _normalize_category(slug_category if slug_category else category)
+                    category_confidence = 0.8 if slug_category and slug_category != category else None
 
                     content_text = None
                     content_html = None

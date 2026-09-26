@@ -705,13 +705,46 @@ export class ScrapingService {
    * so HTML-only sources can be polled on a short interval and only pay for
    * a full crawl when something actually appeared.
    */
+  private buildCategoryUrls(
+    source: ScrapeSource,
+    categories?: ('NOTICE' | 'NEWS' | 'PRESS_RELEASE' | string)[],
+  ): Record<string, string> {
+    const categoryUrls: Record<string, string> = {};
+    const lastDiag = source.lastDiagnosis as any;
+    if (lastDiag && Array.isArray(lastDiag.routes) && lastDiag.routes.length > 0) {
+      for (const r of lastDiag.routes) {
+        if (!r.url) continue;
+        const kind = (r.kind || 'NOTICE').toUpperCase();
+        if (categories && !categories.includes(kind) && !categories.includes('NOTICE')) {
+          continue;
+        }
+        let key = kind;
+        let counter = 1;
+        while (categoryUrls[key]) {
+          key = `${kind}_${counter++}`;
+        }
+        categoryUrls[key] = r.url;
+      }
+    }
+    if (Object.keys(categoryUrls).length === 0) {
+      const wantedCategories = categories ?? ['NOTICE', 'NEWS', 'PRESS_RELEASE'];
+      if (wantedCategories.includes('NOTICE') && source.noticeListUrl) {
+        categoryUrls.NOTICE = source.noticeListUrl;
+      }
+      if (wantedCategories.includes('NEWS') && source.newsListUrl) {
+        categoryUrls.NEWS = source.newsListUrl;
+      }
+      if (wantedCategories.includes('PRESS_RELEASE') && source.pressReleaseListUrl) {
+        categoryUrls.PRESS_RELEASE = source.pressReleaseListUrl;
+      }
+    }
+    return categoryUrls;
+  }
+
   async checkListing(id: string) {
     const source = await this.getSource(id);
 
-    const categoryUrls: Record<string, string> = {};
-    if (source.noticeListUrl) categoryUrls.NOTICE = source.noticeListUrl;
-    if (source.newsListUrl) categoryUrls.NEWS = source.newsListUrl;
-    if (source.pressReleaseListUrl) categoryUrls.PRESS_RELEASE = source.pressReleaseListUrl;
+    const categoryUrls = this.buildCategoryUrls(source);
     if (Object.keys(categoryUrls).length === 0) {
       throw new ConflictException('This source has no listing URL configured');
     }
@@ -771,17 +804,7 @@ export class ScrapingService {
     deep = false,
   ) {
     try {
-      const categoryUrls: Record<string, string> = {};
-      const wantedCategories = categories ?? ['NOTICE', 'NEWS', 'PRESS_RELEASE'];
-      if (wantedCategories.includes('NOTICE') && source.noticeListUrl) {
-        categoryUrls.NOTICE = source.noticeListUrl;
-      }
-      if (wantedCategories.includes('NEWS') && source.newsListUrl) {
-        categoryUrls.NEWS = source.newsListUrl;
-      }
-      if (wantedCategories.includes('PRESS_RELEASE') && source.pressReleaseListUrl) {
-        categoryUrls.PRESS_RELEASE = source.pressReleaseListUrl;
-      }
+      const categoryUrls = this.buildCategoryUrls(source, categories);
       if (Object.keys(categoryUrls).length === 0) {
         throw new ConflictException(
           'This source has no listing URL configured for the requested categories',
@@ -1200,9 +1223,31 @@ export class ScrapingService {
       .update(`${item.title}|${item.content_text ?? ''}`)
       .digest('hex');
 
-    const resolvedCategory = ScrapingService.VALID_CATEGORIES.has(item.category)
-      ? (item.category as ScrapedItemCategory)
-      : ScrapedItemCategory.OTHER;
+    const rawCat = (item.category || '').toUpperCase().split('_')[0];
+    const categoryMap: Record<string, ScrapedItemCategory> = {
+      NOTICE: ScrapedItemCategory.NOTICE,
+      NOTICES: ScrapedItemCategory.NOTICE,
+      BULLETIN: ScrapedItemCategory.NOTICE,
+      NEWS: ScrapedItemCategory.NEWS,
+      SAMACHAAR: ScrapedItemCategory.NEWS,
+      PRESS: ScrapedItemCategory.PRESS_RELEASE,
+      PRESS_RELEASE: ScrapedItemCategory.PRESS_RELEASE,
+      CIRCULAR: ScrapedItemCategory.CIRCULAR,
+      PARIPATRA: ScrapedItemCategory.CIRCULAR,
+      TENDER: ScrapedItemCategory.TENDER,
+      BID: ScrapedItemCategory.TENDER,
+      VACANCY: ScrapedItemCategory.VACANCY,
+      JOB: ScrapedItemCategory.JOB,
+      CAREER: ScrapedItemCategory.JOB,
+      RECRUITMENT: ScrapedItemCategory.JOB,
+      INTERNSHIP: ScrapedItemCategory.INTERNSHIP,
+    };
+    const resolvedCategory =
+      categoryMap[item.category?.toUpperCase()] ||
+      categoryMap[rawCat] ||
+      (ScrapingService.VALID_CATEGORIES.has(item.category)
+        ? (item.category as ScrapedItemCategory)
+        : ScrapedItemCategory.OTHER);
 
     // Track AI summarization status from the Python service.
     const hadSummaryAttempt = Boolean(item.ai_summary || item.content_text);
@@ -1537,10 +1582,7 @@ export class ScrapingService {
     } = {},
   ) {
     try {
-      const categoryUrls: Record<string, string> = {};
-      if (source.noticeListUrl) categoryUrls.NOTICE = source.noticeListUrl;
-      if (source.newsListUrl) categoryUrls.NEWS = source.newsListUrl;
-      if (source.pressReleaseListUrl) categoryUrls.PRESS_RELEASE = source.pressReleaseListUrl;
+      const categoryUrls = this.buildCategoryUrls(source);
 
       const itemsFound = context.itemsFound ?? 0;
       const response = await firstValueFrom(
