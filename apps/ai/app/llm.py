@@ -609,20 +609,10 @@ def recent_failure(slug: str | None) -> str | None:
 async def raw_chat(
     system_prompt: str, user_content: str, max_tokens: int, temperature: float = 0.0
 ) -> str | None:
-    """Public one-shot chat call through the full provider fallback chain,
-    for callers outside this module that don't fit generate_answer/
-    generate_chat/analyze_notice's specific shapes — currently
-    scraper.py's LLM-assisted schema detection. Same fallback behavior as
-    everything else here: OpenRouter's free-model chain, then Groq, Gemini,
-    OpenCode, Bedrock, admin-ordered."""
-    return await _llm_chat(
-        [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        max_tokens,
-        temperature,
-    )
+    """Public one-shot chat call through CommonAIProvider:
+    Cloudflare FIRST (@cf/ibm-granite/granite-4.0-h-micro) -> Gemini -> Groq -> graceful fallback."""
+    from app.ai_providers import common_ai
+    return await common_ai.raw_chat(system_prompt, user_content, max_tokens, temperature)
 
 
 async def _call_provider_safe(provider: dict, messages: list[dict], max_tokens: int, temperature: float) -> tuple[str | None, dict]:
@@ -1847,72 +1837,13 @@ Rules:
 
 
 async def analyze_notice(title: str, content: str, category_hint: str | None = None) -> dict | None:
-    """Summarize + classify one notice. This is the single implementation
-    behind both scrape-time summarization (scraper.py's _summarize_item) and
-    the on-demand /notices/analyze route — both go through _llm_chat's full
-    provider fallback chain (OpenRouter's several free models, then Groq,
-    Gemini, OpenCode, Bedrock), not a hand-rolled single-provider call.
+    """Summarize + classify one notice using CommonAIProvider (Cloudflare -> Gemini -> Groq).
     `category_hint` is the listing page's own category (when scraping),
-    which measurably improves classification for ambiguous content."""
-    if not any_provider_configured():
-        return None
-
-    trimmed_content = content[:8000]
-
-    user_msg = f"Title: {title}\n"
-    if category_hint:
-        user_msg += f"Listing category: {category_hint}\n"
-    user_msg += f"\nContent:\n{trimmed_content}"
-
-    messages = [
-        {"role": "system", "content": _ANALYZE_PROMPT},
-        {"role": "user", "content": user_msg},
-    ]
-
-    # 600 truncated the JSON mid-object on real notices: the reply carries an
-    # English summary, a Devanagari one (token-expensive), six key facts and
-    # five tags, so every long notice failed to parse and went unsummarized.
-    raw = await _llm_chat(messages, max_tokens=1800, temperature=config.TEMPERATURE_SUMMARIES)
-    if raw is None:
-        return None
-
-    cleaned = re.sub(r"^```(json)?|```$", "", raw.strip(), flags=re.MULTILINE).strip()
-    try:
-        data = json.loads(cleaned)
-    except json.JSONDecodeError:
-        logger.warning(
-            "analyze_notice: could not parse LLM JSON output (%d chars): %.200s",
-            len(cleaned), cleaned,
-        )
-        return None
-
-    summary = data.get("summary")
-    if not summary:
-        return None
-
-    # Validate category if present
-    valid_categories = {
-        "NOTICE", "NEWS", "PRESS_RELEASE", "CIRCULAR", "TENDER", "VACANCY",
-        "JOB", "INTERNSHIP", "OTHER"
-    }
-    llm_category = data.get("category")
-    if llm_category and llm_category not in valid_categories:
-        llm_category = None
-    llm_confidence = float(data.get("category_confidence", 0.0)) if data.get("category_confidence") is not None else 0.0
-
-    urgency = str(data.get("urgency") or "").strip().upper()
-    if urgency not in ("LOW", "MEDIUM", "HIGH"):
-        urgency = "LOW"
-
-    return {
-        "summary": str(summary).strip(),
-        "summary_ne": str(data.get("summary_ne") or "").strip() or None,
-        "urgency": urgency,
-        "key_facts": [str(f).strip() for f in (data.get("key_facts") or []) if str(f).strip()][:6],
-        "tags": [str(t).strip() for t in (data.get("tags") or []) if str(t).strip()][:5],
-        "category": llm_category,
-        "category_confidence": llm_confidence,
-    }
+    which measurably improves classification for ambiguous content.
+    """
+    from app.ai_providers import common_ai
+    result, prov, model, err = await common_ai.summarize_notice(title, content, category_hint)
+    return result
 
 
 async def answer_notice_question(title: str, content: str, question: str) -> str:

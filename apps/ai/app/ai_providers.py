@@ -406,11 +406,31 @@ class GroqAIProvider(AIProvider):
         return None, self.disabled_reason
 
 
-class NoticeSummarizer:
-    """Orchestrates sequential notice summarization across providers:
-    1. Cloudflare Workers AI
-    2. Google Gemini
-    3. Groq (sequential single-key)
+class CommonAIProvider:
+    """Unified Common AI Provider for all scraping & notice intelligence tasks.
+
+    Desired Architecture:
+                 COMMON AI PROVIDER
+                       │
+                       ▼
+                Cloudflare FIRST
+       @cf/ibm-granite/granite-4.0-h-micro
+                       │
+                   failure
+                       ▼
+                    Gemini
+                       │
+                   failure
+                       ▼
+                     Groq
+                       │
+                   failure
+                       ▼
+                 graceful fallback
+
+    And both of these use it:
+    summarize_notice()   ──► Cloudflare → Gemini → Groq
+    _detect_schema_llm() ──► Cloudflare → Gemini → Groq
     """
 
     def __init__(self, providers: Optional[list[AIProvider]] = None):
@@ -423,10 +443,51 @@ class NoticeSummarizer:
                 GroqAIProvider(),
             ]
 
-    async def summarize(
+    async def chat(
+        self, messages: list[dict], max_tokens: int = 1500, temperature: float = 0.2
+    ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+        """Executes chat completion sequentially across Cloudflare -> Gemini -> Groq.
+
+        Returns:
+            (response_text, provider_name, model_name, error_message)
+        """
+        errors = []
+        for provider in self.providers:
+            if not provider.is_available:
+                continue
+
+            t0 = time.perf_counter()
+            text, err = await provider.chat(messages, max_tokens=max_tokens, temperature=temperature)
+            dt = time.perf_counter() - t0
+
+            if text and text.strip():
+                logger.info("AI chat succeeded via %s (%s) in %.2fs", provider.name, provider.model, dt)
+                return text.strip(), provider.name, provider.model, None
+
+            logger.warning("Provider %s failed in %.2fs: %s", provider.name, dt, err)
+            errors.append(f"{provider.name}: {err}")
+
+        combined_error = "; ".join(errors) if errors else "No AI provider was available"
+        return None, None, None, combined_error
+
+    async def raw_chat(
+        self, system_prompt: str, user_content: str, max_tokens: int = 1000, temperature: float = 0.0
+    ) -> Optional[str]:
+        """Convenience method for one-shot chat prompt across Cloudflare -> Gemini -> Groq.
+
+        Used by _detect_schema_llm() and other one-shot schema extraction tasks.
+        """
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+        text, prov, model, err = await self.chat(messages, max_tokens=max_tokens, temperature=temperature)
+        return text
+
+    async def summarize_notice(
         self, title: str, content: str, category_hint: Optional[str] = None
     ) -> Tuple[Optional[dict], Optional[str], Optional[str], Optional[str]]:
-        """Attempts summarization across configured providers in sequence.
+        """Summarizes and categorizes a notice using Cloudflare -> Gemini -> Groq.
 
         Returns:
             (analysis_dict, provider_name, model_name, error_message)
@@ -447,6 +508,18 @@ class NoticeSummarizer:
             logger.warning("Provider %s failed (%.2fs): %s", provider.name, dt, err)
             errors.append(f"{provider.name}: {err}")
 
-        # All providers failed
         combined_error = "; ".join(errors) if errors else "No AI provider was available"
         return None, None, None, combined_error
+
+    async def summarize(
+        self, title: str, content: str, category_hint: Optional[str] = None
+    ) -> Tuple[Optional[dict], Optional[str], Optional[str], Optional[str]]:
+        """Alias for summarize_notice."""
+        return await self.summarize_notice(title, content, category_hint)
+
+
+# Global singleton instance for common AI tasks
+common_ai = CommonAIProvider()
+
+# Backwards compatibility alias
+NoticeSummarizer = CommonAIProvider

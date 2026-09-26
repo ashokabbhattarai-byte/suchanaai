@@ -645,12 +645,9 @@ Rules:
 
 async def _detect_schema_llm(html: str, category: str) -> dict | None:
     """Ask an LLM to propose a listing extraction schema. Routed through
-    llm.raw_chat's full provider fallback chain (OpenRouter's several free
-    models, then Groq/Gemini/OpenCode/Bedrock) rather than a single
-    hardcoded Groq call — a single-provider 429 used to make this fall
-    straight through to the free structural-heuristics detector below it,
-    silently skipping a step that reliably disambiguates the real listing
-    from sidebar "recent posts" widgets."""
+    CommonAIProvider's sequential fallback chain:
+    Cloudflare FIRST (@cf/ibm-granite/granite-4.0-h-micro) -> Gemini -> Groq -> graceful fallback.
+    """
     soup = BeautifulSoup(html, "html.parser")
     for tag_name in _STRIP_TAGS:
         for el in soup.find_all(tag_name):
@@ -658,7 +655,8 @@ async def _detect_schema_llm(html: str, category: str) -> dict | None:
     trimmed_html = str(soup)[:30000]
 
     try:
-        content = await llm.raw_chat(
+        from app.ai_providers import common_ai
+        content = await common_ai.raw_chat(
             _SCHEMA_PROMPT,
             f"Category: {category}\n\nHTML:\n{trimmed_html}",
             max_tokens=800,
@@ -1507,22 +1505,13 @@ def _extract_metadata(title: str, content: str | None) -> dict | None:
 
 
 async def _summarize_item(title: str, content: str, category_hint: str | None) -> dict | None:
-    """Summarize + classify one scraped item. Delegates to llm.analyze_notice,
-    which runs the request through the full provider fallback chain —
-    OpenRouter's several free models (each with its own independent daily
-    quota), then Groq, Gemini, OpenCode, Bedrock, in the admin's configured
-    order — instead of this function's previous hand-rolled, Groq-only
-    implementation with its own key-rotation loop.
-
-    That old implementation is why a source's whole run could stall on
-    Groq's free-tier rate limit even when every other configured provider
-    was healthy and idle: Groq was the ONLY thing this function knew how to
-    call. A scrape run now degrades the same way every other LLM call in
-    this service already does — by falling through its provider chain, not
-    by retrying one exhausted provider for up to ~30s per item."""
-    result = await llm.analyze_notice(title, content, category_hint)
+    """Summarize + classify one scraped item using CommonAIProvider:
+    Cloudflare FIRST (@cf/ibm-granite/granite-4.0-h-micro) -> Gemini -> Groq -> graceful fallback.
+    """
+    from app.ai_providers import common_ai
+    result, prov, model, err = await common_ai.summarize_notice(title, content, category_hint)
     if result is None:
-        logger.warning("Summarization failed for: %s", title[:60])
+        logger.warning("Summarization failed for: %s (%s)", title[:60], err)
     return result
 
 
