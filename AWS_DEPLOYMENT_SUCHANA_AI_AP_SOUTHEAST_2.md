@@ -157,6 +157,7 @@ aws ssm put-parameter --name "/suchanaai/qdrant-url" --value "http://141.148.209
 # apps/ai/app/llm.py:760 _bedrock_client() → AnthropicBedrock(aws_region=region) (SigV4 via task/EC2 role)
 ```
 
+
 **Policy attached to `aws-elasticbeanstalk-ec2-role` (also to `suchanaai-ecs-task` if using ECS):**
 
 ```json

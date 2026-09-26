@@ -63,6 +63,7 @@ class TestDBFirstAndAIProviders(unittest.IsolatedAsyncioTestCase):
             model="@cf/ibm-granite/granite-4.0-h-micro",
             enabled=True,
         )
+        
         self.assertEqual(cf.model, "@cf/ibm-granite/granite-4.0-h-micro")
         self.assertTrue(cf.is_available)
 
