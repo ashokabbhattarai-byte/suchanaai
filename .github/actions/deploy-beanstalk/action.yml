@@ -152,35 +152,26 @@ runs:
         GRACE="${{ inputs.health-check-grace-period }}"
         if [ -n "$GRACE" ] && [ "$GRACE" != "0" ]; then
           mkdir -p .ebextensions
-          cat > .ebextensions/healthcheck.config <<'EBEXT'
-        option_settings:
-          aws:elasticbeanstalk:environment:process:default:
-            HealthCheckInterval: "15"
-            HealthCheckTimeout: "10"
-            UnhealthyThresholdCount: "10"
-            HealthyThresholdCount: "2"
-          aws:autoscaling:asg:
-            Cooldown: "360"
-          aws:elasticbeanstalk:command:
-            IgnoreHealthCheck: "true"
-        EBEXT
-          # Strip the leading whitespace that the shell indentation adds —
-          # .ebextensions YAML must start at column 0.
-          sed -i 's/^        //' .ebextensions/healthcheck.config
+          echo "option_settings:" > .ebextensions/healthcheck.config
+          echo "  aws:elasticbeanstalk:environment:process:default:" >> .ebextensions/healthcheck.config
+          echo "    HealthCheckInterval: \"15\"" >> .ebextensions/healthcheck.config
+          echo "    HealthCheckTimeout: \"10\"" >> .ebextensions/healthcheck.config
+          echo "    UnhealthyThresholdCount: \"10\"" >> .ebextensions/healthcheck.config
+          echo "    HealthyThresholdCount: \"2\"" >> .ebextensions/healthcheck.config
+          echo "  aws:autoscaling:asg:" >> .ebextensions/healthcheck.config
+          echo "    Cooldown: \"360\"" >> .ebextensions/healthcheck.config
+          echo "  aws:elasticbeanstalk:command:" >> .ebextensions/healthcheck.config
+          echo "    IgnoreHealthCheck: \"true\"" >> .ebextensions/healthcheck.config
           echo "EB health-check grace: interval=15s, unhealthy-after=10 failures (~150s), deploy ignores health"
         fi
 
         ROOT_SIZE="${{ inputs.root-volume-size }}"
         if [ -n "$ROOT_SIZE" ]; then
           mkdir -p .ebextensions
-          cat > .ebextensions/root_volume.config <<'EBEXT'
-        option_settings:
-          aws:autoscaling:launchconfiguration:
-            RootVolumeSize: "__ROOT_SIZE__"
-            RootVolumeType: "gp3"
-        EBEXT
-          sed -i 's/^        //' .ebextensions/root_volume.config
-          sed -i "s/__ROOT_SIZE__/$ROOT_SIZE/" .ebextensions/root_volume.config
+          echo "option_settings:" > .ebextensions/root_volume.config
+          echo "  aws:autoscaling:launchconfiguration:" >> .ebextensions/root_volume.config
+          echo "    RootVolumeSize: \"$ROOT_SIZE\"" >> .ebextensions/root_volume.config
+          echo "    RootVolumeType: \"gp3\"" >> .ebextensions/root_volume.config
           echo "EB root volume configured to ${ROOT_SIZE} GB gp3"
         fi
 
@@ -188,24 +179,15 @@ runs:
         CMD_TIMEOUT="${{ inputs.command-timeout }}"
         if [ -n "$INST_TYPE" ] || [ -n "$CMD_TIMEOUT" ]; then
           mkdir -p .ebextensions
-          cat > .ebextensions/launch_config.config <<'EBEXT'
-        option_settings:
-        EBEXT
-          sed -i 's/^        //' .ebextensions/launch_config.config
+          echo "option_settings:" > .ebextensions/launch_config.config
           if [ -n "$INST_TYPE" ]; then
-            cat >> .ebextensions/launch_config.config <<EOF
-          aws:autoscaling:launchconfiguration:
-            InstanceType: "$INST_TYPE"
-EOF
-            sed -i 's/^          //' .ebextensions/launch_config.config
+            echo "  aws:autoscaling:launchconfiguration:" >> .ebextensions/launch_config.config
+            echo "    InstanceType: \"$INST_TYPE\"" >> .ebextensions/launch_config.config
             echo "EB instance type configured to $INST_TYPE"
           fi
           if [ -n "$CMD_TIMEOUT" ]; then
-            cat >> .ebextensions/launch_config.config <<EOF
-          aws:elasticbeanstalk:command:
-            Timeout: "$CMD_TIMEOUT"
-EOF
-            sed -i 's/^          //' .ebextensions/launch_config.config
+            echo "  aws:elasticbeanstalk:command:" >> .ebextensions/launch_config.config
+            echo "    Timeout: \"$CMD_TIMEOUT\"" >> .ebextensions/launch_config.config
             echo "EB command timeout configured to $CMD_TIMEOUT"
           fi
         fi
