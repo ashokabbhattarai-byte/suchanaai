@@ -448,6 +448,7 @@ function AttachmentSection({
             {/* Inline image preview for images */}
             {attachmentKind(att.url) === "image" && (
               <div className="flex justify-center bg-gray-50 p-4 sm:p-6">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={attachmentFileUrl(att)}
                   alt={att.label || "Attachment preview"}
@@ -1033,6 +1034,7 @@ export default function NoticeDetailClient() {
                   {notice.metadata.qrCodes.map((qr, i) => (
                     <div key={i} className="flex h-full min-w-0 flex-col items-center gap-3 rounded-[14px] border border-vez-line bg-white p-4 sm:p-6 text-center">
                       {qr.image && (
+                        // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={`data:image/png;base64,${qr.image}`}
                           alt={`QR code from page ${qr.page}`}

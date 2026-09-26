@@ -512,7 +512,6 @@ export class SettingsService implements OnModuleInit {
 /** Cron-validate with the exact library the scheduler executes (cron). */
 export function isValidCronExpression(expression: string): boolean {
   try {
-    // eslint-disable-next-line no-new
     new CronJob(expression, () => undefined);
     return true;
   } catch {

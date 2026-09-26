@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useRef, useEffect } from "react"
-import { Target, Users, Zap, Shield, Heart, TrendingUp } from "lucide-react"
+import { Target, Shield, Heart, TrendingUp } from "lucide-react"
 import gsap from "gsap"
 
 const values = [

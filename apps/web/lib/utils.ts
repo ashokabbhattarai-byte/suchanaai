@@ -26,7 +26,6 @@ export function generateSlug(title: string, id: string): string {
     .toLowerCase()
     // Full Devanagari block including U+0900-U+0903 combining marks, without
     // which "संविधान" splits into "स-विधान".
-    // eslint-disable-next-line no-misleading-character-class
     .replace(/[^a-z0-9ऀ-ॿ]+/g, "-")
     .replace(/(^-|-$)/g, "")
   return slug ? `${slug}-${id}` : id

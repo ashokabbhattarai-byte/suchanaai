@@ -15,7 +15,7 @@ import {
   Wrench,
 } from "lucide-react"
 import type { ScrapeDiagnosis, ScrapeFailure, ScrapeSource } from "@/lib/types"
-import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 /**
  * Why a source's last run failed, and what to do about it.

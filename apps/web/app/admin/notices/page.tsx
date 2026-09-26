@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react"
 import { useRouter, usePathname, useSearchParams } from "next/navigation"
-import { Search, Trash2, ExternalLink, ChevronLeft, ChevronRight, Loader2, X, SlidersHorizontal, Edit, RotateCcw, BadgeCheck, Tag, ShieldCheck, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Activity } from "lucide-react"
+import { Search, Trash2, ExternalLink, ChevronLeft, ChevronRight, Loader2, X, SlidersHorizontal, Edit, RotateCcw, BadgeCheck, ShieldCheck, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Activity } from "lucide-react"
 import { AdminLayout } from "@/components/admin/admin-layout"
 import { useConfirm } from "@/components/ui/confirm-dialog"
 import { Header } from "@/components/layout/header"

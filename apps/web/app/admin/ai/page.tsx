@@ -119,9 +119,10 @@ export default function AdminAiPage() {
 
   // Cleanup retry timers on unmount
   useEffect(() => {
+    const retryTimers = retryTimersRef.current
     return () => {
-      for (const t of retryTimersRef.current.values()) clearTimeout(t)
-      retryTimersRef.current.clear()
+      for (const t of retryTimers.values()) clearTimeout(t)
+      retryTimers.clear()
     }
   }, [])
 

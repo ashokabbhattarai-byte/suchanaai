@@ -10,13 +10,6 @@ import { AnimatedHeading } from "./animated-heading"
 import { Eyebrow, ArrowCta } from "./vezigno-ui"
 import { Magnetic, StaggerGrid, TiltCard } from "./motion"
 
-const fallbackStats = [
-  { value: "50+", label: "Government sources" },
-  { value: "10K+", label: "Daily queries" },
-  { value: "24/7", label: "Automated monitoring" },
-  { value: "2", label: "Languages supported" },
-]
-
 function generateSlug(title: string, id: string): string {
   return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") + "-" + id
 }

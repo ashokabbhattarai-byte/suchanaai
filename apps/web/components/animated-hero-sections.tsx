@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react"
 import gsap from "gsap"
 import { Observer } from "gsap/Observer"
-import { Search, FileText, Bell, Shield, Zap, ArrowDown, Building2 } from "lucide-react"
+import { Search, Bell, Shield, Zap, ArrowDown, Building2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 

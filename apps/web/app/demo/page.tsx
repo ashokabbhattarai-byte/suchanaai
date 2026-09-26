@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useEffect, useRef } from "react"
-import { Search, TrendingUp, FileText, Bell, Sparkles, ArrowRight, BookOpen, Shield, Zap, Eye, Clock, Newspaper, ChevronRight, CheckCircle, Building2 } from "lucide-react"
+import { Search, FileText, Sparkles, ArrowRight, BookOpen, Shield, Zap, Eye, Clock, Newspaper, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"

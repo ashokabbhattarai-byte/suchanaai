@@ -112,7 +112,7 @@ export function ProviderDialog({
 }) {
   const isEdit = Boolean(provider)
   const [label, setLabel] = useState(provider?.label ?? "")
-  const [kind] = useState<AiProviderKind>(provider?.kind ?? "OPENAI_COMPATIBLE")
+  const [kind, setKind] = useState<AiProviderKind>(provider?.kind ?? "OPENAI_COMPATIBLE")
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? "")
   const [model, setModel] = useState(provider?.model ?? "")
   const [apiKey, setApiKey] = useState("")

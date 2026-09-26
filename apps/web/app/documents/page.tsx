@@ -190,7 +190,6 @@ function DocCard({ doc, progress, toggleBusy, canManage, onToggleEmbed, onDelete
   const isIndexed = doc.status === "INDEXED"
   const isProcessing = doc.status === "PENDING" || doc.status === "PROCESSING"
   const isFailed = doc.status === "FAILED"
-  const isUnembedded = doc.status === "UNEMBEDDED"
   const showControls = canManage && !doc.isSystem
 
   // Never show 0% for a processing doc — 0 reads as "Queued/stuck" and flickers
@@ -722,7 +721,6 @@ export default function RagPage() {
     let cancelled = false
     let ticks = 0
     let backoffMs = 3000
-    let _consecutiveFailures = 0
 
     let timer: ReturnType<typeof setTimeout>
 
@@ -735,7 +733,6 @@ export default function RagPage() {
       // so a short exponential back-off rides it out without hammering the API).
       if (ok) {
         backoffMs = 3000
-        _consecutiveFailures = 0
       }
       // Schedule the next poll only once this one settled: with setInterval a
       // slow API queued a request per tick, and the pile-up starved every
@@ -751,7 +748,6 @@ export default function RagPage() {
       try {
         result = await fetchDocumentsProgress(ids)
       } catch (e) {
-        _consecutiveFailures += 1
         if (isApiError(e) && e.status === 429) {
           backoffMs = Math.min(backoffMs * 1.5, 10000)
         } else if (isNetworkError(e) || e instanceof TypeError || (typeof navigator !== "undefined" && !navigator.onLine)) {
@@ -804,7 +800,6 @@ export default function RagPage() {
           }
           return merged
         })
-        _consecutiveFailures = 0
       }
       // Refresh the list when something finished - or periodically as a
       // safety net in case the AI service has no progress entry for a doc.

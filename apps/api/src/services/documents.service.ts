@@ -292,8 +292,6 @@ export class DocumentsService {
     if (ids.length === 0) return {};
 
     let aiProgress: Record<string, Record<string, any> | null> = {};
-    let aiSucceeded = false;
-
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const response = await firstValueFrom(
@@ -303,7 +301,6 @@ export class DocumentsService {
           }),
         );
         aiProgress = response.data.progress ?? {};
-        aiSucceeded = true;
         // Cache successful live entries so a later blip can replay them
         for (const [k, v] of Object.entries(aiProgress)) {
           if (v) this.progressCache.set(k, { entry: v as Record<string, any>, ts: Date.now() });

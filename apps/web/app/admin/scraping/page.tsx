@@ -67,7 +67,6 @@ import type {
   ScrapePaginationType,
   ScrapeRunProgress,
   SchedulerStatus,
-  SitemapCheckResult,
   ScrapeDiagnosis,
   RouteDiscoveryResult,
 } from "@/lib/types"
@@ -274,7 +273,6 @@ function AdminScrapingPageContent() {
   const [detectingSitemap, setDetectingSitemap] = useState(false)
   const [checkingSitemap, setCheckingSitemap] = useState(false)
   const [sitemapNotice, setSitemapNotice] = useState<{ tone: "ok" | "info" | "error"; text: string } | null>(null)
-  const [checkResult, setCheckResult] = useState<SitemapCheckResult | null>(null)
   // Listing-URL auto-detection, in the add/edit dialog.
   const [discovering, setDiscovering] = useState(false)
   const [discovery, setDiscovery] = useState<RouteDiscoveryResult | null>(null)
@@ -412,7 +410,6 @@ function AdminScrapingPageContent() {
     setShowAdvanced(false)
     setFormError(null)
     setSitemapNotice(null)
-    setCheckResult(null)
     setDiscovery(null)
     setDialogOpen(true)
   }
@@ -435,7 +432,6 @@ function AdminScrapingPageContent() {
     setShowAdvanced(source.paginationType !== "QUERY_PARAM" || source.startPage !== 1 || source.maxPages !== 3)
     setFormError(null)
     setSitemapNotice(null)
-    setCheckResult(null)
     setDiscovery(null)
     setDialogOpen(true)
   }
@@ -540,7 +536,6 @@ function AdminScrapingPageContent() {
     setSitemapNotice(null)
     try {
       const result = await checkScrapeSitemap(form.id)
-      setCheckResult(result)
       setSitemapNotice({
         tone: result.new_urls.length > 0 ? "info" : "ok",
         text:
