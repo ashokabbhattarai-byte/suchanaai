@@ -137,6 +137,21 @@ class SyncPipeline:
             "notices_embedding_retry": 0,
             "notices_embedding_failed": 0,
         }
+        self.manifest_sources = {}
+        self.manifest_sources_by_name = {}
+        manifest_path = getattr(self.args, "routes_manifest", None) or (REPO_ROOT / "apps" / "ai" / "scripts" / "suchanaai-source-routes-2026-09-26.json")
+        if manifest_path and Path(manifest_path).exists():
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as mf:
+                    mdata = json.load(mf)
+                for s in mdata.get("sources", []):
+                    if s.get("id"):
+                        self.manifest_sources[str(s["id"]).lower()] = s
+                    if s.get("name"):
+                        self.manifest_sources_by_name[s["name"].strip().lower()] = s
+                print(f"  {DIM}Loaded routes manifest from {Path(manifest_path).name} ({len(self.manifest_sources)} sources){RESET}")
+            except Exception as me:
+                logger.warning("Could not load routes manifest %s: %s", manifest_path, me)
 
     async def init(self):
         """Initializes database pool and verifies Qdrant collection."""
@@ -649,7 +664,7 @@ class SyncPipeline:
         return summarized_ok, embedded_ok
 
     async def sync_source(self, source: dict, source_idx: int, total_sources: int):
-        """Scrapes, stores DB FIRST, and enriches 1 source across listing pages."""
+        """Scrapes, stores DB FIRST, and enriches 1 source across all manifest and configured listing pages."""
         source_id = source["id"]
         source_name = source["name"]
         print(f"\n{BOLD}{MAGENTA}======================================================================{RESET}")
@@ -659,17 +674,40 @@ class SyncPipeline:
 
         base_url = source.get("base_url") or source.get("baseUrl")
         category_urls = {}
-        if source.get("notice_list_url"):
-            category_urls["NOTICE"] = source["notice_list_url"]
-        if source.get("news_list_url"):
-            category_urls["NEWS"] = source["news_list_url"]
-        if source.get("press_release_list_url"):
-            category_urls["PRESS_RELEASE"] = source["press_release_list_url"]
+        max_observed_pages = 20
 
-        # Check and auto-discover missing category URLs
-        missing_categories = [cat for cat in ["NOTICE", "NEWS", "PRESS_RELEASE"] if cat not in category_urls]
-        if base_url and (not category_urls or (missing_categories and not getattr(self.args, "no_discover", False))):
-            print(f"  {CYAN}▸ Checking routes (Missing: {', '.join(missing_categories) if missing_categories else 'ALL'})...{RESET}")
+        # Check routes manifest for comprehensive multi-route configuration
+        manifest_entry = self.manifest_sources.get(str(source_id).lower()) or self.manifest_sources_by_name.get(source_name.strip().lower())
+        if manifest_entry and manifest_entry.get("routes"):
+            manifest_routes = manifest_entry.get("routes", [])
+            print(f"  {CYAN}▸ Using manifest routes ({len(manifest_routes)} routes configured for {manifest_entry.get('name')}):{RESET}")
+            for idx, r in enumerate(manifest_routes):
+                r_kind = (r.get("kind") or "NOTICE").upper()
+                r_url = r.get("listUrl")
+                if not r_url:
+                    continue
+                r_label = r.get("label") or r_kind
+                r_key = f"{r_kind}:{idx}:{r_label}"
+                category_urls[r_key] = r_url
+
+                pc = r.get("pageCount") or {}
+                p_min = pc.get("minimumObserved") or pc.get("total")
+                if p_min and p_min > max_observed_pages:
+                    max_observed_pages = p_min
+                print(f"    {GREEN}• [{r_kind}]{RESET} {r_label} → {r_url} (minPages: {pc.get('minimumObserved')}, totalPages: {pc.get('total')})")
+
+        # Also fallback to legacy DB columns if not in manifest or missing
+        if not category_urls:
+            if source.get("notice_list_url"):
+                category_urls["NOTICE"] = source["notice_list_url"]
+            if source.get("news_list_url"):
+                category_urls["NEWS"] = source["news_list_url"]
+            if source.get("press_release_list_url"):
+                category_urls["PRESS_RELEASE"] = source["press_release_list_url"]
+
+        # Auto-discover only if source has NO routes configured at all
+        if not category_urls and base_url and not getattr(self.args, "no_discover", False):
+            print(f"  {CYAN}▸ Checking routes (Source has no configured routes)...{RESET}")
             from app import route_discovery
             try:
                 discovered = await route_discovery.discover_routes(
@@ -678,7 +716,7 @@ class SyncPipeline:
                 )
                 best = discovered.get("best") or {}
                 for cat in ["NOTICE", "NEWS", "PRESS_RELEASE"]:
-                    if cat not in category_urls and best.get(cat):
+                    if best.get(cat):
                         category_urls[cat] = best[cat]
                         print(f"    {GREEN}✓ Auto-discovered {cat}: {best[cat]}{RESET}")
                         col = "notice_list_url" if cat == "NOTICE" else ("news_list_url" if cat == "NEWS" else "press_release_list_url")
@@ -722,10 +760,12 @@ class SyncPipeline:
             start_page=int(source.get("start_page") or 1),
         )
 
-        max_pages = self.args.max_pages if self.args.max_pages else int(source.get("max_pages") or 20)
+        db_max_pages = int(source.get("max_pages") or 20)
+        max_pages = self.args.max_pages if self.args.max_pages else max(db_max_pages, max_observed_pages)
         deep = self.args.deep
-        if self.args.max_pages:
-            config.SCRAPE_DEEP_MAX_PAGES = self.args.max_pages
+        config.SCRAPE_DEEP_MAX_PAGES = max_pages
+
+        print(f"  {BOLD}Scraping Mode:{RESET} {'DEEP ARCHIVE CRAWL (all pages)' if deep else 'INCREMENTAL'} | Max Pages: {max_pages}")
 
         counts = {
             "found": 0,
@@ -754,7 +794,20 @@ class SyncPipeline:
             title = (item.title or "").strip()
             source_url = item.source_url
             content_text = item.content_text or ""
-            category = item.category.upper() if item.category else "NOTICE"
+            raw_cat = item.category.split(":")[0].strip().upper() if item.category else "NOTICE"
+            CATEGORY_MAP = {
+                "BULLETIN": "NOTICE",
+                "RECRUITMENT": "JOB",
+                "VACANCIES": "VACANCY",
+                "JOBS": "JOB",
+                "TENDERS": "TENDER",
+                "CIRCULARS": "CIRCULAR",
+                "NOTICES": "NOTICE",
+                "NEWS": "NEWS",
+                "PRESS_RELEASE": "PRESS_RELEASE",
+                "PRESS-RELEASE": "PRESS_RELEASE",
+            }
+            category = CATEGORY_MAP.get(raw_cat, raw_cat)
             if category not in VALID_CATEGORIES:
                 category = "OTHER"
 
@@ -1060,6 +1113,12 @@ def parse_args():
         action="store_true",
         default=False,
         help="Run enrichment worker to process pending and retry notices in database",
+    )
+    parser.add_argument(
+        "--routes-manifest",
+        type=str,
+        default=str(REPO_ROOT / "apps" / "ai" / "scripts" / "suchanaai-source-routes-2026-09-26.json"),
+        help="Path to reviewed multi-route manifest JSON (default: apps/ai/scripts/suchanaai-source-routes-2026-09-26.json)",
     )
     parser.add_argument(
         "--dry-run",

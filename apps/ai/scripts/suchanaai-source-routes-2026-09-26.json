@@ -1,0 +1,1423 @@
+{
+  "schemaVersion": "review-manifest-v1",
+  "observedOn": "2026-09-26",
+  "pageCountPolicy": "total is a point-in-time observed last page, null when not verifiable; minimumObserved is not a total. Recompute on each full crawl. Do not cap incremental crawl at this value.",
+  "deploymentNote": "Review manifest only: the attachment is a dry-run result, not the application database or seed schema. Map routes into your actual source/category tables after verifying candidate_unverified rows.",
+  "sources": [
+    {
+      "id": "00000000-0000-0000-0000-000000000016",
+      "name": "Ministry of Land Management, Cooperatives and Poverty Alleviation",
+      "originalAuditStatus": "no_route",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices and news",
+          "listUrl": "https://molcpa.gov.np/category/notices/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 4,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://molcpa.gov.np/category/press-disc-/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000010",
+      "name": "Ministry of Industry, Commerce and Supplies",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://moics.gov.np/category/2041/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 8,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000005",
+      "name": "Ministry of Home Affairs",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://moha.gov.np/en/page/notice",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 7,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://moha.gov.np/en/page/press-release",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000001d",
+      "name": "Election Commission Nepal",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "needs_manual_review",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Election notices",
+          "listUrl": "https://election.gov.np/notice",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "candidate_unverified"
+        },
+        {
+          "kind": "NEWS",
+          "label": "Election news",
+          "listUrl": "https://election.gov.np/news",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "candidate_unverified"
+        }
+      ],
+      "reviewNote": "Election Commission routes in the original audit were not live verified; retain as candidates."
+    },
+    {
+      "id": "678e3e00-7e97-4380-ab30-2dc9d3b2e59c",
+      "name": "nea",
+      "originalAuditStatus": "no_route",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Public notices",
+          "listUrl": "https://nea.org.np/en/category/notice",
+          "pageCount": {
+            "total": 37,
+            "minimumObserved": 37,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "TENDER",
+          "label": "Tender notifications",
+          "listUrl": "https://nea.org.np/en/tender/notification",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "RECRUITMENT",
+          "label": "Recruitment notices",
+          "listUrl": "https://nea.org.np/en/recruitment/open",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000011",
+      "name": "Ministry of Physical Infrastructure and Transport",
+      "originalAuditStatus": "unchanged",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://mopit.gov.np/category/notifications/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 3,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NEWS",
+          "label": "News",
+          "listUrl": "https://mopit.gov.np/category/news/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://mopit.gov.np/category/press-release/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000017",
+      "name": "Ministry of Women, Children and Senior Citizens",
+      "originalAuditStatus": "unchanged",
+      "reviewStatus": "needs_manual_review",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://mowcsc.gov.np/category/notice",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "candidate_unverified"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press statements and notices",
+          "listUrl": "https://mowcsc.gov.np/category/rasuwa-press-release/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "official_listing"
+        }
+      ],
+      "reviewNote": "The current mixed press archive includes notices and statements; classify items individually."
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000001e",
+      "name": "Commission for the Investigation of Abuse of Authority (CIAA)",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "needs_manual_review",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://ciaa.gov.np/notices",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "candidate_unverified"
+        },
+        {
+          "kind": "NEWS",
+          "label": "News",
+          "listUrl": "https://ciaa.gov.np/news",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://ciaa.gov.np/index.php/pressrelease",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000006",
+      "name": "Ministry of Education, Science & Technology",
+      "originalAuditStatus": "no_route",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://moest.gov.np/category/1710/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 35,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000024",
+      "name": "Office of the Company Registrar",
+      "originalAuditStatus": "error",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://ocr.gov.np/category/notices/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000025",
+      "name": "Securities Board of Nepal (SEBON)",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "needs_manual_review",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://sebon.gov.np/notices",
+          "pageCount": {
+            "total": 21,
+            "minimumObserved": 21,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "SITE_LINKS",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://www.sebon.gov.np/press-release/प्रेस-विज्ञप्ती",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "candidate_unverified"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000012",
+      "name": "Ministry of Urban Development",
+      "originalAuditStatus": "no_route",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://moud.gov.np/category/notices/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://moud.gov.np/category/press-releases/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000018",
+      "name": "Ministry of Youth and Sports",
+      "originalAuditStatus": "no_route",
+      "reviewStatus": "needs_manual_review",
+      "routes": [],
+      "reviewNote": "The current Ministry of Youth and Sports site did not yield a reliable archive; keep disabled until manually inspected."
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000000b",
+      "name": "Office of the President",
+      "originalAuditStatus": "no_route",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://president.gov.np/category/प्रेस-विज्ञप्ति/",
+          "pageCount": {
+            "total": 119,
+            "minimumObserved": 119,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "PATH_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000007",
+      "name": "Public Service Commission (Lok Sewa Aayog)",
+      "originalAuditStatus": "no_route",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://psc.gov.np/category/notice",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "VACANCY",
+          "label": "Vacancy advertisements",
+          "listUrl": "https://psc.gov.np/category/notice-advertisement",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000001f",
+      "name": "Department of Immigration",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "News and notices",
+          "listUrl": "https://immigration.gov.np/news-notices",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://immigration.gov.np/press-release",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "BULLETIN",
+          "label": "Bulletins",
+          "listUrl": "https://immigration.gov.np/bulletin",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000000c",
+      "name": "Ministry of Defence",
+      "originalAuditStatus": "unchanged",
+      "reviewStatus": "needs_manual_review",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://mod.gov.np/category/notice/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NEWS",
+          "label": "News",
+          "listUrl": "https://mod.gov.np/category/news",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "candidate_unverified"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000013",
+      "name": "Ministry of Energy, Water Resources and Irrigation",
+      "originalAuditStatus": "unchanged",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notice board",
+          "listUrl": "https://moewri.gov.np/category/notice-board/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 3,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://moewri.gov.np/category/press-release/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 13,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000026",
+      "name": "Nepal Telecommunications Authority (NTA)",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "needs_manual_review",
+      "routes": [],
+      "reviewNote": "The NTA result /righttoinfo is a right-to-information page, not a general notice archive. Do not substitute it."
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000020",
+      "name": "Inland Revenue Department",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://ird.gov.np/category/notice/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://ird.gov.np/category/pressrelease/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "BULLETIN",
+          "label": "Tax bulletins",
+          "listUrl": "https://ird.gov.np/category/tax-bulletins/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000019",
+      "name": "Ministry of Culture, Tourism and Civil Aviation",
+      "originalAuditStatus": "unchanged",
+      "reviewStatus": "needs_manual_review",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://tourism.gov.np/category/notice/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 13,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://tourism.gov.np/category/press-release/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 6,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NEWS",
+          "label": "News",
+          "listUrl": "https://tourism.gov.np/category/News/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "candidate_unverified"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000027",
+      "name": "National Vigilance Center",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NEWS",
+          "label": "News",
+          "listUrl": "https://nvc.gov.np/category/news/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://nvc.gov.np/category/press-release/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000008",
+      "name": "Ministry of Finance",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://mof.gov.np/category/notices/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://mof.gov.np/category/press-release-budget/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 2,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "BULLETIN",
+          "label": "Finance bulletins",
+          "listUrl": "https://mof.gov.np/category/bulletin/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000000d",
+      "name": "Ministry of Agriculture and Livestock Development",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "needs_manual_review",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://moald.gov.np/category/notices/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 3,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "BULLETIN",
+          "label": "Bulletins",
+          "listUrl": "https://moald.gov.np/category/bulletin/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "candidate_unverified"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000014",
+      "name": "Ministry of Forests and Environment",
+      "originalAuditStatus": "unchanged",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices and news",
+          "listUrl": "https://mofe.gov.np/category/notice-news/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://mofe.gov.np/category/press-release/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000001a",
+      "name": "Ministry of Communication and Information Technology",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://mocit.gov.np/category/243/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 20,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "TENDER",
+          "label": "Tender notices",
+          "listUrl": "https://mocit.gov.np/category/244/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "BULLETIN",
+          "label": "E bulletins",
+          "listUrl": "https://mocit.gov.np/category/e-bulletin/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000021",
+      "name": "Department of Customs",
+      "originalAuditStatus": "no_route",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://customs.gov.np/category/notices/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "name": "Nepal Rastra Bank (NRB)",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Office of Governor notices",
+          "listUrl": "https://www.nrb.org.np/category/notices/?department=ofg",
+          "pageCount": {
+            "total": 8,
+            "minimumObserved": 8,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "PATH_PAGE_WITH_DEPARTMENT",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NOTICE",
+          "label": "Bank and Financial Institution Regulation notices",
+          "listUrl": "https://www.nrb.org.np/category/miscellaneous-notices/?department=bfr",
+          "pageCount": {
+            "total": 29,
+            "minimumObserved": 29,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "PATH_PAGE_WITH_DEPARTMENT",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NOTICE",
+          "label": "Foreign Exchange Management notices",
+          "listUrl": "https://www.nrb.org.np/category/notices/?department=fxm",
+          "pageCount": {
+            "total": 9,
+            "minimumObserved": 9,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "PATH_PAGE_WITH_DEPARTMENT",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NOTICE",
+          "label": "Payment Systems notices",
+          "listUrl": "https://www.nrb.org.np/category/notices/?department=psd",
+          "pageCount": {
+            "total": 9,
+            "minimumObserved": 9,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "PATH_PAGE_WITH_DEPARTMENT",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NOTICE",
+          "label": "Banking Department notices",
+          "listUrl": "https://www.nrb.org.np/category/notices/?department=bkd",
+          "pageCount": {
+            "total": 5,
+            "minimumObserved": 5,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "PATH_PAGE_WITH_DEPARTMENT",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NOTICE",
+          "label": "Banking Department ECC notices",
+          "listUrl": "https://www.nrb.org.np/category/ecc-notices/?department=bkd",
+          "pageCount": {
+            "total": 1,
+            "minimumObserved": 1,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "PATH_PAGE_WITH_DEPARTMENT",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NOTICE",
+          "label": "Non Bank Financial Institutions notices",
+          "listUrl": "https://www.nrb.org.np/category/notices/?department=nbfisd",
+          "pageCount": {
+            "total": 1,
+            "minimumObserved": 1,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "PATH_PAGE_WITH_DEPARTMENT",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NOTICE",
+          "label": "Economic Research notices",
+          "listUrl": "https://www.nrb.org.np/category/notices/?department=red",
+          "pageCount": {
+            "total": 7,
+            "minimumObserved": 7,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "PATH_PAGE_WITH_DEPARTMENT",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NOTICE",
+          "label": "Procurement notices",
+          "listUrl": "https://www.nrb.org.np/category/notices/?department=gsd",
+          "pageCount": {
+            "total": 68,
+            "minimumObserved": 68,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "PATH_PAGE_WITH_DEPARTMENT",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NOTICE",
+          "label": "Human Resources notices",
+          "listUrl": "https://www.nrb.org.np/category/notices/?department=hrm",
+          "pageCount": {
+            "total": 52,
+            "minimumObserved": 52,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "PATH_PAGE_WITH_DEPARTMENT",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NOTICE",
+          "label": "Public Debt Management notices",
+          "listUrl": "https://www.nrb.org.np/category/pdm-notices/?department=pdm",
+          "pageCount": {
+            "total": 66,
+            "minimumObserved": 66,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "PATH_PAGE_WITH_DEPARTMENT",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Media releases",
+          "listUrl": "https://www.nrb.org.np/category/media-releases/?department=ofg",
+          "pageCount": {
+            "total": 47,
+            "minimumObserved": 47,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "PATH_PAGE_WITH_DEPARTMENT",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NOTICE",
+          "label": "Currency Management notices",
+          "listUrl": "https://www.nrb.org.np/category/notices/?department=cmd",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "PATH_PAGE_WITH_DEPARTMENT",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NOTICE",
+          "label": "RTGS notices",
+          "listUrl": "https://www.nrb.org.np/category/rtgs-notices/?department=psd",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "PATH_PAGE_WITH_DEPARTMENT",
+          "verification": "official_listing"
+        }
+      ],
+      "reviewNote": "Department filters return different archives. Follow canonical next links such as /category/notices/page/2/?department=ofg; a paged query parameter may also work but is not the canonical link. Deduplicate the same document URL across archives."
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000009",
+      "name": "Ministry of Health and Population",
+      "originalAuditStatus": "no_route",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NEWS",
+          "label": "Latest news",
+          "listUrl": "https://mohp.gov.np/category/latest-news/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://mohp.gov.np/category/pressrelease/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 3,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000000e",
+      "name": "Ministry of Labour, Employment and Social Security",
+      "originalAuditStatus": "error",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://moless.gov.np/category/1984/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://moless.gov.np/category/1985/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 4,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000001b",
+      "name": "Ministry of Law, Justice and Parliamentary Affairs",
+      "originalAuditStatus": "no_route",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://www.moljpa.gov.np/notice",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "CATEGORY_FILTER",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000015",
+      "name": "Ministry of Water Supply",
+      "originalAuditStatus": "error",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://mows.gov.np/category/notice/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 2,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://mows.gov.np/category/476/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000022",
+      "name": "Department of Roads",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "needs_manual_review",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Department of Roads notices",
+          "listUrl": "https://www.dor.gov.np/home/notices",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "candidate_unverified"
+        },
+        {
+          "kind": "NEWS",
+          "label": "Department of Roads news",
+          "listUrl": "https://www.dor.gov.np/home/news",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "official_listing"
+        }
+      ],
+      "reviewNote": "The /ssdrp/notices route from the audit is a division page, not a complete Department of Roads source."
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000000a",
+      "name": "Office of the Prime Minister and Council of Ministers",
+      "originalAuditStatus": "no_route",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://opmcm.gov.np/category/press-release/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "name": "Tribhuvan University (TU)",
+      "originalAuditStatus": "unchanged",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://tu.edu.np/notices",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "CURSOR",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NEWS",
+          "label": "News",
+          "listUrl": "https://tu.edu.np/news",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "CURSOR",
+          "verification": "official_listing"
+        }
+      ],
+      "reviewNote": "TU uses opaque cursor tokens; total page count cannot be known from the first page."
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "name": "Ministry of Foreign Affairs (MOFA)",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://mofa.gov.np/category/information/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 2,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://mofa.gov.np/category/presscategory/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 16,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "BULLETIN",
+          "label": "MOFA bulletins",
+          "listUrl": "https://mofa.gov.np/category/bulletin/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 3,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000000f",
+      "name": "Ministry of Federal Affairs and General Administration",
+      "originalAuditStatus": "unchanged",
+      "reviewStatus": "archive_located",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://mofaga.gov.np/notices",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "official_listing"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000004",
+      "name": "Kathmandu University (KU)",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "needs_manual_review",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://ku.edu.np/news-app?tags=Notice",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "SITE_LINKS",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NEWS",
+          "label": "News",
+          "listUrl": "https://ku.edu.np/news-app?tags=News",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "candidate_unverified"
+        }
+      ],
+      "reviewNote": "KU uses search/filter and possibly path pagination; do not hard-code page count from an observed /20 path."
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000023",
+      "name": "Department of Foreign Employment",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "needs_manual_review",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Notices",
+          "listUrl": "https://dofe.gov.np/category/notices/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "BULLETIN",
+          "label": "Bulletins",
+          "listUrl": "https://dofe.gov.np/category/bulletin/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Press releases",
+          "listUrl": "https://dofe.gov.np/category/press-release",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "candidate_unverified"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000001c",
+      "name": "Office of the Auditor General",
+      "originalAuditStatus": "error",
+      "reviewStatus": "needs_manual_review",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Current OAG notices",
+          "listUrl": "https://oag.gov.np/news-notice/notice",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "PRESS_RELEASE",
+          "label": "Legacy OAG press releases",
+          "listUrl": "https://old.oag.gov.np/press-release/ne",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": null,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "DISCOVER",
+          "verification": "legacy_listing"
+        }
+      ],
+      "reviewNote": "The current OAG site timed out; legacy press release archive should not be assumed current."
+    },
+    {
+      "id": "5c9a3c6e-f3b9-4a03-8d6d-e52c96a58ffa",
+      "name": "Homae affai",
+      "originalAuditStatus": "would_update",
+      "reviewStatus": "needs_manual_review",
+      "routes": [],
+      "reviewNote": "Duplicate, misspelled Home Affairs row. Disable and merge its press release category into canonical Home Affairs source 0005 after verifying."
+    }
+  ]
+}
