@@ -59,6 +59,18 @@ inputs:
       and run its 3.5 GB Docker image without running out of disk space.
     required: false
     default: ""
+  instance-type:
+    description: EC2 instance type override (e.g. t3.medium for AI service).
+    required: false
+    default: ""
+  command-timeout:
+    description: Beanstalk command timeout in seconds (e.g. 1200 for large image extraction).
+    required: false
+    default: ""
+  wait-for-recovery:
+    description: Seconds einaregilsson/beanstalk-deploy waits for environment health recovery.
+    required: false
+    default: "300"
 
 runs:
   using: composite
@@ -172,6 +184,32 @@ runs:
           echo "EB root volume configured to ${ROOT_SIZE} GB gp3"
         fi
 
+        INST_TYPE="${{ inputs.instance-type }}"
+        CMD_TIMEOUT="${{ inputs.command-timeout }}"
+        if [ -n "$INST_TYPE" ] || [ -n "$CMD_TIMEOUT" ]; then
+          mkdir -p .ebextensions
+          cat > .ebextensions/launch_config.config <<'EBEXT'
+        option_settings:
+        EBEXT
+          sed -i 's/^        //' .ebextensions/launch_config.config
+          if [ -n "$INST_TYPE" ]; then
+            cat >> .ebextensions/launch_config.config <<EOF
+          aws:autoscaling:launchconfiguration:
+            InstanceType: "$INST_TYPE"
+EOF
+            sed -i 's/^          //' .ebextensions/launch_config.config
+            echo "EB instance type configured to $INST_TYPE"
+          fi
+          if [ -n "$CMD_TIMEOUT" ]; then
+            cat >> .ebextensions/launch_config.config <<EOF
+          aws:elasticbeanstalk:command:
+            Timeout: "$CMD_TIMEOUT"
+EOF
+            sed -i 's/^          //' .ebextensions/launch_config.config
+            echo "EB command timeout configured to $CMD_TIMEOUT"
+          fi
+        fi
+
         # Always zip Dockerrun + .platform — .platform now at minimum contains
         # client_max_body_size.conf, so every deploy carries the 413 fix.
         # .ebextensions is included when present (AI deploys with grace period).
@@ -229,7 +267,7 @@ runs:
         region: ${{ inputs.aws-region }}
         version_label: ${{ inputs.version-label }}
         deployment_package: deploy.zip
-        wait_for_environment_recovery: 300
+        wait_for_environment_recovery: ${{ inputs.wait-for-recovery }}
         # version-label is derived from run_number+sha (see ci-cd.yml), so a
         # re-run of the same workflow run reuses the same label. Without
         # this, a retry after a failed deploy always errors with "Version
