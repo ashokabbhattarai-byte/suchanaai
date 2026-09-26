@@ -24,14 +24,18 @@
     "db:studio": "pnpm --filter @pnm/api prisma:studio",
     "db:push": "pnpm --filter @pnm/api prisma:push",
     "db:seed": "pnpm --filter @pnm/api db:seed",
-    "db:reset": "pnpm --filter @pnm/api prisma:reset",
     "sync:news": "apps/ai/.venv/bin/python scripts/sync_all_news.py",
+    "scan:extractions": "tsx scripts/fix-extractions.ts --scan-only",
+    "fix:extractions": "tsx scripts/fix-extractions.ts",
+    "fix:categories": "apps/ai/.venv/bin/python scripts/fix_all_categories.py",
     "setup": "pnpm install && pnpm db:start && pnpm db:setup && pnpm db:migrate"
   },
   "devDependencies": {
     "@mermaid-js/mermaid-cli": "^11.16.0",
     "@playwright/test": "^1.62.1",
+    "dotenv": "^18.0.4",
     "puppeteer": "^23.11.1",
+    "tsx": "^4.23.15",
     "turbo": "^2.5.0"
   },
   "packageManager": "pnpm@10.18.0"
