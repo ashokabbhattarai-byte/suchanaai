@@ -1247,7 +1247,56 @@ export class ScrapingService {
       categoryMap[rawCat] ||
       (ScrapingService.VALID_CATEGORIES.has(item.category)
         ? (item.category as ScrapedItemCategory)
-        : ScrapedItemCategory.OTHER);
+        : ScrapedItemCategory.NOTICE);
+
+    let finalCategory = resolvedCategory;
+    if (finalCategory === ScrapedItemCategory.OTHER || finalCategory === ScrapedItemCategory.NOTICE) {
+      const titleLower = (item.title || '').toLowerCase();
+      const urlLower = (item.source_url || '').toLowerCase();
+      if (
+        titleLower.includes('बोलपत्र') ||
+        titleLower.includes('tender') ||
+        titleLower.includes('दरभाउपत्र') ||
+        titleLower.includes('quotation') ||
+        urlLower.includes('tender') ||
+        urlLower.includes('bolpatra')
+      ) {
+        finalCategory = ScrapedItemCategory.TENDER;
+      } else if (
+        titleLower.includes('पदपूर्ति') ||
+        titleLower.includes('कर्मचारी आवश्यकता') ||
+        titleLower.includes('दरखास्त') ||
+        titleLower.includes('vacancy') ||
+        titleLower.includes('recruitment') ||
+        urlLower.includes('vacancy')
+      ) {
+        finalCategory = ScrapedItemCategory.VACANCY;
+      } else if (
+        titleLower.includes('प्रेस विज्ञप्ति') ||
+        titleLower.includes('press release') ||
+        titleLower.includes('विज्ञप्ति') ||
+        urlLower.includes('press-release')
+      ) {
+        finalCategory = ScrapedItemCategory.PRESS_RELEASE;
+      } else if (
+        titleLower.includes('परिपत्र') ||
+        titleLower.includes('निर्देशिका') ||
+        titleLower.includes('कार्यविधि') ||
+        titleLower.includes('circular') ||
+        titleLower.includes('directive')
+      ) {
+        finalCategory = ScrapedItemCategory.CIRCULAR;
+      } else if (
+        titleLower.includes('समाचार') ||
+        titleLower.includes('news') ||
+        titleLower.includes('बुलेटिन') ||
+        titleLower.includes('bulletin')
+      ) {
+        finalCategory = ScrapedItemCategory.NEWS;
+      } else {
+        finalCategory = ScrapedItemCategory.NOTICE;
+      }
+    }
 
     // Track AI summarization status from the Python service.
     const hadSummaryAttempt = Boolean(item.ai_summary || item.content_text);
@@ -1266,7 +1315,7 @@ export class ScrapingService {
         data: {
           sourceId: source.id,
           sourceLabel: source.name,
-          category: resolvedCategory,
+          category: finalCategory,
           sourceSlug: item.source_slug,
           title: item.title,
           sourceUrl: item.source_url,

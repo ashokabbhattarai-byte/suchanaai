@@ -68,6 +68,7 @@ import asyncpg
 from app import browser_pool, config, embeddings, notice_store, scraper
 from app.ai_providers import NoticeSummarizer
 from app.logger import get_logger
+from scripts.fix_all_categories import classify_record
 
 logger = get_logger("sync_all_news")
 
@@ -314,9 +315,7 @@ class SyncPipeline:
         content_html = item.content_html or ""
         published_at = item.published_at
 
-        category = item.category.upper() if item.category else "NOTICE"
-        if category not in VALID_CATEGORIES:
-            category = "OTHER"
+        category = classify_record(title, content_text, source_url, getattr(item, "category", None))
 
         content_hash = compute_content_hash(title, content_text)
 

@@ -1340,6 +1340,112 @@ def _normalize_category(cat: str | None) -> str:
     return mapping.get(clean, mapping.get(prefix, "NOTICE"))
 
 
+def _classify_item_category(
+    title: str | None,
+    url: str | None,
+    route_category: str | None = None,
+    content: str | None = None,
+) -> tuple[str, float, str | None]:
+    """Multi-signal heuristic classification for Nepalese government notices.
+    Returns (category, confidence, source_slug)."""
+    title_l = (title or "").lower()
+    combined_text = ((content or "")[:1500] + " " + (title or "")).lower()
+
+    # Extract slug
+    source_slug = None
+    try:
+        if url:
+            path = urlparse(url).path.strip("/")
+            segments = [s for s in path.split("/") if s and not s.isdigit()]
+            if segments:
+                source_slug = segments[-1]
+    except Exception:
+        pass
+
+    # 1. TENDER / PROCUREMENT
+    tender_keywords = (
+        "बोलपत्र", "सिलबन्दी दरभाउपत्र", "दरभाउपत्र", "ठेक्का", "लिलाम", "खरिद सम्बन्धी",
+        "इ-बिडिङ", "आशयको सूचना", "बोलपत्र स्वीकृत", "प्रस्ताव आह्वान", "बोलपत्र फाराम",
+        "कोटेशन", "बोलपत्र रद्द", "दरभाउ पत्र", "सिलबन्दी", "बोलपत्र मूल्याङ्कन",
+        "tender", "sealed quotation", "quotation", "e-bidding", "procurement", "bidding",
+        "expression of interest", "eoi", "request for proposal", "rfp", "invitation for bid",
+        "ifb", "re-tender", "auction", "bid submission", "bid opening", "bolpatra"
+    )
+    if any(kw in title_l for kw in tender_keywords) or (source_slug and any(kw in source_slug.lower() for kw in ("tender", "bid", "quotation", "procurement", "bolpatra"))):
+        return "TENDER", 0.95, source_slug
+
+    # 2. VACANCY / JOB / RECRUITMENT
+    vacancy_keywords = (
+        "पदपूर्ति", "कर्मचारी आवश्यकता", "दरखास्त", "नियुक्ति", "विज्ञापन नं", "विज्ञापन सम्बन्धी",
+        "लिखित परीक्षा", "अन्तर्वार्ता", "नतिजा प्रकाशन", "सिफारिस सम्बन्धी", "रिक्त पद",
+        "सेवा करार", "खुला प्रतियोगिता", "योग्यताक्रम", "पदस्थापन", "परीक्षा तालिका", "प्रवेशपत्र",
+        "करार सेवा", "रोजगार", "उम्मेदवार", "रोष्टर",
+        "vacancy", "vacancies", "recruitment", "career", "careers", "job opening",
+        "hiring", "written exam", "interview result", "appointment", "karmachari"
+    )
+    if any(kw in title_l for kw in vacancy_keywords) or (source_slug and any(kw in source_slug.lower() for kw in ("vacancy", "recruitment", "career", "job", "padpurti"))):
+        is_vac = any(w in title_l or (source_slug and w in source_slug) for w in ("vacancy", "दरखास्त", "विज्ञापन", "परीक्षा"))
+        return "VACANCY" if is_vac else "JOB", 0.95, source_slug
+
+    # 3. PRESS RELEASE
+    press_keywords = (
+        "प्रेस विज्ञप्ति", "प्रेस नोट", "प्रेस-विज्ञप्ति", "पत्रकार सम्मेलन", "प्रेस वक्तव्य",
+        "प्रेस रिलिज", "विज्ञप्ति", "प्रेस नोटः", "संयुक्त वक्तव्य",
+        "press release", "press note", "press statement", "media release", "press-release",
+        "pressrelease", "press conference", "joint communique", "official statement"
+    )
+    if any(kw in title_l for kw in press_keywords) or (source_slug and any(kw in source_slug.lower() for kw in ("press-release", "pressrelease", "press_release", "press-note", "media-release"))):
+        return "PRESS_RELEASE", 0.95, source_slug
+
+    # 4. CIRCULAR / DIRECTIVES / GUIDELINES
+    circular_keywords = (
+        "परिपत्र", "निर्देशिका", "कार्यविधि", "मापदण्ड", "विनियमावली", "निर्देशन सम्बन्धी",
+        "आदेश", "राजपत्र", "ऐन तथा नियम", "मार्गदर्शन", "प्रक्रियागत", "सञ्चालन कार्यविधि",
+        "circular", "directive", "directives", "guideline", "guidelines", "paripatra", "manual", "regulation", "standard operating"
+    )
+    if any(kw in title_l for kw in circular_keywords) or (source_slug and any(kw in source_slug.lower() for kw in ("circular", "directive", "guideline", "paripatra", "manual"))):
+        return "CIRCULAR", 0.90, source_slug
+
+    # 5. NEWS / BULLETIN / EVENTS
+    news_keywords = (
+        "समाचार", "ताजा समाचार", "बुलेटिन", "गतिविधि", "कार्यक्रम सम्बन्धी", "वार्षिक प्रतिवेदन",
+        "समीक्षा गोष्ठी", "उद्घाटन", "समारोह",
+        "news", "bulletin", "newsletter", "events", "activities", "monthly bulletin",
+        "quarterly bulletin", "annual report"
+    )
+    if any(kw in title_l for kw in news_keywords) or (source_slug and any(kw in source_slug.lower() for kw in ("news", "bulletin", "newsletter", "samachar", "events"))):
+        return "NEWS", 0.90, source_slug
+
+    # 6. NOTICE / LICENSES / ADMINISTRATIVE
+    notice_keywords = (
+        "सूचना", "सुचना", "सार्वजनिक सूचना", "अत्यावश्यक", "जानकारी", "विवरण", "छपाई भएका",
+        "सवारी चालक अनुमतिपत्र", "सवारी", "स्मार्ट कार्ड", "लाइसेन्स", "निर्णय", "सूचना पाटी",
+        "तालिम", "छात्रवृत्ति", "नतिजा", "अनुमोदन", "प्रतिवेदन", "प्रकाशन",
+        "notice", "suchana", "announcement", "license", "driving license", "information",
+        "public notice", "decision", "result", "scholarship", "training", "schedule"
+    )
+    if any(kw in title_l for kw in notice_keywords) or (source_slug and any(kw in source_slug.lower() for kw in ("notice", "suchana", "announcement", "license", "details-of-printed-licenses"))):
+        return "NOTICE", 0.85, source_slug
+
+    # 7. Check Route Category if provided
+    if route_category:
+        norm_route = _normalize_category(route_category)
+        if norm_route and norm_route != "OTHER":
+            return norm_route, 0.80, source_slug
+
+    # 8. Deeper check on combined text / summary
+    if any(kw in combined_text for kw in tender_keywords[:10]):
+        return "TENDER", 0.75, source_slug
+    if any(kw in combined_text for kw in vacancy_keywords[:10]):
+        return "VACANCY", 0.75, source_slug
+    if any(kw in combined_text for kw in press_keywords[:5]):
+        return "PRESS_RELEASE", 0.75, source_slug
+    if any(kw in combined_text for kw in circular_keywords[:5]):
+        return "CIRCULAR", 0.70, source_slug
+
+    return "NOTICE", 0.50, source_slug
+
+
 # ---------------------------------------------------------------------------
 # Item admission control
 #
@@ -2695,10 +2801,13 @@ async def scrape_source(
                     published_at = _parse_published(row.get("published_raw"))
                     attachment_url = _absolute_url(base_url, row.get("attachment_href"))
 
-                    # Slug-based category inference
-                    slug_category, source_slug = _infer_category_from_slug(source_url)
-                    resolved_category = _normalize_category(slug_category if slug_category else category)
-                    category_confidence = 0.8 if slug_category and slug_category != category else None
+                    # Multi-signal category inference
+                    resolved_category, category_confidence, source_slug = _classify_item_category(
+                        title=title,
+                        url=source_url,
+                        route_category=category,
+                        content=None
+                    )
 
                     content_text = None
                     content_html = None
@@ -2750,6 +2859,14 @@ async def scrape_source(
                             )
                             or title
                         )
+
+                    # Re-classify with full detail title/content if available
+                    resolved_category, category_confidence, source_slug = _classify_item_category(
+                        title=title,
+                        url=source_url,
+                        route_category=category,
+                        content=content_text
+                    )
 
                     # Final gate. A row with no recoverable title is markup we
                     # misread, not a notice — storing it produced the pages of
@@ -3012,8 +3129,12 @@ async def scrape_sitemap_urls(
                 _record_skip(failures, source_url, "sitemap", "no_title")
                 continue
 
-            slug_category, source_slug = _infer_category_from_slug(source_url)
-            resolved_category = slug_category or default_category or "OTHER"
+            resolved_category, category_confidence, source_slug = _classify_item_category(
+                title=title,
+                url=source_url,
+                route_category=default_category or "NOTICE",
+                content=content_text
+            )
             source_slug = source_slug or default_slug
 
             item = ScrapedItem(
@@ -3027,7 +3148,7 @@ async def scrape_sitemap_urls(
                 attachment_url=attachment_url,
                 source_slug=source_slug,
                 attachments=attachments if attachments else None,
-                ai_category_confidence=0.8 if slug_category else None,
+                ai_category_confidence=category_confidence,
                 metadata=meta,
             )
             items.append(item)
