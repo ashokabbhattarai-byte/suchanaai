@@ -871,6 +871,9 @@ async def _fetch_raw_html(
         CrawlerRunConfig(
             cache_mode=CacheMode.BYPASS,
             page_timeout=getattr(config, "SCRAPE_PAGE_TIMEOUT_MS", 30000),
+            magic=True,
+            simulate_user=True,
+            override_navigator=True,
         ),
         "Raw fetch",
     )
@@ -909,6 +912,9 @@ async def _extract_rows_and_html(
             extraction_strategy=JsonCssExtractionStrategy(schema),
             cache_mode=CacheMode.BYPASS,
             page_timeout=getattr(config, "SCRAPE_PAGE_TIMEOUT_MS", 30000),
+            magic=True,
+            simulate_user=True,
+            override_navigator=True,
         ),
         "Listing crawl",
     )
@@ -1118,6 +1124,9 @@ async def _crawl_detail_generic(
         CrawlerRunConfig(
             cache_mode=CacheMode.BYPASS,
             page_timeout=getattr(config, "SCRAPE_PAGE_TIMEOUT_MS", 30000),
+            magic=True,
+            simulate_user=True,
+            override_navigator=True,
         ),
         "Detail crawl",
     )
@@ -2422,6 +2431,7 @@ async def scrape_source(
     summarize_concurrency: int | None = None,
     pagination: PaginationConfig | None = None,
     deep: bool = False,
+    summarize: bool = True,
     on_progress=None,
     on_item=None,
 ) -> tuple[list[ScrapedItem], dict[str, dict], list[dict], dict]:
@@ -2725,7 +2735,7 @@ async def scrape_source(
                     # apps/api for every "already scraped" row on the page.
                     # Only genuinely new items are worth pushing.
                     is_new = source_url not in known_urls
-                    if content_text and is_new:
+                    if content_text and is_new and summarize:
                         # Fire concurrent summarization task (non-blocking);
                         # the item streams itself once summarization finishes.
                         task = asyncio.create_task(
@@ -2733,12 +2743,7 @@ async def scrape_source(
                         )
                         summarize_tasks.append(task)
                     elif is_new and on_item is not None:
-                        # No content to summarize (e.g. detail fetch failed) —
-                        # nothing further will change on this item, so it can
-                        # stream right away instead of waiting on the batch.
-                        # Tracked in summarize_tasks (despite the name — it's
-                        # really "background tasks to await before returning")
-                        # so the function can't return before this push lands.
+                        # Streaming directly without in-scraper summarization
                         summarize_tasks.append(asyncio.create_task(on_item(item)))
 
                 already_known_on_page = new_rows_on_page - unknown_rows_on_page
@@ -2974,7 +2979,7 @@ async def scrape_sitemap_urls(
             )
             items.append(item)
 
-            if content_text:
+            if content_text and summarize:
                 task = asyncio.create_task(
                     _summarize_then_stream(item, resolved_category, report, semaphore, on_item)
                 )

@@ -62,8 +62,20 @@ class _BrowserPool:
         async with self._lock:
             if self._crawler is not None:
                 return self._crawler
-            crawler = AsyncWebCrawler(config=BrowserConfig(headless=True, verbose=False))
-            await crawler.start()
+            crawler = AsyncWebCrawler(
+                config=BrowserConfig(
+                    headless=True,
+                    verbose=False,
+                    enable_stealth=True,
+                    ignore_https_errors=True,
+                    extra_args=[
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                    ],
+                )
+            )
             self._crawler = crawler
             self._sessions_served = 0
             logger.info(

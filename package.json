@@ -22,6 +22,7 @@
     "db:push": "pnpm --filter @pnm/api prisma:push",
     "db:seed": "pnpm --filter @pnm/api db:seed",
     "db:reset": "pnpm --filter @pnm/api prisma:reset",
+    "sync:news": "apps/ai/.venv/bin/python scripts/sync_all_news.py",
     "setup": "pnpm install && pnpm db:start && pnpm db:setup && pnpm db:migrate"
   },
   "devDependencies": {

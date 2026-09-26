@@ -329,6 +329,22 @@ model ScrapedItem {
   scrapedAt     DateTime            @default(now()) @map("scraped_at")
   updatedAt     DateTime            @updatedAt @map("updated_at")
 
+  // AI summary queue state
+  summaryStatus       String              @default("pending") @map("summary_status")
+  summaryAttempts     Int                 @default(0) @map("summary_attempts")
+  summaryProvider     String?             @map("summary_provider")
+  summaryModel        String?             @map("summary_model")
+  summaryError        String?             @map("summary_error")
+  summaryUpdatedAt    DateTime?           @map("summary_updated_at")
+  nextSummaryRetryAt  DateTime?           @map("next_summary_retry_at")
+
+  // Embedding queue state
+  embeddingStatus      String              @default("pending") @map("embedding_status")
+  embeddingAttempts    Int                 @default(0) @map("embedding_attempts")
+  embeddingError       String?             @map("embedding_error")
+  embeddingUpdatedAt   DateTime?           @map("embedding_updated_at")
+  nextEmbeddingRetryAt DateTime?           @map("next_embedding_retry_at")
+
   attachments   Attachment[]
   noticeViews   NoticeView[]
   alertNotifications AlertNotification[]
@@ -338,6 +354,8 @@ model ScrapedItem {
   @@index([sourceId])
   @@index([category, publishedAt])
   @@index([sourceId, publishedAt])
+  @@index([summaryStatus, nextSummaryRetryAt], map: "scraped_items_summary_queue_idx")
+  @@index([embeddingStatus, nextEmbeddingRetryAt], map: "scraped_items_embedding_queue_idx")
   @@map("scraped_items")
 }
 

@@ -104,6 +104,11 @@ OPENROUTER_FREE_MODELS: list[str] = [
     if m.strip()
 ]
 
+CLOUDFLARE_ACCOUNT_ID: str = _env("CLOUDFLARE_ACCOUNT_ID")
+CLOUDFLARE_API_TOKEN: str = _env("CLOUDFLARE_API_TOKEN")
+CLOUDFLARE_AI_MODEL: str = _env("CLOUDFLARE_AI_MODEL", "@cf/ibm-granite/granite-4.0-h-micro")
+CLOUDFLARE_AI_ENABLED: bool = _env("CLOUDFLARE_AI_ENABLED", "true").lower() in ("1", "true", "yes")
+
 GROQ_API_KEY: str = _env("GROQ_API_KEY")
 GROQ_API_KEYS: list[str] = [k.strip() for k in _env("GROQ_API_KEYS", "").split(",") if k.strip()] or ([GROQ_API_KEY] if GROQ_API_KEY else [])
 # llama-3.3-70b-versatile was retired from Groq's catalog (404 model_not_found).

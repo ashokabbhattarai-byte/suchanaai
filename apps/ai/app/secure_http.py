@@ -368,7 +368,15 @@ class SecureHttpClient:
         if not self._client:
             raise RuntimeError("Client not initialized. Use async context manager.")
 
-        headers = {"User-Agent": "Suchana-AI/1.0 (+https://suchana.ai)"}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,application/pdf,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9,ne;q=0.8",
+            "Sec-Ch-Ua": '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"macOS"',
+            "Upgrade-Insecure-Requests": "1",
+        }
         if extra_headers:
             headers.update(extra_headers)
 
