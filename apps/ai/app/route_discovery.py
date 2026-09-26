@@ -39,6 +39,11 @@ logger = get_logger(__name__)
 # over "release" and "प्रेस विज्ञप्ति" over "विज्ञप्ति".
 _ROUTE_KEYWORDS: dict[str, str] = {
     # --- notices ---
+    "details-of-printed-licenses": "NOTICE",
+    "printed-licenses": "NOTICE",
+    "driving-license": "NOTICE",
+    "license": "NOTICE",
+    "smart-card": "NOTICE",
     "notice-board": "NOTICE",
     "noticeboard": "NOTICE",
     "public-notice": "NOTICE",
@@ -55,6 +60,8 @@ _ROUTE_KEYWORDS: dict[str, str] = {
     "सुचना": "NOTICE",
     "जानकारी": "NOTICE",
     "अत्यावश्यक": "NOTICE",
+    "सवारी चालक अनुमतिपत्र": "NOTICE",
+    "छपाई भएका": "NOTICE",
     # --- news ---
     "news-and-events": "NEWS",
     "latest-news": "NEWS",
@@ -77,6 +84,35 @@ _ROUTE_KEYWORDS: dict[str, str] = {
     "पत्रकार सम्मेलन": "PRESS_RELEASE",
     "विज्ञप्ति": "PRESS_RELEASE",
     "प्रेस": "PRESS_RELEASE",
+    # --- tenders ---
+    "tender": "TENDER",
+    "tenders": "TENDER",
+    "bolpatra": "TENDER",
+    "e-bidding": "TENDER",
+    "procurement": "TENDER",
+    "quotation": "TENDER",
+    "बोलपत्र": "TENDER",
+    "ठेक्का": "TENDER",
+    "लिलाम": "TENDER",
+    "खरिद": "TENDER",
+    # --- vacancies / jobs ---
+    "vacancy": "VACANCY",
+    "vacancies": "VACANCY",
+    "career": "JOB",
+    "careers": "JOB",
+    "recruitment": "JOB",
+    "karmachari": "JOB",
+    "पदपूर्ति": "VACANCY",
+    "कर्मचारी आवश्यकता": "JOB",
+    "विज्ञापन": "VACANCY",
+    # --- circulars ---
+    "circular": "CIRCULAR",
+    "circulars": "CIRCULAR",
+    "paripatra": "CIRCULAR",
+    "directive": "CIRCULAR",
+    "guideline": "CIRCULAR",
+    "परिपत्र": "CIRCULAR",
+    "निर्देशिका": "CIRCULAR",
 }
 
 # Checked longest-first so specific phrases beat their own substrings.
@@ -90,7 +126,6 @@ _NEGATIVE_HINTS = (
     "gallery", "photo", "video", "album", "faq", "help", "search",
     "sitemap", "feed", "rss", "cart", "account", "profile", "webmail",
     "organogram", "staff", "employee", "team", "member", "citizen-charter",
-    "tender", "bolpatra", "e-bidding", "vacancy", "karmachari",
     "facebook", "twitter", "youtube", "map",
 )
 
@@ -101,13 +136,18 @@ _COMMON_PATHS: list[tuple[str, str]] = [
     ("/notice", "NOTICE"),
     ("/notice-board", "NOTICE"),
     ("/category/notice", "NOTICE"),
+    ("/category/notices", "NOTICE"),
     ("/category/suchana", "NOTICE"),
+    ("/category/details-of-printed-licenses", "NOTICE"),
     ("/public-notice", "NOTICE"),
     ("/news", "NEWS"),
     ("/category/news", "NEWS"),
     ("/news-and-events", "NEWS"),
     ("/press-release", "PRESS_RELEASE"),
     ("/category/press-release", "PRESS_RELEASE"),
+    ("/tenders", "TENDER"),
+    ("/category/tender", "TENDER"),
+    ("/category/vacancy", "VACANCY"),
 ]
 
 # A verified route needs at least this many rows that link to real articles.
@@ -169,14 +209,19 @@ def _looks_like_detail_url(segments: list[str]) -> bool:
     """
     if not segments:
         return False
+    # Explicit category / taxonomy routes are listing paths, not detail URLs
+    if segments[0] in ("category", "categories", "tag", "tags", "topic", "section", "taxonomy") and len(segments) <= 2:
+        return False
     if any(seg.isdigit() for seg in segments):
         return True
     tokens = segments[-1].replace("_", "-").split("-")
     # A trailing number is a post id, not a section: `/post/press-release-2126`
-    # is one release, `/category/press-release` is all of them.
     if len(tokens) > 1 and tokens[-1].isdigit():
         return True
-    return len(tokens) > 3
+    # If path starts with category/section, tolerate longer slug names like 'details-of-printed-licenses'
+    if segments[0] in ("category", "categories", "tag", "tags", "topic", "section", "taxonomy"):
+        return len(segments) > 2
+    return len(tokens) > 5
 
 
 def _score_candidate(url: str, link_text: str, in_nav: bool) -> tuple[str, float, list[str]] | None:

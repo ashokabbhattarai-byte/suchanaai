@@ -82,7 +82,7 @@ async def main():
 
         # Enable source if it has at least one valid route
         has_routes = bool(routes and any(r.get("listUrl") for r in routes))
-        should_enable = has_routes and review_status in ("archive_located", "needs_manual_review", "would_update")
+        should_enable = has_routes and review_status in ("archive_located", "active", "needs_manual_review", "would_update")
 
         diagnosis_payload = json.dumps({
             "reviewStatus": review_status,

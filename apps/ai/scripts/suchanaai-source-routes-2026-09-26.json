@@ -1418,6 +1418,62 @@
       "reviewStatus": "needs_manual_review",
       "routes": [],
       "reviewNote": "Duplicate, misspelled Home Affairs row. Disable and merge its press release category into canonical Home Affairs source 0005 after verifying."
+    },
+    {
+      "id": "fb01eb0a-79fc-604a-1a6c-03ae8fdf9853",
+      "name": "Department of Transport Management",
+      "originalAuditStatus": "verified",
+      "reviewStatus": "active",
+      "routes": [
+        {
+          "kind": "NOTICE",
+          "label": "Details of Printed Licenses",
+          "listUrl": "https://dotm.gov.np/category/details-of-printed-licenses/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 3,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NOTICE",
+          "label": "Printed Essential Licenses",
+          "listUrl": "https://dotm.gov.np/category/details-of-printed-essential-driver-s-licenses-/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 2,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "NOTICE",
+          "label": "Printed Licenses",
+          "listUrl": "https://dotm.gov.np/category/printed-license",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 2,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        },
+        {
+          "kind": "CIRCULAR",
+          "label": "Directives and Guidelines",
+          "listUrl": "https://dotm.gov.np/category/Directives-Guidelines/",
+          "pageCount": {
+            "total": null,
+            "minimumObserved": 2,
+            "observedOn": "2026-09-26"
+          },
+          "pagination": "QUERY_PAGE",
+          "verification": "official_listing"
+        }
+      ]
     }
   ]
 }

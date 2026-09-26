@@ -338,12 +338,10 @@ export class AiProvidersService implements OnModuleInit {
     apiKey?: string;
   }): Promise<{ models: ProviderModel[]; note?: string }> {
     let key = input.apiKey?.trim() || null;
-    let kind = input.kind;
     let baseUrl = input.baseUrl ?? null;
 
     if (input.id) {
       const saved = await this.findOne(input.id);
-      kind = input.kind ?? saved.kind;
       baseUrl = baseUrl ?? saved.baseUrl;
       if (!key && saved.apiKeyEnc) key = this.safeDecrypt(saved.apiKeyEnc, saved.slug);
     }
@@ -376,13 +374,10 @@ export class AiProvidersService implements OnModuleInit {
       { id: '@cf/mistral/mistral-7b-instruct-v0.1', contextLength: 32768, free: true, modality: 'general' },
     ];
 
-    let accountId = '';
     const match = chatUrl.match(/accounts\/([^/]+)\/ai/);
-    if (match && match[1] && match[1] !== '{account_id}') {
-      accountId = match[1];
-    } else {
-      accountId = this.config.get<string>('CLOUDFLARE_ACCOUNT_ID')?.trim() || '';
-    }
+    const accountId = match && match[1] && match[1] !== '{account_id}'
+      ? match[1]
+      : this.config.get<string>('CLOUDFLARE_ACCOUNT_ID')?.trim() || '';
 
     const token = apiKey || this.config.get<string>('CLOUDFLARE_API_TOKEN')?.trim() || '';
 
@@ -515,7 +510,7 @@ export class AiProvidersService implements OnModuleInit {
     const existing = await this.findOne(id);
     const kind = input.kind ?? existing.kind;
 
-    let baseUrl = input.baseUrl === undefined ? existing.baseUrl : input.baseUrl;
+    const baseUrl = input.baseUrl === undefined ? existing.baseUrl : input.baseUrl;
     if (baseUrl) {
       if (baseUrl !== existing.baseUrl) await this.assertSafeEndpoint(baseUrl);
     } else {

@@ -1259,6 +1259,11 @@ _CATEGORY_SLUG_MAP = {
     "notice": "NOTICE",
     "notices": "NOTICE",
     "suchana": "NOTICE",
+    "details-of-printed-licenses": "NOTICE",
+    "driving-license": "NOTICE",
+    "license": "NOTICE",
+    "licenses": "NOTICE",
+    "smart-card": "NOTICE",
     "news": "NEWS",
     "samachar": "NEWS",
     "press-release": "PRESS_RELEASE",
@@ -1267,11 +1272,16 @@ _CATEGORY_SLUG_MAP = {
     "circular": "CIRCULAR",
     "paripatra": "CIRCULAR",
     "tender": "TENDER",
+    "tenders": "TENDER",
     "bid": "TENDER",
     "boli": "TENDER",
+    "bolpatra": "TENDER",
+    "procurement": "TENDER",
     "vacancy": "VACANCY",
+    "vacancies": "VACANCY",
     "job": "JOB",
     "career": "JOB",
+    "recruitment": "JOB",
     "intern": "INTERNSHIP",
     "internship": "INTERNSHIP",
     "trainee": "INTERNSHIP",
@@ -1340,27 +1350,21 @@ def _normalize_category(cat: str | None) -> str:
 # decide what earns a row.
 # ---------------------------------------------------------------------------
 
-# Path segments that are never an individual notice.
-_NON_ARTICLE_PATH_SEGMENTS = {
-    "category", "categories", "tag", "tags", "author", "search", "login",
-    "signin", "signup", "register", "logout", "contact", "about", "about-us",
-    "privacy", "terms", "sitemap", "feed", "rss", "gallery", "photo", "photos",
-    "video", "videos", "faq", "help", "cart", "checkout", "account", "profile",
-    "page", "pages", "wp-admin", "wp-login", "admin", "user", "users",
-    "organization", "staff", "team", "downloads-page",
-    # Institutional landing/section pages. University and ministry listings
-    # mix these into the same markup as real notice rows, so without this a
-    # generic schema happily scrapes "Fee Structure" or "Departments" as if
-    # each were a published notice.
-    "department", "departments", "faculty", "faculties", "school", "schools",
-    "programs", "programmes", "courses", "curriculum", "syllabus",
-    "admission", "admissions", "fee-structure", "fees", "scholarship",
-    "scholarships", "library", "alumni", "research", "publication",
-    "publications", "event", "events", "calendar", "directory",
+# Path leaf segments or exact paths that are never an individual notice (static/nav pages).
+_NON_ARTICLE_LEAF_SEGMENTS = {
+    "contact", "contact-us", "about", "about-us", "privacy", "privacy-policy",
+    "terms", "terms-and-conditions", "disclaimer", "sitemap", "feed", "rss",
+    "gallery", "photo", "photos", "photo-gallery", "video", "videos",
+    "faq", "help", "cart", "checkout", "account", "profile", "wp-admin",
+    "wp-login", "admin", "login", "signin", "signup", "register", "logout",
+    "staff", "team", "organization", "organogram", "citizen-charter",
+    "downloads-page", "department", "departments", "faculty", "faculties",
+    "school", "schools", "programs", "programmes", "courses", "curriculum",
+    "syllabus", "admission", "admissions", "fee-structure", "fees",
+    "scholarship", "scholarships", "library", "alumni", "research",
     "leadership", "governance", "history", "vision", "mission",
     "facilities", "campus", "campuses", "collaboration", "collaborations",
-    "career", "careers", "vacancy-career", "index", "home",
-    "collaborative-programs", "news-app",
+    "index", "home", "news-app",
 }
 
 # Link text that marks a navigation affordance rather than a document title.
@@ -1444,7 +1448,12 @@ def _is_probable_article_url(url: str, base_url: str, listing_urls: set[str]) ->
     if path.endswith(_FILE_EXTENSIONS):
         return True
 
-    if any(seg in _NON_ARTICLE_PATH_SEGMENTS for seg in segments):
+    # Category / tag listing roots (e.g. /category/notices, /tag/press) are listings, not individual articles
+    if len(segments) <= 2 and segments[0] in {"category", "categories", "tag", "tags", "topic", "section", "taxonomy"}:
+        return False
+
+    # Static / section pages identified by leaf segment
+    if segments[-1] in _NON_ARTICLE_LEAF_SEGMENTS:
         return False
 
     # A CMS page addressed only by an opaque id (`/?page_id=4811`) carries no
