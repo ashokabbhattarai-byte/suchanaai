@@ -2,10 +2,7 @@
 
 Supports sequential fallback with circuit breakers:
   1. Cloudflare Workers AI (Default: @cf/ibm-granite/granite-4.0-h-micro, configurable)
-  2. Google Gemini (Flash-Lite)
-  3. Groq (Sequential single-key, no hedged racing)
-
-OpenCode Go is deliberately omitted from the synchronization pipeline.
+  2. Groq (Sequential single-key, no hedged racing)
 """
 
 from abc import ABC, abstractmethod
@@ -187,13 +184,35 @@ class CloudflareAIProvider(AIProvider):
             self.is_available = True
             self.disabled_reason = None
 
+    @property
+    def current_model(self) -> str:
+        return getattr(config, "CLOUDFLARE_AI_MODEL", "") or self.model or "@cf/ibm-granite/granite-4.0-h-micro"
+
+    @property
+    def current_token(self) -> str:
+        return getattr(config, "CLOUDFLARE_API_TOKEN", "") or self.api_token or ""
+
+    @property
+    def current_account_id(self) -> str:
+        return getattr(config, "CLOUDFLARE_ACCOUNT_ID", "") or self.account_id or ""
+
     async def chat(self, messages: list[dict], max_tokens: int = 1500, temperature: float = 0.2) -> Tuple[Optional[str], Optional[str]]:
         if not self.is_available:
             return None, self.disabled_reason
 
-        endpoint = f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/ai/run/{self.model}"
+        if not getattr(config, "CLOUDFLARE_AI_ENABLED", True):
+            return None, "Cloudflare Workers AI is disabled by config"
+
+        account_id = self.current_account_id
+        api_token = self.current_token
+        model = self.current_model
+
+        if not account_id or not api_token:
+            return None, "Missing CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN"
+
+        endpoint = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
         headers = {
-            "Authorization": f"Bearer {self.api_token}",
+            "Authorization": f"Bearer {api_token}",
             "Content-Type": "application/json",
         }
         payload = {
@@ -417,10 +436,6 @@ class CommonAIProvider:
                        │
                    failure
                        ▼
-                    Gemini
-                       │
-                   failure
-                       ▼
                      Groq
                        │
                    failure
@@ -428,8 +443,8 @@ class CommonAIProvider:
                  graceful fallback
 
     And both of these use it:
-    summarize_notice()   ──► Cloudflare → Gemini → Groq
-    _detect_schema_llm() ──► Cloudflare → Gemini → Groq
+    summarize_notice()   ──► Cloudflare → Groq
+    _detect_schema_llm() ──► Cloudflare → Groq
     """
 
     def __init__(self, providers: Optional[list[AIProvider]] = None):
@@ -438,14 +453,13 @@ class CommonAIProvider:
         else:
             self.providers = [
                 CloudflareAIProvider(),
-                GeminiAIProvider(),
                 GroqAIProvider(),
             ]
 
     async def chat(
         self, messages: list[dict], max_tokens: int = 1500, temperature: float = 0.2
     ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
-        """Executes chat completion sequentially across Cloudflare -> Gemini -> Groq.
+        """Executes chat completion sequentially across Cloudflare -> Groq.
 
         Returns:
             (response_text, provider_name, model_name, error_message)
@@ -472,7 +486,7 @@ class CommonAIProvider:
     async def raw_chat(
         self, system_prompt: str, user_content: str, max_tokens: int = 1000, temperature: float = 0.0
     ) -> Optional[str]:
-        """Convenience method for one-shot chat prompt across Cloudflare -> Gemini -> Groq.
+        """Convenience method for one-shot chat prompt across Cloudflare -> Groq.
 
         Used by _detect_schema_llm() and other one-shot schema extraction tasks.
         """
@@ -486,7 +500,7 @@ class CommonAIProvider:
     async def summarize_notice(
         self, title: str, content: str, category_hint: Optional[str] = None
     ) -> Tuple[Optional[dict], Optional[str], Optional[str], Optional[str]]:
-        """Summarizes and categorizes a notice using Cloudflare -> Gemini -> Groq.
+        """Summarizes and categorizes a notice using Cloudflare -> Groq.
 
         Returns:
             (analysis_dict, provider_name, model_name, error_message)

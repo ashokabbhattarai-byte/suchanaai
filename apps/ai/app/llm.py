@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import os
 import random
 import re
 import time
@@ -610,7 +611,7 @@ async def raw_chat(
     system_prompt: str, user_content: str, max_tokens: int, temperature: float = 0.0
 ) -> str | None:
     """Public one-shot chat call through CommonAIProvider:
-    Cloudflare FIRST (@cf/ibm-granite/granite-4.0-h-micro) -> Gemini -> Groq -> graceful fallback."""
+    Cloudflare FIRST (@cf/ibm-granite/granite-4.0-h-micro) -> Groq -> graceful fallback."""
     from app.ai_providers import common_ai
     return await common_ai.raw_chat(system_prompt, user_content, max_tokens, temperature)
 
@@ -978,6 +979,9 @@ async def _openai_compatible_chat(
     if not url:
         logger.error("Provider %s has no endpoint URL", provider.get("slug"))
         return None
+    if "{account_id}" in url:
+        cf_acc = getattr(config, "CLOUDFLARE_ACCOUNT_ID", "") or os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+        url = url.replace("{account_id}", cf_acc)
 
     payload = {
         "model": provider["model"],
@@ -1008,11 +1012,15 @@ async def _openai_compatible_chat(
     else:
         timeout = 15.0
 
+    api_key = provider.get("api_key")
+    if not api_key and provider.get("slug") == "cloudflare":
+        api_key = getattr(config, "CLOUDFLARE_API_TOKEN", "") or os.environ.get("CLOUDFLARE_API_TOKEN", "")
+
     for attempt in range(2):
         try:
             headers = {"Content-Type": "application/json"}
-            if provider.get("api_key"):
-                headers["Authorization"] = f"Bearer {provider['api_key']}"
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
             if is_oc:
                 headers.update(_opencode_headers())
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -1277,6 +1285,10 @@ async def _probe_one_model(provider: dict) -> tuple[bool, str | None]:
         url = provider.get("base_url")
         if not url:
             return False, "No endpoint URL configured."
+        if "{account_id}" in url:
+            cf_acc = getattr(config, "CLOUDFLARE_ACCOUNT_ID", "") or os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+            url = url.replace("{account_id}", cf_acc)
+
         payload = {
             "model": provider["model"],
             "messages": [{"role": "user", "content": _PROBE_PROMPT}],
@@ -1284,8 +1296,11 @@ async def _probe_one_model(provider: dict) -> tuple[bool, str | None]:
             "temperature": 0.0,
         }
         probe_headers = {"Content-Type": "application/json"}
-        if provider.get("api_key"):
-            probe_headers["Authorization"] = f"Bearer {provider['api_key']}"
+        api_key = provider.get("api_key")
+        if not api_key and provider.get("slug") == "cloudflare":
+            api_key = getattr(config, "CLOUDFLARE_API_TOKEN", "") or os.environ.get("CLOUDFLARE_API_TOKEN", "")
+        if api_key:
+            probe_headers["Authorization"] = f"Bearer {api_key}"
         # The probe is a real chat call, so it needs the same gateway headers
         # the chat adapter sends. Without them OpenCode answers 401
         # MissingSessionID, which _describe_http_failure reports as "the API
@@ -1837,7 +1852,7 @@ Rules:
 
 
 async def analyze_notice(title: str, content: str, category_hint: str | None = None) -> dict | None:
-    """Summarize + classify one notice using CommonAIProvider (Cloudflare -> Gemini -> Groq).
+    """Summarize + classify one notice using CommonAIProvider (Cloudflare -> Groq).
     `category_hint` is the listing page's own category (when scraping),
     which measurably improves classification for ambiguous content.
     """

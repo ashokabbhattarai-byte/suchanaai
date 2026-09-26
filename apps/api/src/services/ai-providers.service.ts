@@ -51,9 +51,6 @@ export interface UpsertProviderInput {
   enabled?: boolean;
 }
 
-/** Fallback AWS region when an admin adds a Bedrock provider without one. */
-const DEFAULT_BEDROCK_REGION = 'us-east-1';
-
 /**
  * The provider registry behind /admin/ai. Built-ins are seeded rows, so an
  * admin-added provider is not a second-class citizen — same edit, reorder,
@@ -71,58 +68,14 @@ export class AiProvidersService implements OnModuleInit {
     Pick<AiProvider, 'slug' | 'label' | 'kind' | 'baseUrl' | 'model' | 'sortOrder'> &
       Partial<Pick<AiProvider, 'region'>>
   > = [
-    // TOP PRIORITY: Google Gemini Flash-Lite (cheapest and fastest Google model)
+    // PRIMARY / TOP PRIORITY: Cloudflare Workers AI
     {
-      slug: 'gemini',
-      label: 'Google Gemini (Flash-Lite)',
-      kind: AiProviderKind.GEMINI,
-      baseUrl: null,
-      model: 'gemini-2.5-flash-lite',
-      sortOrder: -100,
-    },
-    // Paid but fast and reliable: Haiku 4.5 is the cheapest Claude
-    // and answers in ~0.8s in-region, so it carries normal traffic and
-    // everything below is fallback. llm.py calls a first-sorted BEDROCK
-    // provider alone rather than racing it, so this costs one paid request per
-    // question, not one per question per agent. `effort` is rejected on
-    // 4.5-tier models and thinking is off unless given a budget, so a call
-    // here is already minimum-spend.
-    // Inference-profile ID, not a bare `anthropic.*` one: verified 2026-09-08
-    // that this account has no Messages-endpoint access (every `anthropic.*`
-    // ID 403s "not available for this account"), so only this legacy
-    // InvokeModel path works. Sonnet 4.6 is not on Bedrock here at all.
-    {
-      slug: 'bedrock',
-      label: 'AWS Bedrock (Claude Haiku 4.5)',
-      kind: AiProviderKind.BEDROCK,
-      baseUrl: null,
-      region: 'us-east-1',
-      model: 'global.anthropic.claude-haiku-4-5-20251001-v1:0',
-      sortOrder: -20,
-    },
-    // VERY VERY FAST — TOP PRIORITY: Ollama on EC2 services t3.large (2 vCPU, 7.6 GiB, no GPU)
-    // 3.80.188.210:11434 — qwen2.5:1.5b (~986 MB, fits easily, ~2-4s on CPU via llama.cpp).
-    // FIX 2026-09-08: vLLM at 3.80.188.210:8001 was TOP (-10) but health shows
-    // "Could not reach the provider. All connection attempts failed" — EC2
-    // i-071d7b2debed5e3ed vLLM at /opt/vllm (Python 3.11) fails with
-    // "Failed to infer device type" + "vllm._C_AVX512 missing" on CPU-only
-    // t3.large. Root cause: VLLM_TARGET_DEVICE=cpu must be set at BUILD time,
-    // and vLLM CPU has NO prebuilt wheels — must build from source (30+ min,
-    // gcc12, AVX512). Even when built, vLLM CPU is GPU-optimized and SLOWER
-    // on CPU than Ollama (llama.cpp) — 1.5B vLLM ~3-7s vs Ollama ~2-4s,
-    // 0.5B vLLM ~1-2s but still needs AVX512. Ollama is the proven CPU path
-    // (was qwen2.5:7b 25s but OOM; 1.5b fits and is Responding 2127ms health).
-    // So Ollama is TOP (-10), vLLM is SECONDARY (-9) with smaller 0.5B option
-    // if admin gets it built, or disabled until fixed. Both are self-hosted
-    // OPENAI_COMPATIBLE with no API key (_key_optional). Hedged race
-    // (llm.py) fires top 4 concurrently, so fastest wins without 60s wait.
-    {
-      slug: 'ollama-services',
-      label: 'Ollama (Qwen2.5-1.5B) — EC2 services',
+      slug: 'cloudflare',
+      label: 'Cloudflare Workers AI',
       kind: AiProviderKind.OPENAI_COMPATIBLE,
-      baseUrl: 'http://3.80.188.210:11434/v1/chat/completions',
-      model: 'qwen2.5:1.5b',
-      sortOrder: -10,
+      baseUrl: 'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions',
+      model: '@cf/ibm-granite/granite-4.0-h-micro',
+      sortOrder: -120,
     },
     {
       slug: 'groq',
@@ -132,17 +85,7 @@ export class AiProvidersService implements OnModuleInit {
       model: 'openai/gpt-oss-120b',
       sortOrder: 1,
     },
-    // OpenCode Go — paid subscription, OpenAI-compatible gateway. Restored
-    // 2026-09-10 per admin request: was retired to Bedrock/Ollama/Groq-only
-    // roster, but admin needs it visible in /admin/ai and functional.
-    // Go is /zen/go/v1 (not Zen /zen/v1) — a Zen subscription does not fund Go
-    // and every paid Zen model 401s `CreditsError`. Model IDs differ: Go drops
-    // the `-free` suffix (`muse-spark-1.2-contributor`, `mimo-v2.5`).
-    // Benchmarked 2026-09-10: glm-5.3-flash 3.0s (chosen), deepseek-v4-flash 3.6s,
-    // mimo-v2.5 5.9s, qwen3.8-flash 9.0s; muse-spark-* 500 upstream. Needs
-    // `x-session-id` + custom User-Agent — handled in apps/ai/app/llm.py
-    // `_opencode_headers()` / `_is_opencode()`. Env key fallback is
-    // OPENCODE_ZEN_API_KEY / OPENCODE_API_KEY via ai_config_sync _env_key_for.
+    // OpenCode Go — paid subscription, OpenAI-compatible gateway.
     {
       slug: 'opencode',
       label: 'OpenCode Go (GLM 5.3 Flash)',
@@ -162,22 +105,43 @@ export class AiProvidersService implements OnModuleInit {
 
   /**
    * Seed any built-in that isn't in the registry yet.
-   *
-   * Per-slug rather than "seed only when the table is empty": a built-in
-   * added after launch (Bedrock) has to reach installs that were seeded
-   * before it existed, and those tables are never empty. Note this does
-   * resurrect a built-in an admin deleted — disable it instead of deleting
-   * if you want it gone for good.
    */
   async onModuleInit() {
+    // Purge retired / decommissioned providers (Gemini, Bedrock, Ollama, vLLM, OpenRouter)
+    const RETIRED_SLUGS = [
+      'vllm-services',
+      'openrouter',
+      'gemini',
+      'bedrock',
+      'ollama-services',
+    ];
+    try {
+      const deleted = await this.prisma.aiProvider.deleteMany({
+        where: {
+          OR: [
+            { slug: { in: RETIRED_SLUGS } },
+            { kind: { in: [AiProviderKind.GEMINI, AiProviderKind.BEDROCK] } },
+            { baseUrl: { contains: ':11434' } },
+            { baseUrl: { contains: 'ollama' } },
+            { slug: { startsWith: 'ollama' } },
+            { slug: { startsWith: 'bedrock' } },
+            { slug: { startsWith: 'gemini' } },
+          ],
+        },
+      });
+      if (deleted.count > 0) {
+        this.logger.warn(`Purged ${deleted.count} retired/decommissioned AI provider(s) (Gemini, Bedrock, Ollama, etc.)`);
+      }
+    } catch (e: any) {
+      this.logger.warn(`Failed to delete retired AI providers: ${e?.message ?? e}`);
+    }
+
     const existing = await this.prisma.aiProvider.findMany({
       select: { slug: true, model: true, sortOrder: true, baseUrl: true, apiKeyEnc: true, enabled: true, isBuiltIn: true, label: true },
     });
     const known = new Set(existing.map((p) => p.slug));
     const missing = AiProvidersService.BUILT_INS.filter((p) => !known.has(p.slug));
     if (missing.length) {
-      // A first-run install seeds everything; an existing one only gains
-      // built-ins introduced since it was seeded.
       await this.prisma.aiProvider.createMany({
         data: missing.map((p) => ({ ...p, isBuiltIn: true })),
         skipDuplicates: true,
@@ -187,159 +151,45 @@ export class AiProvidersService implements OnModuleInit {
       );
     }
 
-    // Promote Bedrock from last-resort backstop to primary, on Haiku 4.5.
-    // Only fires for a row still on one of the bare `anthropic.*` IDs we used
-    // to ship: those address the Bedrock Messages endpoint, which this account
-    // has no access to (verified 2026-09-08 — every one returns 403 "not
-    // available for this account"), so they can never answer. An admin who
-    // picked their own working inference-profile ID keeps it and its position.
-    const UNUSABLE_BEDROCK_MODELS = new Set([
-      'anthropic.claude-sonnet-5',
-      'anthropic.claude-haiku-4-5',
-      'anthropic.claude-opus-4-8',
-    ]);
-    const bedrockBuiltIn = AiProvidersService.BUILT_INS.find((p) => p.slug === 'bedrock')!;
-    const bedrockRow = existing.find((p) => p.slug === 'bedrock');
-    if (bedrockRow) {
-      const patch: Record<string, unknown> = {};
-      if (UNUSABLE_BEDROCK_MODELS.has(bedrockRow.model)) {
-        patch.model = bedrockBuiltIn.model;
-        patch.sortOrder = bedrockBuiltIn.sortOrder;
-        patch.enabled = true;
-      }
-      // An admin who repointed the model by hand leaves the label describing a
-      // model the row no longer runs — the panel then reads "Sonnet 5" over a
-      // Haiku 4.5 ID. Only the exact stale shipped label is rewritten, so a
-      // genuinely custom name is never clobbered.
-      const runningModel = (patch.model as string) ?? bedrockRow.model;
-      if (
-        runningModel === bedrockBuiltIn.model &&
-        bedrockRow.label === 'AWS Bedrock (Claude Sonnet 5)'
-      ) {
-        patch.label = bedrockBuiltIn.label;
-      }
-      if (Object.keys(patch).length) {
-        await this.prisma.aiProvider.update({ where: { slug: 'bedrock' }, data: patch });
-        this.logger.warn(
-          `Bedrock row healed → ${JSON.stringify(patch)}`,
-        );
-      }
-    }
+    // Ensure Cloudflare Workers AI is the top priority primary provider
+    const cfBuiltIn = AiProvidersService.BUILT_INS.find((p) => p.slug === 'cloudflare')!;
+    const defaultCfToken = this.config.get<string>('CLOUDFLARE_API_TOKEN')?.trim() || '';
+    const defaultCfAccountId = this.config.get<string>('CLOUDFLARE_ACCOUNT_ID')?.trim() || '';
+    const resolvedCfBaseUrl = defaultCfAccountId
+      ? `https://api.cloudflare.com/client/v4/accounts/${defaultCfAccountId}/ai/v1/chat/completions`
+      : cfBuiltIn.baseUrl;
 
-    // Ensure Google Gemini is the first priority provider
-    const geminiBuiltIn = AiProvidersService.BUILT_INS.find((p) => p.slug === 'gemini')!;
-    const geminiRow = existing.find((p) => p.slug === 'gemini');
-    const defaultGeminiKey = this.config.get<string>('GEMINI_API_KEY')?.trim() || '';
-    if (!geminiRow) {
+    const cfRow = await this.prisma.aiProvider.findUnique({ where: { slug: 'cloudflare' } });
+    if (!cfRow) {
       await this.prisma.aiProvider.create({
         data: {
-          slug: 'gemini',
-          label: geminiBuiltIn.label,
-          kind: geminiBuiltIn.kind,
-          baseUrl: null,
-          model: geminiBuiltIn.model,
-          sortOrder: geminiBuiltIn.sortOrder,
+          slug: 'cloudflare',
+          label: cfBuiltIn.label,
+          kind: cfBuiltIn.kind,
+          baseUrl: resolvedCfBaseUrl,
+          model: this.config.get<string>('CLOUDFLARE_AI_MODEL')?.trim() || cfBuiltIn.model,
+          sortOrder: cfBuiltIn.sortOrder,
           enabled: true,
           isBuiltIn: true,
-          apiKeyEnc: defaultGeminiKey ? this.crypto.encrypt(defaultGeminiKey) : null,
+          apiKeyEnc: defaultCfToken ? this.crypto.encrypt(defaultCfToken) : null,
         },
       });
-      this.logger.log(`Created primary Gemini provider with default model ${geminiBuiltIn.model}`);
+      this.logger.log(`Created primary Cloudflare provider with default model ${cfBuiltIn.model}`);
     } else {
       const patch: Record<string, unknown> = {};
-      if (geminiRow.sortOrder > -100) patch.sortOrder = -100;
-      if (!geminiRow.apiKeyEnc && defaultGeminiKey) {
-        patch.apiKeyEnc = this.crypto.encrypt(defaultGeminiKey);
+      if (cfRow.sortOrder > -120) patch.sortOrder = -120;
+      if (!cfRow.apiKeyEnc && defaultCfToken) {
+        patch.apiKeyEnc = this.crypto.encrypt(defaultCfToken);
       }
-      if (!geminiRow.enabled) patch.enabled = true;
+      if (cfRow.baseUrl && cfRow.baseUrl.includes('{account_id}') && defaultCfAccountId) {
+        patch.baseUrl = `https://api.cloudflare.com/client/v4/accounts/${defaultCfAccountId}/ai/v1/chat/completions`;
+      }
+      if (!cfRow.enabled) patch.enabled = true;
       if (Object.keys(patch).length) {
-        await this.prisma.aiProvider.update({ where: { slug: 'gemini' }, data: patch });
-        this.logger.log(`Gemini provider promoted to top priority: ${JSON.stringify(patch)}`);
+        await this.prisma.aiProvider.update({ where: { slug: 'cloudflare' }, data: patch });
+        this.logger.log(`Cloudflare provider promoted to top priority: ${JSON.stringify(patch)}`);
       }
     }
-
-    // Retired providers
-    const RETIRED_SLUGS = ['vllm-services', 'openrouter'];
-    const toRetire = existing.filter((r) => RETIRED_SLUGS.includes(r.slug));
-    if (toRetire.length) {
-      await this.prisma.aiProvider.deleteMany({
-        where: { slug: { in: toRetire.map((r) => r.slug) } },
-      });
-      this.logger.warn(
-        `Removed retired provider(s): ${toRetire.map((r) => r.slug).join(', ')}`,
-      );
-    }
-
-    // ── FIX 2026-09-08: Ollama TOP (-10), vLLM SECOND (-9) — swap from previous vLLM TOP
-    // Health snapshot 2026-09-08: vLLM http://3.80.188.210:8001 "Could not reach
-    // the provider. All connection attempts failed" — EC2 i-071d7b2debed5e3ed
-    // t3.large (2 vCPU, 7.6 GiB, no GPU) /opt/vllm Python 3.11 logs:
-    // "Failed to infer device type" + "vllm._C_AVX512 missing". Root cause:
-    // VLLM_TARGET_DEVICE=cpu must be set at BUILD time (pip install env) and
-    // vLLM CPU has NO prebuilt wheels (must build from source with gcc12,
-    // AVX512). GPU wheel on CPU-only host fails. Even when built, vLLM CPU
-    // (GPU-optimized, continuous batching) is SLOWER than Ollama llama.cpp on
-    // CPU: 1.5B vLLM ~3-7s vs Ollama qwen2.5:1.5b ~2-4s (986 MB, Responding
-    // 2127ms health). So swap: Ollama TOP (proven CPU), vLLM SECOND (optional,
-    // try 0.5B Qwen/Qwen2.5-0.5B-Instruct 0.8GB ~1-2s if you rebuild). Both are
-    // self-hosted OPENAI_COMPATIBLE with no API key (_key_optional). Stale
-    // keys are cleared idempotently — admin can re-add via "My endpoint needs
-    // a key" toggle if auth is ever enabled.
-    // Ollama only — vLLM is retired above, so it is disabled rather than
-    // repositioned and has no BUILT_INS entry to heal against. Look it up
-    // without `!`: a missing entry must skip this block, never crash boot.
-    const ollamaBuiltIn = AiProvidersService.BUILT_INS.find((p) => p.slug === 'ollama-services');
-    for (const row of ollamaBuiltIn ? existing : ([] as typeof existing)) {
-      if (!ollamaBuiltIn) break;
-      const isOllamaRow =
-        row.slug === 'ollama-services' ||
-        (row.baseUrl?.includes(':11434') ?? false) ||
-        (row.baseUrl?.toLowerCase().includes('ollama') ?? false);
-      if (!isOllamaRow) continue;
-
-      const patch: Record<string, any> = {};
-      if (row.sortOrder !== ollamaBuiltIn.sortOrder) patch.sortOrder = ollamaBuiltIn.sortOrder;
-
-      // Only fix baseUrl if it drifted to the private IP, which is not
-      // routable from Beanstalk, or lost its /v1/chat/completions suffix.
-      if (row.baseUrl !== ollamaBuiltIn.baseUrl) {
-        if (
-          row.baseUrl?.includes('172.31.95.204:11434') ||
-          row.baseUrl === 'http://3.80.188.210:11434' ||
-          row.slug === 'ollama-services'
-        ) {
-          patch.baseUrl = ollamaBuiltIn.baseUrl;
-        }
-      }
-
-      if (row.slug === 'ollama-services' && !row.isBuiltIn) patch.isBuiltIn = true;
-      // Self-hosted takes no key — clear a stale stored one.
-      if (row.apiKeyEnc) patch.apiKeyEnc = null;
-      if (!row.enabled) patch.enabled = true;
-
-      if (Object.keys(patch).length) {
-        await this.prisma.aiProvider.update({ where: { slug: row.slug }, data: patch });
-        this.logger.warn(
-          `Healed Ollama provider "${row.slug}" → sortOrder ${ollamaBuiltIn.sortOrder}, no API key`,
-        );
-      }
-    }
-    // Also handle any extra Ollama-like rows that match host:11434 but have
-    // non-canonical slug (e.g. ollama-qwen2-5-7b-ec2-services) — push to -9
-    // so they don't collide at -10, but keep the canonical at -10.
-    const extraOllamaRows = existing.filter(
-      (r) => r.baseUrl?.includes(':11434') && r.slug !== 'ollama-services',
-    );
-    for (const row of extraOllamaRows) {
-      if (row.sortOrder === -10) {
-        await this.prisma.aiProvider.update({ where: { slug: row.slug }, data: { sortOrder: -9 } });
-        this.logger.log(`Demoted extra Ollama row "${row.slug}" to -9 to keep canonical Ollama at -10`);
-      }
-    }
-
-    // The OpenRouter retired-model self-heal lived here. It is gone with the
-    // provider itself — its BUILT_INS lookup used a non-null assertion, so
-    // leaving it behind would dereference undefined and crash boot.
   }
 
   // ── URL safety ─────────────────────────────────────────────────────────
@@ -498,22 +348,75 @@ export class AiProvidersService implements OnModuleInit {
       if (!key && saved.apiKeyEnc) key = this.safeDecrypt(saved.apiKeyEnc, saved.slug);
     }
 
-    if (kind === AiProviderKind.BEDROCK) {
-      return {
-        models: [],
-        note: 'Bedrock has no public model-list endpoint here — enter the model ID manually.',
-      };
-    }
-
-    if (kind === AiProviderKind.GEMINI) {
-      if (!key) throw new BadRequestException('An API key is required to list Gemini models.');
-      return { models: await this.fetchGeminiModels(key) };
+    if (baseUrl?.trim() && this.isCloudflare(baseUrl)) {
+      return { models: await this.fetchCloudflareModels(baseUrl, key) };
     }
 
     if (!baseUrl?.trim()) {
       throw new BadRequestException('An endpoint URL is required to list models.');
     }
     return { models: await this.fetchOpenAiCompatibleModels(baseUrl, key) };
+  }
+
+  private isCloudflare(url: string): boolean {
+    return url.includes('api.cloudflare.com') || url.includes('cloudflare');
+  }
+
+  private async fetchCloudflareModels(
+    chatUrl: string,
+    apiKey: string | null,
+  ): Promise<ProviderModel[]> {
+    const fallbackModels: ProviderModel[] = [
+      { id: '@cf/ibm-granite/granite-4.0-h-micro', contextLength: 128000, free: true, modality: 'cheapest / fast' },
+      { id: '@cf/zai-org/glm-4.7-flash', contextLength: 128000, free: true, modality: 'nepali / high-quality' },
+      { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', contextLength: 128000, free: false, modality: 'fast-reasoning' },
+      { id: '@cf/qwen/qwen2.5-7b-instruct', contextLength: 32768, free: true, modality: 'balanced' },
+      { id: '@cf/meta/llama-3.1-8b-instruct', contextLength: 128000, free: true, modality: 'general' },
+      { id: '@cf/google/gemma-7b-it', contextLength: 8192, free: true, modality: 'fast' },
+      { id: '@cf/mistral/mistral-7b-instruct-v0.1', contextLength: 32768, free: true, modality: 'general' },
+    ];
+
+    let accountId = '';
+    const match = chatUrl.match(/accounts\/([^/]+)\/ai/);
+    if (match && match[1] && match[1] !== '{account_id}') {
+      accountId = match[1];
+    } else {
+      accountId = this.config.get<string>('CLOUDFLARE_ACCOUNT_ID')?.trim() || '';
+    }
+
+    const token = apiKey || this.config.get<string>('CLOUDFLARE_API_TOKEN')?.trim() || '';
+
+    if (!accountId || !token) {
+      return fallbackModels;
+    }
+
+    const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/models/search?task=Text%20Generation`;
+    try {
+      const res = await firstValueFrom(
+        this.http.get(url, {
+          timeout: 15000,
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      );
+      const rows: any[] = Array.isArray(res.data?.result) ? res.data.result : [];
+      if (!rows.length) return fallbackModels;
+      return rows
+        .map((m) => {
+          const id = String(m?.name ?? '');
+          const ctxProp = m?.properties?.find?.((p: any) => p?.property_id === 'context_window');
+          const contextLength = ctxProp ? Number(ctxProp.value) || null : null;
+          return {
+            id,
+            contextLength,
+            free: id.includes('granite') || id.includes('glm-4.7') || id.includes('qwen2.5'),
+            modality: m?.description?.slice(0, 40) || 'text->text',
+          };
+        })
+        .filter((m) => m.id);
+    } catch (err: any) {
+      this.logger.warn(`Could not fetch live Cloudflare models: ${err?.message ?? err}. Returning standard catalog.`);
+      return fallbackModels;
+    }
   }
 
   /**
@@ -574,55 +477,6 @@ export class AiProvidersService implements OnModuleInit {
       .sort((a, b) => (b.contextLength ?? 0) - (a.contextLength ?? 0));
   }
 
-  private async fetchGeminiModels(apiKey: string): Promise<ProviderModel[]> {
-    const fallbackModels: ProviderModel[] = [
-      { id: 'gemini-2.5-flash-lite', contextLength: 1048576, free: true, modality: 'cheapest' },
-      { id: 'gemini-3.5-flash-lite', contextLength: 1048576, free: true, modality: 'cheapest' },
-      { id: 'gemini-flash-lite-latest', contextLength: 1048576, free: true, modality: 'cheapest' },
-      { id: 'gemini-2.5-flash', contextLength: 1048576, free: false, modality: 'fast' },
-      { id: 'gemini-flash-latest', contextLength: 1048576, free: false, modality: 'fast' },
-      { id: 'gemini-2.5-pro', contextLength: 1048576, free: false, modality: 'pro' },
-    ];
-
-    const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
-    let data: any;
-    try {
-      const res = await firstValueFrom(this.http.get(url, { timeout: 20000 }));
-      data = res.data;
-    } catch (err: any) {
-      const status = err?.response?.status;
-      if (status === 400 || status === 401 || status === 403) {
-        throw new BadRequestException(
-          'Google rejected that key. Please verify your Gemini API key from aistudio.google.com.',
-        );
-      }
-      this.logger.warn(`Could not list live Gemini models: ${err?.message ?? err}. Returning standard catalog.`);
-      return fallbackModels;
-    }
-
-    const rows: any[] = Array.isArray(data?.models) ? data.models : [];
-    const models = rows
-      .filter((m) => (m?.supportedGenerationMethods ?? []).includes('generateContent'))
-      .map((m) => {
-        const id = String(m?.name ?? '').replace(/^models\//, '');
-        const isLite = id.includes('flash-lite');
-        const isFlash = id.includes('flash');
-        return {
-          id,
-          contextLength: Number(m?.inputTokenLimit) || null,
-          free: isLite,
-          modality: isLite ? 'cheapest' : isFlash ? 'fast' : null,
-        };
-      })
-      .filter((m) => m.id)
-      .sort((a, b) => {
-        const score = (id: string) => (id.includes('flash-lite') ? 3 : id.includes('flash') ? 2 : 1);
-        return score(b.id) - score(a.id) || (b.contextLength ?? 0) - (a.contextLength ?? 0);
-      });
-
-    return models.length ? models : fallbackModels;
-  }
-
   // ── Writes ─────────────────────────────────────────────────────────────
 
   async create(input: UpsertProviderInput & { label: string; kind: AiProviderKind; model: string }) {
@@ -635,9 +489,6 @@ export class AiProvidersService implements OnModuleInit {
       }
       await this.assertSafeEndpoint(input.baseUrl);
     }
-    if (input.kind === AiProviderKind.BEDROCK && input.region !== undefined && !input.region?.trim()) {
-      throw new BadRequestException('AWS region is required for Bedrock providers.');
-    }
 
     const slug = await this.uniqueSlug(input.label);
     const last = await this.prisma.aiProvider.findFirst({ orderBy: { sortOrder: 'desc' } });
@@ -647,15 +498,8 @@ export class AiProvidersService implements OnModuleInit {
         slug,
         label: input.label.trim(),
         kind: input.kind,
-        // Only OPENAI_COMPATIBLE is URL-addressed — Gemini derives its URL
-        // from the model and Bedrock from the region, so a value on either
-        // is noise.
-        baseUrl:
-          input.kind === AiProviderKind.OPENAI_COMPATIBLE ? input.baseUrl!.trim() : null,
-        region:
-          input.kind === AiProviderKind.BEDROCK
-            ? (input.region?.trim() || DEFAULT_BEDROCK_REGION)
-            : null,
+        baseUrl: input.baseUrl?.trim() || null,
+        region: null,
         model: input.model.trim(),
         apiKeyEnc: input.apiKey ? this.crypto.encrypt(input.apiKey) : null,
         enabled: input.enabled ?? true,
@@ -672,35 +516,19 @@ export class AiProvidersService implements OnModuleInit {
     const kind = input.kind ?? existing.kind;
 
     let baseUrl = input.baseUrl === undefined ? existing.baseUrl : input.baseUrl;
-    // Only OPENAI_COMPATIBLE carries a URL. Gemini and Bedrock are addressed
-    // by model and region, so requiring one here would make every edit of a
-    // Bedrock provider — including just pasting its key — fail validation.
-    if (kind !== AiProviderKind.OPENAI_COMPATIBLE) {
-      baseUrl = null;
-    } else if (baseUrl) {
-      // Re-validate on every change: an allowlist edit or DNS change can make
-      // a previously-accepted host unsafe.
+    if (baseUrl) {
       if (baseUrl !== existing.baseUrl) await this.assertSafeEndpoint(baseUrl);
     } else {
-      throw new BadRequestException('Endpoint URL is required for OpenAI-compatible providers.');
-    }
-
-    let region = input.region === undefined ? existing.region : input.region;
-    if (kind === AiProviderKind.BEDROCK) {
-      region = region?.trim() || DEFAULT_BEDROCK_REGION;
-    } else {
-      region = null;
+      throw new BadRequestException('Endpoint URL is required.');
     }
 
     const updated = await this.prisma.aiProvider.update({
       where: { id },
       data: {
-        // Built-in slugs are immutable so ordering/health stay stable, but
-        // their label, model, key and endpoint are all editable.
         label: input.label?.trim() ?? existing.label,
         kind,
         baseUrl,
-        region,
+        region: null,
         model: input.model?.trim() ?? existing.model,
         enabled: input.enabled ?? existing.enabled,
         ...(input.apiKey !== undefined
@@ -709,7 +537,6 @@ export class AiProvidersService implements OnModuleInit {
       },
     });
     if (input.apiKey !== undefined) {
-      // Audit trail: name and length only, never the value.
       this.logger.log(
         input.apiKey
           ? `API key updated for provider "${updated.slug}" (${input.apiKey.length} chars)`

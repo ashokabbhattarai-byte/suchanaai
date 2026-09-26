@@ -43,6 +43,7 @@ def _env_key_for(slug: str | None) -> str | None:
         "groq": config.GROQ_API_KEY,
         "opencode": config.OPENCODE_ZEN_API_KEY,
         "bedrock": config.BEDROCK_API_KEY,
+        "cloudflare": getattr(config, "CLOUDFLARE_API_TOKEN", "") or None,
     }.get(slug or "") or None
 
 
@@ -177,6 +178,13 @@ async def refresh_once() -> bool:
                     config.GEMINI_API_KEY = p["api_key"]
                 if p.get("model"):
                     config.GEMINI_MODEL = p["model"]
+            elif p["slug"] == "cloudflare":
+                if p.get("api_key"):
+                    config.CLOUDFLARE_API_TOKEN = p["api_key"]
+                if p.get("model"):
+                    config.CLOUDFLARE_AI_MODEL = p["model"]
+                if "enabled" in p:
+                    config.CLOUDFLARE_AI_ENABLED = p["enabled"]
         llm.set_runtime_providers(normalised)
         usable = [
             p["slug"] for p in normalised

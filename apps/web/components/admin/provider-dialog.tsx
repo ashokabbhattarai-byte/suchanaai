@@ -11,9 +11,9 @@ import type {
   AiProviderModel,
 } from "@/lib/types"
 
-/** Detects self-hosted endpoints (vLLM, Ollama, LM Studio) that need no API key. */
+/** Detects local/self-hosted endpoints that need no API key by default. */
 const SELF_HOSTED_RE =
-  /(localhost|127\.0\.0\.1|10\.\d|172\.(?:1[6-9]|2\d|3[0-1])\.\d+|192\.168|3\.80\.188\.210|:\s*8001|:\s*11434|ollama|vllm|\.local)/i
+  /(localhost|127\.0\.0\.1|10\.\d|172\.(?:1[6-9]|2\d|3[0-1])\.\d+|192\.168|\.local)/i
 function isSelfHostedUrl(url: string): boolean {
   return SELF_HOSTED_RE.test(url)
 }
@@ -27,103 +27,43 @@ const PRESETS: Array<{
   region?: string
 }> = [
   {
-    label: "Google Gemini 2.5 Flash-Lite [Cheapest / Top Priority]",
-    kind: "GEMINI",
-    baseUrl: "",
-    model: "gemini-2.5-flash-lite",
-  },
-  {
-    label: "Google Gemini 3.5 Flash-Lite [Cheapest Preview]",
-    kind: "GEMINI",
-    baseUrl: "",
-    model: "gemini-3.5-flash-lite",
-  },
-  {
-    label: "Google Gemini 2.5 Flash [Fast & Multimodal]",
-    kind: "GEMINI",
-    baseUrl: "",
-    model: "gemini-2.5-flash",
-  },
-  {
-    label: "⚡ Ollama (Qwen2.5-1.5B) — EC2 services [CPU proven 2-4s]",
+    label: "Cloudflare Workers AI (Granite 4.0 Micro) [Top Priority / Fast]",
     kind: "OPENAI_COMPATIBLE",
-    // Public IP (3.80.188.210) NATs to private 172.31.95.204.
-    // Ollama runs on t3.large CPU-only (llama.cpp) at 11434 — PROVEN on CPU.
-    // FIX 2026-09-08: vLLM at 8001 is "Could not reach provider" — Failed to
-    // infer device type + vllm._C_AVX512 missing (GPU wheel on CPU-only host).
-    // Ollama qwen2.5:1.5b ~986MB ~2-4s (health 2127ms) is TOP now; vLLM is
-    // secondary (-9) until rebuilt from source with VLLM_TARGET_DEVICE=cpu.
-    // Must set AI_PROVIDER_ALLOWED_HOSTS=3.80.188.210 on api service for http.
-    // NO API KEY — self-hosted CPU, _key_optional allows null.
-    baseUrl: "http://3.80.188.210:11434/v1/chat/completions",
-    model: "qwen2.5:1.5b",
+    baseUrl: "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions",
+    model: "@cf/ibm-granite/granite-4.0-h-micro",
   },
   {
-    label: "vLLM (Qwen2.5-1.5B) — EC2 services [SECONDARY — CPU needs rebuild, ~3-7s]",
+    label: "Cloudflare Workers AI (GLM-4.7-Flash) [Nepali / High Quality]",
     kind: "OPENAI_COMPATIBLE",
-    // Same EC2 t3.large but vLLM CPU --device cpu at 8001; requires
-    // VLLM_TARGET_DEVICE=cpu at BUILD + Python 3.11 + torch CPU wheel + AVX512.
-    // Currently failing: "Failed to infer device type" / "vllm._C_AVX512".
-    // See scripts/ec2-install-vllm.sh + docs/EC2_VLLM_MIGRATION.md troubleshooting.
-    // Keep as 2nd agent; hedged race will use Ollama TOP until vLLM answers.
-    // For very very fast 0.5B use preset below (0.8GB ~1-2s) on same host.
-    baseUrl: "http://3.80.188.210:8001/v1/chat/completions",
-    model: "Qwen/Qwen2.5-1.5B-Instruct",
+    baseUrl: "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions",
+    model: "@cf/zai-org/glm-4.7-flash",
   },
   {
-    label: "⚡ vLLM Ultra-Fast (Qwen2.5-0.5B) — 2nd agent [0.8GB ~1-2s]",
+    label: "Cloudflare Workers AI (Llama 3.3 70B Instruct)",
     kind: "OPENAI_COMPATIBLE",
-    // Same vLLM host, 0.5B model is ~0.8GB / ~1-2s — even faster on weak CPU,
-    // hedged race with Ollama TOP: fastest wins. Requires vLLM rebuilt for CPU
-    // (see above) or second instance on :8002; if same :8001 serves 1.5B,
-    // this row will 404 model — that's OK, chain continues to next provider.
-    baseUrl: "http://3.80.188.210:8001/v1/chat/completions",
-    model: "Qwen/Qwen2.5-0.5B-Instruct",
+    baseUrl: "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions",
+    model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
   },
   {
-    label: "OpenCode Go (GLM 5.3 Flash) [PRIMARY — 3.0s, paid subscription]",
+    label: "Cloudflare Workers AI (Qwen 2.5 7B Instruct)",
     kind: "OPENAI_COMPATIBLE",
-    // Go (/zen/go/v1), NOT Zen (/zen/v1) — a Go subscription does not fund
-    // Zen, where every paid model 401s with CreditsError. Model IDs differ
-    // between the two: Go drops the "-free" suffix.
+    baseUrl: "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions",
+    model: "@cf/qwen/qwen2.5-7b-instruct",
+  },
+  {
+    label: "Groq (GPT OSS 120B / Llama 3.3 70B) [Fallback]",
+    kind: "OPENAI_COMPATIBLE",
+    baseUrl: "https://api.groq.com/openai/v1/chat/completions",
+    model: "openai/gpt-oss-120b",
+  },
+  {
+    label: "OpenCode Go (GLM 5.3 Flash) [Paid subscription]",
+    kind: "OPENAI_COMPATIBLE",
     baseUrl: "https://opencode.ai/zen/go/v1/chat/completions",
-    // Benchmarked 2026-09-10: glm-5.3-flash 3.0s, deepseek-v4-flash 3.6s,
-    // mimo-v2.5 5.9s, qwen3.8-flash 9.0s. muse-spark-*-contributor 500s
-    // upstream. "Load" lists all 35 Go models.
     model: "glm-5.3-flash",
   },
   {
-    label: "AWS Bedrock (Claude Haiku 4.5)",
-    kind: "BEDROCK",
-    baseUrl: "",
-    region: "us-east-1",
-    // Inference-profile ID — the account has no Messages-endpoint access, so a
-    // bare "anthropic.claude-haiku-4-5" 403s. See ai-providers.service.ts.
-    model: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
-  },
-  {
-    label: "AWS Bedrock (Claude Sonnet 4.5)",
-    kind: "BEDROCK",
-    baseUrl: "",
-    region: "us-east-1",
-    model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-  },
-  {
-    label: "AWS Bedrock (Claude Sonnet 4.6)",
-    kind: "BEDROCK",
-    baseUrl: "",
-    region: "us-east-1",
-    model: "global.anthropic.claude-sonnet-4-6",
-  },
-  {
-    label: "AWS Bedrock (Claude Opus 4.6)",
-    kind: "BEDROCK",
-    baseUrl: "",
-    region: "us-east-1",
-    model: "us.anthropic.claude-opus-4-6-v1",
-  },
-  {
-    label: "OpenAI",
+    label: "OpenAI (GPT-4o Mini)",
     kind: "OPENAI_COMPATIBLE",
     baseUrl: "https://api.openai.com/v1/chat/completions",
     model: "gpt-4o-mini",
@@ -132,8 +72,6 @@ const PRESETS: Array<{
     label: "OpenRouter",
     kind: "OPENAI_COMPATIBLE",
     baseUrl: "https://openrouter.ai/api/v1/chat/completions",
-    // A starting point only — "Load" lists what OpenRouter actually serves
-    // today, which is the point of the picker.
     model: "liquid/lfm-2.5-2.6b:free",
   },
   {
@@ -174,9 +112,8 @@ export function ProviderDialog({
 }) {
   const isEdit = Boolean(provider)
   const [label, setLabel] = useState(provider?.label ?? "")
-  const [kind, setKind] = useState<AiProviderKind>(provider?.kind ?? "OPENAI_COMPATIBLE")
+  const [kind] = useState<AiProviderKind>(provider?.kind ?? "OPENAI_COMPATIBLE")
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? "")
-  const [region, setRegion] = useState(provider?.region ?? "us-east-1")
   const [model, setModel] = useState(provider?.model ?? "")
   const [apiKey, setApiKey] = useState("")
   const [showKey, setShowKey] = useState(false)
@@ -184,8 +121,7 @@ export function ProviderDialog({
   const [error, setError] = useState<string | null>(null)
   const [forceApiKey, setForceApiKey] = useState(false)
 
-  // Model picker. Bedrock has no catalogue endpoint, so it always falls back
-  // to free text; everything else lists what the provider actually serves.
+  // Model picker lists what the provider actually serves.
   const [models, setModels] = useState<AiProviderModel[]>([])
   const [modelQuery, setModelQuery] = useState("")
   const [loadingModels, setLoadingModels] = useState(false)
@@ -220,9 +156,9 @@ export function ProviderDialog({
   // before they can see what they may switch to. A new provider has no
   // endpoint yet, so it still waits for one.
   useEffect(() => {
-    if (kind !== "BEDROCK" && provider?.id && (baseUrl || kind === "GEMINI")) void loadModels()
+    if (provider?.id && baseUrl) void loadModels()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider?.id, kind])
+  }, [provider?.id])
 
   const visibleModels = models.filter((m) =>
     m.id.toLowerCase().includes(modelQuery.trim().toLowerCase()),
@@ -232,10 +168,8 @@ export function ProviderDialog({
     setLabel((l) => l || p.label)
     setKind(p.kind)
     setBaseUrl(p.baseUrl)
-    if (p.region) setRegion(p.region)
     setModel((m) => m || p.model)
-    // Self-hosted presets (vLLM/Ollama) need no key — clear any typed key and hide the field.
-    if (p.kind === "OPENAI_COMPATIBLE" && isSelfHostedUrl(p.baseUrl)) {
+    if (isSelfHostedUrl(p.baseUrl)) {
       setApiKey("")
       setForceApiKey(false)
     }
@@ -245,17 +179,13 @@ export function ProviderDialog({
     setSaving(true)
     setError(null)
     try {
-      const selfHostedNow = kind === "OPENAI_COMPATIBLE" && isSelfHostedUrl(baseUrl) && !forceApiKey
+      const selfHostedNow = isSelfHostedUrl(baseUrl) && !forceApiKey
       await onSubmit({
         label,
-        kind,
-        // Only an OpenAI-compatible provider is URL-addressed; Gemini derives
-        // its URL from the model and Bedrock from the region.
-        baseUrl: kind === "OPENAI_COMPATIBLE" ? baseUrl : null,
-        region: kind === "BEDROCK" ? region : null,
+        kind: "OPENAI_COMPATIBLE",
+        baseUrl: baseUrl.trim() || null,
+        region: null,
         model,
-        // Self-hosted (vLLM/Ollama): no key — send "" to clear any stale stored key.
-        // Otherwise only include the key when non-empty — see the note above.
         ...(selfHostedNow ? { apiKey: "" } : apiKey ? { apiKey } : {}),
       })
       onClose()
@@ -269,8 +199,7 @@ export function ProviderDialog({
   const canSave =
     label.trim() &&
     model.trim() &&
-    (kind === "OPENAI_COMPATIBLE" ? Boolean(baseUrl.trim()) : true) &&
-    (kind === "BEDROCK" ? Boolean(region.trim()) : true) &&
+    Boolean(baseUrl.trim()) &&
     !saving
 
   return (
@@ -309,7 +238,7 @@ export function ProviderDialog({
                   key={p.label}
                   type="button"
                   onClick={() => applyPreset(p)}
-                  className="rounded-full border border-vez-line px-3 py-1.5 text-xs text-vez-ink transition-colors hover:border-vez-sky hover:bg-vez-sky/10"
+                  className="rounded-full border border-vez-line px-3 py-1.5 text-xs text-vez-ink transition-colors hover:border-vez-sky hover:bg-vez-sky/10 cursor-pointer"
                 >
                   {p.label}
                 </button>
@@ -323,76 +252,31 @@ export function ProviderDialog({
             <input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. OpenRouter"
+              placeholder="e.g. Cloudflare Workers AI"
               className={inputCls}
             />
           </Field>
 
-          <Field label="API format">
-            <div className="flex flex-wrap gap-1.5">
-              {(
-                [
-                  ["OPENAI_COMPATIBLE", "OpenAI-compatible"],
-                  ["GEMINI", "Google Gemini"],
-                  ["BEDROCK", "AWS Bedrock (Claude)"],
-                ] as const
-              ).map(([value, text]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setKind(value)}
-                  className={`rounded-full px-4 py-2 text-sm transition-colors ${
-                    kind === value
-                      ? "bg-vez-navy text-white"
-                      : "border border-vez-line text-vez-ink hover:bg-vez-surface"
-                  }`}
-                >
-                  {text}
-                </button>
-              ))}
-            </div>
-          </Field>
-
-          {kind === "OPENAI_COMPATIBLE" && (
-            <Field
-              label="Endpoint URL"
-              hint="Must be https. Internal/plain-http hosts need AI_PROVIDER_ALLOWED_HOSTS on the server."
-            >
-              <input
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="https://api.example.com/v1/chat/completions"
-                spellCheck={false}
-                autoComplete="off"
-                className={inputCls + " font-mono text-[13px]"}
-              />
-            </Field>
-          )}
-
-          {kind === "BEDROCK" && (
-            <Field
-              label="AWS region"
-              hint="Where the Bedrock endpoint is called. Must be a region your account has Claude model access in."
-            >
-              <input
-                value={region}
-                onChange={(e) => setRegion(e.target.value)}
-                placeholder="us-east-1"
-                spellCheck={false}
-                className={inputCls + " font-mono text-[13px]"}
-              />
-            </Field>
-          )}
-
           <Field
-            label="Model"
+            label="Endpoint URL"
             hint={
-              kind === "BEDROCK"
-                ? "anthropic.claude-sonnet-5 (Messages endpoint) or an inference-profile ID like global.anthropic.claude-sonnet-4-6 / us.anthropic.claude-opus-4-6-v1 (legacy InvokeModel). Both work — the ID picks the API."
-                : undefined
+              baseUrl.includes("cloudflare")
+                ? "Cloudflare Workers AI: Replace {account_id} with your Cloudflare Account ID (or leave it to auto-resolve from server env). Token requires Workers AI Read permissions."
+                : "Must be https. Internal/plain-http hosts need AI_PROVIDER_ALLOWED_HOSTS on the server."
             }
           >
-            {kind !== "BEDROCK" && !customModel ? (
+            <input
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="https://api.example.com/v1/chat/completions"
+              spellCheck={false}
+              autoComplete="off"
+              className={inputCls + " font-mono text-[13px]"}
+            />
+          </Field>
+
+          <Field label="Model">
+            {!customModel ? (
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
                   <input
@@ -474,27 +358,23 @@ export function ProviderDialog({
                 <input
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  placeholder={
-                    kind === "BEDROCK" ? "anthropic.claude-sonnet-5" : "gpt-4o-mini"
-                  }
+                  placeholder="@cf/ibm-granite/granite-4.0-h-micro"
                   spellCheck={false}
                   className={inputCls + " font-mono text-[13px]"}
                 />
-                {kind !== "BEDROCK" && (
-                  <button
-                    type="button"
-                    onClick={() => setCustomModel(false)}
-                    className="self-end text-[11px] text-vez-mute underline transition-colors hover:text-vez-ink cursor-pointer"
-                  >
-                    Pick from the provider&rsquo;s model list
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setCustomModel(false)}
+                  className="self-end text-[11px] text-vez-mute underline transition-colors hover:text-vez-ink cursor-pointer"
+                >
+                  Pick from the provider&rsquo;s model list
+                </button>
               </div>
             )}
           </Field>
 
           {(() => {
-            const selfHosted = kind === "OPENAI_COMPATIBLE" && isSelfHostedUrl(baseUrl)
+            const selfHosted = isSelfHostedUrl(baseUrl)
             if (selfHosted && !forceApiKey) {
               return (
                 <div className="rounded-[14px] border border-emerald-200 bg-emerald-50 px-3.5 py-3">
@@ -502,7 +382,7 @@ export function ProviderDialog({
                   <p className="mt-1 text-xs text-emerald-700">
                     {isEdit && provider!.configured
                       ? `A key is stored (${provider!.preview}) but this endpoint type usually needs none. Leave as-is or clear it.`
-                      : "vLLM / Ollama / LM Studio speak the OpenAI API with no Authorization header. The provider will be called without a key (very very fast local inference)."}
+                      : "Endpoints speak the OpenAI API with no Authorization header. The provider will be called without a key."}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button
@@ -522,13 +402,9 @@ export function ProviderDialog({
             return (
               <Field
                 label={
-                  kind === "BEDROCK"
-                    ? "Bedrock API key"
-                    : kind === "OPENAI_COMPATIBLE"
-                      ? selfHosted
-                        ? "API key (self-hosted — optional)"
-                        : "API key (optional)"
-                      : "API key"
+                  selfHosted
+                    ? "API key (self-hosted — optional)"
+                    : "API key (optional)"
                 }
                 hint={
                   isEdit
@@ -537,13 +413,9 @@ export function ProviderDialog({
                       : selfHosted
                         ? "Leave blank — self-hosted endpoints take no key unless you enabled auth."
                         : "Leave blank to keep using the server's environment variable."
-                    : kind === "BEDROCK"
-                      ? "A Bedrock bearer token (AWS console → Bedrock → API keys), not an Anthropic key. Encrypted at rest."
-                      : kind === "OPENAI_COMPATIBLE"
-                        ? selfHosted
-                          ? "Only if your self-hosted endpoint has auth enabled — otherwise leave blank."
-                          : "Only needed for hosted vendors (Groq, OpenRouter, ...). Self-hosted endpoints (Ollama, vLLM, LM Studio) take no key — leave this blank."
-                        : "Encrypted at rest and never shown again once saved."
+                    : selfHosted
+                      ? "Only if your self-hosted endpoint has auth enabled — otherwise leave blank."
+                      : "Only needed for authenticated vendors (Cloudflare, Groq, OpenRouter, OpenAI, ...). Encrypted at rest."
                 }
               >
                 <div className="relative">
