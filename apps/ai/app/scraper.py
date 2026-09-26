@@ -41,7 +41,7 @@ from bs4 import BeautifulSoup
 from crawl4ai import AsyncWebCrawler, CacheMode, CrawlerRunConfig
 from crawl4ai.extraction_strategy import JsonCssExtractionStrategy
 
-from app import browser_pool, config, extractor, llm, secure_http
+from app import browser_pool, config, extractor, secure_http
 from app.logger import get_logger
 
 logger = get_logger(__name__)
@@ -2819,6 +2819,7 @@ async def scrape_sitemap_urls(
     urls: list[str],
     known_urls: set[str] | None = None,
     summarize_concurrency: int | None = None,
+    summarize: bool = True,
     on_progress=None,
     on_item=None,
 ) -> tuple[list[ScrapedItem], dict[str, dict], list[dict]]:

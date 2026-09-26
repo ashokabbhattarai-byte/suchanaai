@@ -9,7 +9,6 @@ OpenCode Go is deliberately omitted from the synchronization pipeline.
 """
 
 from abc import ABC, abstractmethod
-import asyncio
 import json
 import os
 import re
