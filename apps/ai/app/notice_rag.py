@@ -4,6 +4,7 @@ fallback. The LLM synthesizes an answer from the retrieved context."""
 
 import asyncio
 import random
+import re
 from datetime import date
 
 from app import clarify
@@ -13,6 +14,11 @@ from app import notice_store
 from app.logger import get_logger
 
 logger = get_logger(__name__)
+
+_RECENCY_REGEX = re.compile(
+    r"\b(recent|latest|newest|current|today|yesterday|past \d+ days|last \d+ days|now|updated|पछिल्लो|हाल|आज|भर्खर|अहिले|नयाँ)\b",
+    re.I,
+)
 
 _NOTICES_SYSTEM_PROMPT = """You are Suchana AI, an assistant for a Nepalese public notice portal. Answer the user's question using ONLY the provided notice context.
 
@@ -73,9 +79,10 @@ Rules:
 - The context is ordered — [1] is the best match for the question. For
   "latest"/"recent" questions it is ordered newest first, so answer from the
   top of the list and give each notice's published date.
-- Only the notices in the context exist. Never imply the list is exhaustive
-  beyond it, and never claim a notice is the newest unless its Published date
-  is the most recent one you were given.
+- For disaster statistics, casualties, missing persons, rescued counts, or damage numbers:
+  * Quote the EXACT figures stated in the most recent official bulletin in the context.
+  * Clearly cite the issuing authority (e.g., NDRRMA, Ministry of Home Affairs, APF, Nepal Police) and the specific date/region.
+  * Never extrapolate, invent, or multiply figures. If a notice states 14 missing in a specific sector or 29 missing nationwide, state those exact figures clearly.
 - Answer directly — no filler like "Based on the notices..." or "According to the context..."."""
 
 _NO_RESULTS_PROMPT = """You are Suchana AI, an assistant for a Nepalese public notice portal. The user asked a question but no relevant notices were found in the database.
@@ -173,10 +180,11 @@ async def search_and_answer(
             "model_used": _model_name(),
         }
 
-    # A date-pinned question wants the newest notice inside its window first,
+    # A date-pinned question or recency-seeking question wants the newest notice inside its window first,
     # for the same reason "latest" does: that is the one stating the figure
     # that still stands.
-    if recency_intent or as_of:
+    has_recency = recency_intent or as_of or bool(_RECENCY_REGEX.search(question))
+    if has_recency:
         sources = _by_published_desc(sources)
 
     # "How many are dead?" matches flood, earthquake and road-accident

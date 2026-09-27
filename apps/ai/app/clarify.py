@@ -52,6 +52,10 @@ _FACT_SEEKING = [
 # which one they meant, so the gate stays out of the way.
 _YEAR = re.compile(r"\b(19|20)\d{2}\b")
 _QUOTED = re.compile(r"[\"'“”‘’].+?[\"'“”‘’]")
+_RECENCY = re.compile(
+    r"\b(recent|latest|newest|current|today|yesterday|now|updated|पछिल्लो|हाल|आज|भर्खर|अहिले|नयाँ)\b",
+    re.I,
+)
 
 # Beyond this a question carries enough of its own context (place, event,
 # organisation) that treating it as under-specified is more likely to
@@ -96,7 +100,7 @@ def looks_underspecified(question: str) -> bool:
         return False
     if not any(p.search(text) for p in _FACT_SEEKING):
         return False
-    if _YEAR.search(text) or _QUOTED.search(text):
+    if _YEAR.search(text) or _QUOTED.search(text) or _RECENCY.search(text):
         return False
     return len(text.split()) <= _MAX_WORDS
 
